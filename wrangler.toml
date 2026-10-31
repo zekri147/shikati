@@ -12,8 +12,8 @@ html_handling = "none"
 [[d1_databases]]
 binding = "DB"
 database_name = "shikati"
-# يُستبدل بالمعرّف الذي يطبعه الأمر: npx wrangler d1 create shikati
-database_id = "00000000-0000-0000-0000-000000000000"
+# معرّف قاعدة D1 في حساب كلاود فلير (ليس سراً)
+database_id = "594d9216-3241-44e8-adf7-06e32b44f6e3"
 migrations_dir = "migrations"
 
 [vars]
