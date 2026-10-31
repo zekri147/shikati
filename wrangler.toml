@@ -1,0 +1,28 @@
+name = "shikati"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+
+# الواجهة: ملفات ثابتة يقدّمها الخادم نفسه
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "none"
+html_handling = "none"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "shikati"
+# يُستبدل بالمعرّف الذي يطبعه الأمر: npx wrangler d1 create shikati
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[vars]
+ZOHO_ORG_ID = "904099546"
+ZOHO_API_BASE = "https://www.zohoapis.com/books/v3"
+ZOHO_ACCOUNTS_URL = "https://accounts.zoho.com"
+SESSION_HOURS = "12"
+
+# الأسرار لا تُكتب هنا أبداً. تُضاف بالأوامر:
+#   npx wrangler secret put ZOHO_CLIENT_ID
+#   npx wrangler secret put ZOHO_CLIENT_SECRET
+#   npx wrangler secret put ZOHO_REFRESH_TOKEN

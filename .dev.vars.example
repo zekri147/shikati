@@ -1,0 +1,4 @@
+# انسخ هذا الملف إلى .dev.vars للتجربة المحلية فقط، ولا ترفعه إلى المستودع
+ZOHO_CLIENT_ID=
+ZOHO_CLIENT_SECRET=
+ZOHO_REFRESH_TOKEN=
