@@ -3,6 +3,13 @@ import { HttpError, nowSec } from './http';
 
 // المرحلة الأولى: قراءة فقط. هذا الملف لا يحتوي أي طلب كتابة إلى زوهو بوكس.
 
+const TOKEN_HINTS: Record<string, string> = {
+  invalid_client: 'معرّف العميل أو سرّه غير صحيح، أو التطبيق في مركز بيانات آخر.',
+  invalid_client_secret: 'سر العميل غير صحيح.',
+  invalid_code: 'رمز التجديد غير صحيح أو أُلغي. أنشئ رمز تجديد جديداً.',
+  access_denied: 'زوهو رفض الطلب. تحقق من حساب صاحب المفتاح.',
+};
+
 let memToken: { token: string; exp: number } | null = null;
 
 async function cacheGet(env: Env, key: string): Promise<string | null> {
@@ -48,7 +55,10 @@ async function accessToken(env: Env, force = false): Promise<string> {
   if (!res.ok || !data.access_token) {
     // لا نسجّل الرد كاملاً لأنه قد يحتوي بيانات حساسة
     console.error('zoho token refresh failed', res.status, data.error);
-    throw new HttpError(502, 'تعذّر الاتصال بزوهو. حاول بعد قليل.');
+    // رمز الخطأ من زوهو ليس سراً، ونعرضه لتسهيل معرفة السبب
+    const code = /^[a-z_]{3,40}$/.test(String(data.error || '')) ? data.error : `HTTP ${res.status}`;
+    const hint = TOKEN_HINTS[code as string] || 'حاول بعد قليل.';
+    throw new HttpError(502, `تعذّر الاتصال بزوهو (${code}). ${hint}`);
   }
   // نُبقي هامش 5 دقائق قبل انتهاء الرمز
   const ttl = Math.max(60, (data.expires_in ?? 3600) - 300);

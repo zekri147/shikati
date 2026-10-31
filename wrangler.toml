@@ -2,6 +2,10 @@ name = "shikati"
 main = "src/index.ts"
 compatibility_date = "2025-09-01"
 
+# سجل الخادم في لوحة كلاود فلير (لا يحتوي أي سر)
+[observability]
+enabled = true
+
 # الواجهة: ملفات ثابتة يقدّمها الخادم نفسه
 [assets]
 directory = "./public"
