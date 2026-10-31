@@ -26,3 +26,4 @@ SESSION_HOURS = "12"
 #   npx wrangler secret put ZOHO_CLIENT_ID
 #   npx wrangler secret put ZOHO_CLIENT_SECRET
 #   npx wrangler secret put ZOHO_REFRESH_TOKEN
+#   npx wrangler secret put SETUP_TOKEN   (مؤقت، لصفحة /setup فقط)

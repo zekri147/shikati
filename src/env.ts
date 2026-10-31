@@ -9,6 +9,8 @@ export interface Env {
   ZOHO_CLIENT_ID: string;
   ZOHO_CLIENT_SECRET: string;
   ZOHO_REFRESH_TOKEN: string;
+  // اختياري: لإنشاء أول حساب مدير من صفحة /setup، ويُحذف بعد الاستعمال
+  SETUP_TOKEN?: string;
 }
 
 export type Role = 'admin' | 'depositor';

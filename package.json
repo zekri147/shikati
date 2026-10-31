@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "db:migrate:local": "wrangler d1 migrations apply shikati --local",
     "db:migrate:remote": "wrangler d1 migrations apply shikati --remote",
-    "create-user": "node scripts/create-user.mjs"
+    "create-user": "node scripts/create-user.mjs",
+    "deploy:ci": "wrangler d1 migrations apply shikati --remote && wrangler deploy"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261023.1",

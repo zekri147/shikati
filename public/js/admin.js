@@ -3,7 +3,7 @@
   const ROLE = { admin: 'مدير', depositor: 'مودِع' };
   const ACTION = {
     login: 'دخول', 'user.create': 'إنشاء مستخدم', 'user.disable': 'إيقاف مستخدم',
-    'user.enable': 'تفعيل مستخدم', 'user.password': 'تغيير رمز سري',
+    'user.enable': 'تفعيل مستخدم', 'user.password': 'تغيير رمز سري', setup: 'الإعداد الأولي',
   };
   const RESULT = { ok: 'تمّ', denied: 'مرفوض', error: 'خطأ' };
 

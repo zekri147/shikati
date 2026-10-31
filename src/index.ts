@@ -3,12 +3,14 @@ import { assertSameOrigin, errorResponse, HttpError, json } from './http';
 import { currentUser, login, logout, requireUser } from './auth';
 import { handleAdmin } from './admin';
 import { modules } from './modules';
+import { handleSetup, setupAvailable } from './setup';
 
 async function handleApi(req: Request, env: Env, path: string): Promise<Response> {
   assertSameOrigin(req);
 
   if (path === '/api/login' && req.method === 'POST') return login(req, env);
   if (path === '/api/logout' && req.method === 'POST') return logout(req, env);
+  if (path === '/api/setup' && req.method === 'POST') return handleSetup(req, env);
 
   if (path === '/api/me' && req.method === 'GET') {
     const user = await requireUser(req, env);
@@ -48,6 +50,10 @@ export default {
           return Response.redirect(new URL('/', url).toString(), 302);
         }
         return env.ASSETS.fetch(new Request(new URL(url.pathname === '/' ? '/app.html' : '/admin.html', url), req));
+      }
+      if (url.pathname === '/setup') {
+        if (!(await setupAvailable(env))) return Response.redirect(new URL('/login', url).toString(), 302);
+        return env.ASSETS.fetch(new Request(new URL('/setup.html', url), req));
       }
       if (url.pathname === '/login') {
         return env.ASSETS.fetch(new Request(new URL('/login.html', url), req));

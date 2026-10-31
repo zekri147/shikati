@@ -48,6 +48,10 @@ scripts/create-user.mjs إنشاء أول حساب مدير
 
 ## التشغيل لأول مرة
 
+الطريق الأسهل من لوحة كلاود فلير دون أي أداة على جهازك: راجع ملف `DEPLOY.md`.
+
+أو من سطر الأوامر:
+
 ```bash
 npm install
 npx wrangler login
@@ -64,6 +68,8 @@ npx wrangler secret put ZOHO_REFRESH_TOKEN
 npm run deploy
 node scripts/create-user.mjs --remote
 ```
+
+بدل الأمر الأخير يمكنك وضع السر `SETUP_TOKEN` وإنشاء أول مدير من صفحة `/setup`، وهي تعمل مرة واحدة فقط.
 
 بعدها افتح العنوان الذي يطبعه أمر النشر، وادخل بحساب المدير، وأنشئ حساب أمين من صفحة الإدارة.
 
