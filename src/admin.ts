@@ -77,7 +77,7 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
   }
 
   // GET /api/admin/diag
-  if (req.method === 'GET' && path === '/diag') return handleDiag(env);
+  if (req.method === 'GET' && path === '/diag') return handleDiag(env, new URL(req.url).searchParams.get('refresh') === '1');
 
   // GET /api/admin/audit
   if (req.method === 'GET' && path === '/audit') {
