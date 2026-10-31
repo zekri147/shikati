@@ -51,12 +51,18 @@ async function accessToken(env: Env, force = false): Promise<string> {
       grant_type: 'refresh_token',
     }),
   });
-  const data = (await res.json().catch(() => ({}))) as { access_token?: string; expires_in?: number; error?: string };
+  const text = await res.text();
+  let data: { access_token?: string; expires_in?: number; error?: string } = {};
+  try { data = JSON.parse(text); } catch { /* ليس رداً من زوهو */ }
   if (!res.ok || !data.access_token) {
-    // لا نسجّل الرد كاملاً لأنه قد يحتوي بيانات حساسة
-    console.error('zoho token refresh failed', res.status, data.error);
-    // رمز الخطأ من زوهو ليس سراً، ونعرضه لتسهيل معرفة السبب
-    const code = /^[a-z_]{3,40}$/.test(String(data.error || '')) ? data.error : `HTTP ${res.status}`;
+    // رد غير JSON يأتي عادة من كلاود فلير نفسه، مثل: error code: 1016
+    const cfCode = text.match(/error code:\s*(\d{3,5})/i)?.[1];
+    // لا نسجّل الرد كاملاً إن كان من زوهو لأنه قد يحتوي بيانات حساسة
+    console.error('zoho token refresh failed', res.status, data.error, cfCode ?? text.slice(0, 120).replace(/\s+/g, ' '));
+    // رمز الخطأ ليس سراً، ونعرضه لتسهيل معرفة السبب
+    const code = /^[a-z_]{3,40}$/.test(String(data.error || ''))
+      ? data.error
+      : `HTTP ${res.status}${cfCode ? ` / ${cfCode}` : ''}`;
     const hint = TOKEN_HINTS[code as string] || 'حاول بعد قليل.';
     throw new HttpError(502, `تعذّر الاتصال بزوهو (${code}). ${hint}`);
   }
