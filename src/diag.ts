@@ -35,7 +35,9 @@ export async function handleDiag(env: Env): Promise<Response> {
     },
     probes: await Promise.all([
       probe(accounts.replace(/\/+$/, '') + '/oauth/v2/token'),
-      probe('https://accounts.zoho.com/oauth/v2/token'),
+      probe('https://accounts.zoho.com./oauth/v2/token'),
+      probe('https://accounts.zoho.eu/oauth/v2/token'),
+      probe('https://www.zoho.com/'),
       probe(api.replace(/\/+$/, '') + '/organizations'),
     ]),
   });
