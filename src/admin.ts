@@ -2,6 +2,7 @@ import type { Env, Role, User } from './env';
 import { HttpError, json, readJson } from './http';
 import { hashPassword } from './crypto';
 import { audit } from './audit';
+import { handleDiag } from './diag';
 
 const USERNAME_RE = /^[a-z0-9._-]{3,32}$/;
 const ROLES: Role[] = ['admin', 'depositor'];
@@ -74,6 +75,9 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
     await audit(env, admin, `user.${action}`, 'ok', target.username);
     return json({ ok: true });
   }
+
+  // GET /api/admin/diag
+  if (req.method === 'GET' && path === '/diag') return handleDiag(env);
 
   // GET /api/admin/audit
   if (req.method === 'GET' && path === '/audit') {
