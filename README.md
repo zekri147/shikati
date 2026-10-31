@@ -7,7 +7,7 @@
 عنوان التطبيق المنشور:
 
 ```
-https://shikati.zekri147.workers.dev
+https://shikati.zekri3047.workers.dev
 ```
 
 ## البنية

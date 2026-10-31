@@ -63,7 +63,7 @@ curl.exe -s -X POST https://accounts.zoho.com/oauth/v2/token -d grant_type=autho
 1. افتح صفحة الإعداد:
 
 ```
-https://shikati.zekri147.workers.dev/setup
+https://shikati.zekri3047.workers.dev/setup
 ```
 
 2. أدخل رمز الإعداد الذي وضعته في `SETUP_TOKEN`، ثم اسمك ورمزك السري.
