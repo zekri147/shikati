@@ -50,6 +50,22 @@ async function tryRefresh(env: Env, host: string) {
 }
 
 export async function handleDiag(env: Env, refresh = false): Promise<Response> {
+  if (refresh && env.ZOHO_RELAY_URL) {
+    // تجربة الوسيط: نعرض النتيجة فقط، لا الرمز
+    try {
+      const res = await fetch(env.ZOHO_RELAY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: env.ZOHO_RELAY_KEY || '', force: true }),
+      });
+      const text = await res.text();
+      let d: { access_token?: string; error?: string } = {};
+      try { d = JSON.parse(text); } catch { /* ليس JSON */ }
+      return json({ relay: { status: res.status, ok: !!d.access_token, error: d.error ?? (d.access_token ? null : 'not_json') } });
+    } catch (e) {
+      return json({ relay: { ok: false, error: e instanceof Error ? e.message : String(e) } });
+    }
+  }
   if (refresh) {
     return json({
       refresh: await Promise.all([
@@ -69,6 +85,8 @@ export async function handleDiag(env: Env, refresh = false): Promise<Response> {
       has_client_secret: !!env.ZOHO_CLIENT_SECRET,
       has_refresh_token: !!env.ZOHO_REFRESH_TOKEN,
       refresh_token_prefix: env.ZOHO_REFRESH_TOKEN ? env.ZOHO_REFRESH_TOKEN.slice(0, 5) : null,
+      relay_host: env.ZOHO_RELAY_URL ? new URL(env.ZOHO_RELAY_URL).host : null,
+      has_relay_key: !!env.ZOHO_RELAY_KEY,
     },
     probes: await Promise.all([
       probe(accounts.replace(/\/+$/, '') + '/oauth/v2/token'),
