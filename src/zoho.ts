@@ -151,6 +151,13 @@ export async function zohoRequest<T>(
       continue;
     }
     const data = (await res.json().catch(() => null)) as (ZohoResult & T) | null;
+    // الرمز 57 يعني «غير مصرّح»: الأرجح أن رمز الوصول المحفوظ أقدم من الصلاحيات الجديدة.
+    // زوهو لم ينفّذ الطلب، فنطلب رمزاً جديداً ونعيده مرة واحدة.
+    if (data?.code === 57 && attempt === 0) {
+      memToken = null;
+      await env.DB.prepare('DELETE FROM cache WHERE key = ?').bind('zoho_access_token').run();
+      continue;
+    }
     return { status: res.status, data };
   }
   return { status: 401, data: null };
