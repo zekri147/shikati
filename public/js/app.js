@@ -21,7 +21,7 @@
       view.replaceChildren(el('p', { class: 'muted', text: 'لا توجد أقسام متاحة لحسابك.' }));
       return;
     }
-    const wanted = location.hash.slice(1);
+    const wanted = location.hash.slice(1).split('/')[0];
     const mod = available.find((m) => m.id === wanted) || available[0];
     document.title = mod.title;
     window.ShikatiModules[mod.id].render(view, me);

@@ -134,6 +134,17 @@ button:disabled { opacity: .55; cursor: default; }
 .kpi.dark .label .sub { display: block; margin: 0; font-weight: 400; }
 .kpi.dark .value { font-size: 18px; margin: 0; white-space: nowrap; }
 
+/* ———————————————— التنقل بين الشاشات ———————————————— */
+
+.tabs { display: flex; margin: -4px 0 14px; border-bottom: 1px solid var(--line-strong); }
+.tab {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 10px 4px 9px; font-size: 14px; font-weight: 600; color: var(--ink-muted); text-decoration: none;
+  border-bottom: 3px solid transparent; margin-bottom: -1px; -webkit-tap-highlight-color: transparent;
+}
+.tab.on { color: var(--ink); border-bottom-color: var(--brand); }
+.tab .count { background: var(--brand); color: var(--white); }
+
 /* ———————————————— الأدوات: التحديث والتصفية والبحث ———————————————— */
 
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 14px 0 10px; font-size: 13px; }
@@ -145,6 +156,9 @@ button:disabled { opacity: .55; cursor: default; }
   border: 0; border-inline-start: 1px solid var(--line);
 }
 .chip:first-child { border-inline-start: 0; }
+.chips.scroll { overflow-x: auto; scrollbar-width: none; }
+.chips.scroll::-webkit-scrollbar { display: none; }
+.chips.scroll .chip { flex: 1 0 auto; padding-inline: 12px; white-space: nowrap; }
 .chip[aria-pressed="true"] { background: var(--black); color: var(--white); }
 :root[data-theme="dark"] .chip[aria-pressed="true"] { background: var(--white); color: var(--black); }
 input, select {
@@ -235,7 +249,22 @@ details.fold .item .tag { background: var(--surface); }
 .badge { font-size: 12px; font-weight: 600; padding: 2px 8px; background: var(--surface-alt); border: 1px solid var(--line-strong); white-space: nowrap; }
 .badge.lock-unknown { background: var(--warning-tint); border-color: var(--warning); color: var(--ink); }
 .badge.lock-done, .badge.lock-pending { background: var(--surface-alt); }
-.item-action { display: flex; justify-content: flex-start; }
+.item-action { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.detail-link { font-size: 13px; font-weight: 600; color: var(--accent-text); padding: 4px 2px; text-decoration: none; }
+.detail-link:hover { text-decoration: underline; }
+.item.linkable { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.item.linkable:active { background: var(--surface-alt); }
+.item-note { font-size: 13px; color: var(--ink); background: var(--warning-tint); border-inline-start: 3px solid var(--warning); padding: 4px 10px; overflow-wrap: anywhere; }
+
+/* ألوان الحالات: من ألوان الهوية فقط */
+.badge.st-hand { background: transparent; border-color: var(--brand); color: var(--accent-text); }
+.badge.st-bank { background: var(--black); border-color: var(--black); color: var(--white); }
+:root[data-theme="dark"] .badge.st-bank { background: var(--white); border-color: var(--white); color: var(--black); }
+.badge.st-done { background: var(--surface-alt); color: var(--ink-muted); }
+.badge.st-end { background: var(--surface-alt); color: var(--ink); border-style: dashed; }
+.badge.st-rej { background: var(--brand); border-color: var(--brand); color: var(--white); }
+.badge.dest { background: var(--surface-alt); }
+.badge.warn { background: var(--warning-tint); border-color: var(--warning); color: var(--ink); }
 
 /* التحديد */
 .item.selectable { cursor: pointer; -webkit-tap-highlight-color: transparent; transition: border-color .12s, background-color .12s; }
@@ -252,6 +281,43 @@ details.fold .item .tag { background: var(--surface); }
 }
 
 .error-box { margin-top: 16px; padding: 12px 14px; border-inline-start: 4px solid var(--brand); background: var(--surface); }
+
+/* ———————————————— كل الشيكات ———————————————— */
+
+.result-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 16px 0 8px; font-size: 14px; }
+.btn-plain.more { width: 100%; margin-top: 10px; padding: 12px; }
+
+/* ———————————————— تفاصيل الشيك ———————————————— */
+
+.toolbar .back { padding: 7px 14px; }
+.detail { display: flex; flex-direction: column; gap: 12px; }
+.d-head {
+  background: var(--brand); color: var(--white); padding: 16px 18px 14px;
+  clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+}
+.d-customer { font-size: 17px; font-weight: 700; line-height: 1.4; overflow-wrap: anywhere; }
+.d-amount { font-size: 30px; line-height: 1.2; margin-top: 4px; }
+.d-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.d-head .badge { background: var(--white); border-color: var(--white); color: var(--black); }
+.d-head .badge.st-rej, .d-head .badge.st-hand { background: var(--black); border-color: var(--black); color: var(--white); }
+.d-head .badge.warn { background: var(--black); border-color: var(--black); color: var(--white); }
+.detail > .note { margin: 0; }
+.d-image .img-big .cheque-img { max-height: 280px; }
+.d-image a.img-empty { color: var(--accent-text); text-decoration: none; font-weight: 600; }
+.d-block { background: var(--surface); border: 1px solid var(--line); padding: 4px 14px 12px; }
+.d-block > h2 { font-size: 15px; font-weight: 700; margin: 0 -14px 8px; padding: 10px 14px 8px; border-bottom: 1px solid var(--line); }
+.kvs { margin: 0; display: flex; flex-direction: column; }
+.kv { display: grid; grid-template-columns: 9.5em 1fr; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.kv:last-child { border-bottom: 0; }
+.kv dt { color: var(--ink-muted); }
+.kv dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
+.kv .missing { color: var(--warning); font-weight: 600; }
+.d-list { list-style: none; margin: 0; padding: 0; }
+.d-list li { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.d-list li:last-child { border-bottom: 0; }
+.d-line { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.d-log { margin: 0; padding-inline-start: 20px; font-size: 14px; }
+.d-log li { padding: 3px 0; overflow-wrap: anywhere; }
 
 /* ———————————————— شريط الإيداع أسفل الشاشة ———————————————— */
 

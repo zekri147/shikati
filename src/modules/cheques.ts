@@ -4,7 +4,9 @@ import { HttpError, json } from '../http';
 import { cacheGet, cachePut, zohoGet } from '../zoho';
 import { canDeposit, handleDeposit, lockStates, reconcileDoneLocks } from './deposit';
 import { handleChequeImage } from './image';
+import { handleChequeDetail } from './detail';
 import { ACCOUNT_CHEQUES_IN_HAND, CACHE_KEY, DEST, STATUS, todayAlgiers } from './constants';
+import { chequeNumber, isoDate, missingData } from './fields';
 
 export { ACCOUNT_CHEQUES_IN_HAND, DEST, STATUS, todayAlgiers };
 
@@ -12,6 +14,8 @@ const LOCATIONS: Record<string, string> = { ALGER: 'الجزائر', 'EL EULMA':
 
 const CACHE_TTL = 60;
 const MAX_PAGES = 50;
+const LATE_DAYS = 7;
+const DUE_SOON_DAYS = 3;
 
 interface ZohoPayment {
   payment_id: string;
@@ -21,13 +25,21 @@ interface ZohoPayment {
   amount: number;
   date: string;
   account_id: string;
+  account_name?: string;
   location_name?: string;
   reference_number?: string;
+  invoice_numbers?: string;
   last_modified_time?: string;
   has_attachment?: boolean;
   cf_5d7197?: string;
   cf_d_pos_vers?: string;
   cf_n_cheque?: string;
+  cf_93b2c3?: string;
+  cf_93b2c3_unformatted?: string;
+  cf_fafa0d?: string;
+  cf_6924c6?: string;
+  cf_023de7?: string;
+  cf_51a7f5?: string;
   check_details?: { check_number?: string };
 }
 
@@ -38,6 +50,7 @@ interface ListResponse {
 
 export interface Cheque {
   id: string;
+  number: string;
   customer: string;
   amount: number;
   cheque_number: string;
@@ -46,6 +59,11 @@ export interface Cheque {
   location: string;
   status: string;
   destination: string;
+  // تاريخ الاستحقاق المكتوب على الشيك، بصيغة YYYY-MM-DD أو فارغ
+  due_date: string;
+  bank: string;
+  account: string;
+  invoices: string;
   // هل للدفعة مرفق في زوهو (صورة الشيك عادةً)
   has_image?: boolean;
   // حالة قفل الإيداع في التطبيق، إن وُجد
@@ -58,6 +76,16 @@ interface Section {
   total: number;
 }
 
+// التنبيهات تعوّض ما كان يصل عبر تيليجرام. كل تنبيه يشير إلى شيك في قائمة all.
+export type AlertKind = 'rejected' | 'due_past' | 'due_soon' | 'late' | 'incomplete' | 'unknown_lock' | 'box' | 'fiscal';
+export interface ChequeAlert {
+  kind: AlertKind;
+  id: string;
+  text?: string;
+}
+// تنبيهات تخص المدير وحده
+const ADMIN_ONLY: AlertKind[] = ['box', 'fiscal', 'unknown_lock'];
+
 export interface ChequesView {
   generated_at: string;
   today: string;
@@ -68,13 +96,16 @@ export interface ChequesView {
   no_destination: Section;
   agb_pending_collection: Section;
   agb_recent: Section;
+  // كل الشيكات بكل حالاتها، الأحدث أولاً، للبحث وصفحة التنبيهات
+  all: Cheque[];
+  alerts: ChequeAlert[];
 }
 
 function daysBetween(from: string, to: string): number {
   const a = Date.parse(from + 'T00:00:00Z');
   const b = Date.parse(to + 'T00:00:00Z');
   if (Number.isNaN(a) || Number.isNaN(b)) return 0;
-  return Math.max(0, Math.round((b - a) / 86_400_000));
+  return Math.round((b - a) / 86_400_000);
 }
 
 export async function fetchAllChequePayments(env: Env): Promise<ZohoPayment[]> {
@@ -102,14 +133,19 @@ const oldestFirst = (a: Cheque, b: Cheque) => b.days - a.days || b.amount - a.am
 export function buildView(payments: ZohoPayment[], today: string): ChequesView {
   const toCheque = (p: ZohoPayment): Cheque => ({
     id: p.payment_id,
+    number: p.payment_number || '',
     customer: p.customer_name,
     amount: Number(p.amount) || 0,
-    cheque_number: (p.cf_n_cheque || p.check_details?.check_number || p.reference_number || '').trim(),
+    cheque_number: chequeNumber(p.cf_n_cheque || p.check_details?.check_number || p.reference_number),
     date: p.date,
-    days: daysBetween(p.date, today),
+    days: Math.max(0, daysBetween(p.date, today)),
     location: LOCATIONS[(p.location_name || '').toUpperCase()] || p.location_name || '',
     status: (p.cf_5d7197 || '').trim(),
     destination: (p.cf_d_pos_vers || '').trim(),
+    due_date: isoDate(p.cf_93b2c3_unformatted || p.cf_93b2c3),
+    bank: (p.cf_fafa0d || '').trim(),
+    account: (p.account_name || '').trim(),
+    invoices: (p.invoice_numbers || '').trim(),
     has_image: !!p.has_attachment,
   });
 
@@ -119,10 +155,13 @@ export function buildView(payments: ZohoPayment[], today: string): ChequesView {
   const noDest: Cheque[] = [];
   const agbPending: Cheque[] = [];
   const agbRecent: { c: Cheque; t: string }[] = [];
+  const all: { c: Cheque; t: string }[] = [];
+  const alerts: ChequeAlert[] = [];
 
   for (const p of payments) {
     const c = toCheque(p);
     const inHandCIH = c.status === STATUS.IN_HAND && p.account_id === ACCOUNT_CHEQUES_IN_HAND;
+    all.push({ c, t: p.date + (p.last_modified_time || '') });
 
     if (c.status === STATUS.REJECTED) rejected.push(c);
     if (inHandCIH && c.destination === DEST.AGB) agbInHand.push(c);
@@ -132,11 +171,31 @@ export function buildView(payments: ZohoPayment[], today: string): ChequesView {
     if ((c.status === STATUS.DEPOSITED || c.status === STATUS.COLLECTED) && c.destination === DEST.AGB) {
       agbRecent.push({ c, t: p.last_modified_time || p.date });
     }
+
+    // التنبيهات: فقط للشيكات التي ما زالت في دورة حياتها
+    if (c.status === STATUS.REJECTED) alerts.push({ kind: 'rejected', id: c.id });
+    const active = c.status === STATUS.IN_HAND || c.status === STATUS.DEPOSITED || c.status === '';
+    if (!active) continue;
+    if (c.status === STATUS.IN_HAND) {
+      const toDue = c.due_date ? daysBetween(today, c.due_date) : null;
+      if (toDue !== null && toDue < 0) alerts.push({ kind: 'due_past', id: c.id });
+      else if (toDue !== null && toDue <= DUE_SOON_DAYS) alerts.push({ kind: 'due_soon', id: c.id });
+      else if (toDue === null && c.days > LATE_DAYS) alerts.push({ kind: 'late', id: c.id });
+    }
+    const info = (p.cf_6924c6 || '').trim();
+    const missing = missingData(c);
+    if (info.startsWith('✖')) alerts.push({ kind: 'incomplete', id: c.id, text: info.replace(/^✖\s*/, '') });
+    else if (missing.length) alerts.push({ kind: 'incomplete', id: c.id, text: 'ينقص: ' + missing.join(' · ') });
+    const box = (p.cf_51a7f5 || '').trim();
+    if (box) alerts.push({ kind: 'box', id: c.id, text: box });
+    const fiscal = (p.cf_023de7 || '').trim();
+    if (fiscal.startsWith('✖')) alerts.push({ kind: 'fiscal', id: c.id, text: fiscal.replace(/^✖\s*/, '') });
   }
 
   [rejected, agbInHand, rostomiaInHand, noDest, agbPending].forEach((l) => l.sort(oldestFirst));
   // لا يوجد تاريخ إيداع في القائمة، فنرتّب بآخر تعديل للدفعة كأقرب مؤشر
   agbRecent.sort((a, b) => (a.t < b.t ? 1 : a.t > b.t ? -1 : 0));
+  all.sort((a, b) => (a.t < b.t ? 1 : a.t > b.t ? -1 : 0));
 
   const waitingItems = [...agbInHand, ...rostomiaInHand, ...noDest];
   const waiting = section(waitingItems);
@@ -151,6 +210,8 @@ export function buildView(payments: ZohoPayment[], today: string): ChequesView {
     no_destination: section(noDest),
     agb_pending_collection: section(agbPending),
     agb_recent: section(agbRecent.slice(0, 5).map((x) => x.c)),
+    all: all.map((x) => x.c),
+    alerts,
   };
 }
 
@@ -174,13 +235,24 @@ export const chequesModule: AppModule = {
       const view = await getView(env, refresh);
       // الأقفال تُقرأ في كل طلب، لا من التخزين المؤقت
       const locks = await lockStates(env);
-      for (const c of view.agb_in_hand.items) if (locks[c.id]) c.lock = locks[c.id];
+      const byId = new Map(view.all.map((c) => [c.id, c]));
+      for (const c of [...view.agb_in_hand.items, ...view.all]) if (locks[c.id]) c.lock = locks[c.id];
       await reconcileDoneLocks(env, view.agb_in_hand.items);
-      return json({ ...view, can_deposit: canDeposit(env, user) });
+      for (const c of view.agb_in_hand.items) {
+        const same = byId.get(c.id);
+        if (same) same.lock = c.lock;
+      }
+      for (const [id, state] of Object.entries(locks)) {
+        if (state === 'unknown' && byId.has(id)) view.alerts.push({ kind: 'unknown_lock', id });
+      }
+      const alerts = user.role === 'admin' ? view.alerts : view.alerts.filter((a) => !ADMIN_ONLY.includes(a.kind));
+      return json({ ...view, alerts, role: user.role, can_deposit: canDeposit(env, user) });
     }
     if (req.method === 'POST' && subpath === '/deposit') return handleDeposit(req, env, user);
     const img = subpath.match(/^\/image\/(\d{10,25})$/);
     if (req.method === 'GET' && img) return handleChequeImage(env, img[1]);
+    const det = subpath.match(/^\/detail\/(\d{10,25})$/);
+    if (req.method === 'GET' && det) return handleChequeDetail(env, user, det[1]);
     throw new HttpError(404, 'غير موجود.');
   },
 };

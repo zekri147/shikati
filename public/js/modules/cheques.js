@@ -1,42 +1,27 @@
-// قسم «شيكاتي»: الشاشة الرئيسية للمودِع
+// قسم «شيكاتي»: ثلاث شاشات (الإيداع، كل الشيكات، التنبيهات) وصفحة تفاصيل لكل شيك.
+// العنوان بعد # يحدد الشاشة: #cheques و#cheques/all و#cheques/alerts و#cheques/c/<معرّف الدفعة>
 (function () {
-  const { api, toast, el, ltr, fmtAmount, fmtDate } = window.Shikati;
-  const LATE_DAYS = 7;
+  const { api, toast, el, ltr, fmtAmount } = window.Shikati;
+  const { relTime, norm, sum, chequeWord, chequeItem, section, chequeImage } = window.ShikatiChequesUI;
   const MAX_BATCH = 15;
   const STALE_MS = 60_000;
+  const PAGE = 60;
   const LOC_KEY = 'shikati-location';
   const LOCATIONS = [['', 'الكل'], ['الجزائر', 'الجزائر'], ['العلمة', 'العلمة']];
-  const LOCK_LABELS = { pending: 'الإيداع قيد التنفيذ', unknown: 'بانتظار التحقق', done: 'سُجّل إيداعه' };
-
-  // ——— أدوات صغيرة ———
-
-  function daysText(n) {
-    if (n === 0) return 'اليوم';
-    if (n === 1) return 'منذ يوم';
-    if (n === 2) return 'منذ يومين';
-    if (n <= 10) return `منذ ${n} أيام`;
-    return `منذ ${n} يوماً`;
-  }
-
-  function relTime(ts) {
-    const m = Math.floor((Date.now() - ts) / 60_000);
-    if (m < 1) return 'الآن';
-    if (m === 1) return 'منذ دقيقة';
-    if (m === 2) return 'منذ دقيقتين';
-    if (m <= 10) return `منذ ${m} دقائق`;
-    if (m < 60) return `منذ ${m} دقيقة`;
-    return 'منذ أكثر من ساعة';
-  }
-
-  const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
-  const sum = (items) => Math.round(items.reduce((s, c) => s + c.amount, 0) * 100) / 100;
-  // عدد الشيكات بصيغة عربية سليمة: رفعاً (شيكان) أو جرّاً بعد «إيداع» (شيكين)
-  const chequeWord = (n, gen = false) => {
-    if (n === 1) return 'شيك واحد';
-    if (n === 2) return gen ? 'شيكين' : 'شيكان';
-    if (n <= 10) return `${n} شيكات`;
-    return `${n} شيكاً`;
-  };
+  const MAIN_STATUSES = ['في الحوزة', 'مودع في البنك', 'محصّل', 'مظهّر لمورد', 'مرفوض'];
+  const STATUS_FILTERS = [['', 'الكل'], ['في الحوزة', 'في الحوزة'], ['مودع في البنك', 'في البنك'], ['محصّل', 'محصّل'],
+    ['مظهّر لمورد', 'مظهّر'], ['مرفوض', 'مرفوض'], ['other', 'أخرى']];
+  // ترتيب التنبيهات وعناوينها. fold=false يعني أن القسم مطوي في البداية.
+  const ALERTS = [
+    { kind: 'unknown_lock', title: 'بانتظار التحقق', cls: 'alert', note: 'انقطع الرد بعد محاولة الإيداع. تحقق في زوهو، ثم حرّر القفل من صفحة الإدارة.' },
+    { kind: 'rejected', title: 'شيكات مرفوضة', cls: 'alert', note: 'تحتاج متابعة مع العميل.' },
+    { kind: 'due_past', title: 'حلّ استحقاقها وما زالت في الحوزة', cls: 'alert', due: true },
+    { kind: 'due_soon', title: 'تستحق خلال 3 أيام', cls: 'warn', due: true },
+    { kind: 'late', title: 'في الحوزة منذ أكثر من 7 أيام', cls: 'warn', note: 'تاريخ استحقاقها غير مسجّل.' },
+    { kind: 'incomplete', title: 'بيانات ناقصة', cls: 'warn', withText: true },
+    { kind: 'box', title: 'صندوق غير مطابق', cls: 'warn', withText: true },
+    { kind: 'fiscal', title: 'الملف الجبائي للعميل ناقص', cls: '', withText: true, closed: true, quiet: true },
+  ];
 
   function storedLoc() {
     try { return localStorage.getItem(LOC_KEY) || ''; } catch { return ''; }
@@ -45,79 +30,13 @@
     try { localStorage.setItem(LOC_KEY, v); } catch { /* التخزين غير متاح */ }
   }
 
-  // ——— عرض الشيك ———
-
-  function chequeItem(c, opts) {
-    const late = c.days > LATE_DAYS && !opts.noAge;
-    const selectable = opts.selectable && !c.lock;
-    const selected = selectable && opts.selected.has(c.id);
-    const tag = (k, v) => el('span', { class: 'tag' }, el('span', { class: 'k', text: k }), v);
-
-    const li = el('li', { class: 'item' + (selectable ? ' selectable' : '') + (selected ? ' selected' : '') },
-      el('div', { class: 'item-main' },
-        el('div', { class: 'customer' },
-          selectable ? el('span', { class: 'check', 'aria-hidden': 'true' }) : null,
-          el('span', { text: c.customer })),
-        el('div', { class: 'amount' }, ltr(fmtAmount(c.amount), 'num'))),
-      el('div', { class: 'item-sub' },
-        el('div', { class: 'tags' },
-          tag('شيك', c.cheque_number ? ltr(c.cheque_number, 'num') : el('span', { text: 'غير مسجّل' })),
-          tag('استلام', ltr(fmtDate(c.date), 'num')),
-          c.location ? el('span', { class: 'tag', text: c.location }) : null,
-          opts.showStatus ? el('span', { class: 'badge', text: c.status }) : null),
-        opts.noAge ? null : el('span', { class: 'age' + (late ? ' late' : ''), text: daysText(c.days) + (late ? ' · متأخر' : '') })),
-      opts.selectable && c.lock
-        ? el('div', { class: 'item-action' }, el('span', { class: 'badge lock-' + c.lock, text: LOCK_LABELS[c.lock] || c.lock }))
-        : null,
-    );
-
-    if (selectable) {
-      li.setAttribute('role', 'checkbox');
-      li.setAttribute('aria-checked', String(selected));
-      li.tabIndex = 0;
-      li.addEventListener('click', () => opts.onToggle(c));
-      li.addEventListener('keydown', (e) => {
-        if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); opts.onToggle(c); }
-      });
-    }
-    return li;
-  }
-
-  function meta(items, hideTotal) {
-    if (!items.length || hideTotal) return null;
-    return el('span', { class: 'meta' }, ltr(fmtAmount(sum(items)), 'num'));
-  }
-
-  function head(tag, title, items, hideTotal) {
-    return el(tag, { class: 'block-head' },
-      el('h2', {}, el('span', { text: title }), el('span', { class: 'count', text: String(items.length) })),
-      meta(items, hideTotal));
-  }
-
-  // قسم ثابت أو مطوي. القسم المطوي يتذكر حالته أثناء الجلسة.
-  function section(id, title, items, opts, st) {
-    const list = items.length
-      ? el('ul', { class: 'list' }, items.map((c) => chequeItem(c, opts)))
-      : el('div', { class: 'empty', text: opts.emptyText || 'لا توجد شيكات هنا.' });
-    const note = opts.note ? el('div', { class: 'note ' + (opts.noteClass || ''), text: opts.note }) : null;
-    if (!opts.collapsible) {
-      return el('section', { class: 'block primary' }, head('div', title, items, opts.hideTotal), note, list);
-    }
-    const open = st.q ? items.length > 0 : !!st.open[id];
-    const d = el('details', { class: 'block fold ' + (opts.noteClass || ''), open }, head('summary', title, items, opts.hideTotal), note, list);
-    d.addEventListener('toggle', () => { if (!st.q) st.open[id] = d.open; });
-    return d;
-  }
-
-  // ——— صورة الشيك ———
-
-  function chequeImage(c, cls) {
-    if (!c.has_image) return el('div', { class: 'img-empty ' + cls, text: 'لا صورة' });
-    const src = `/api/m/cheques/image/${encodeURIComponent(c.id)}`;
-    const img = el('img', { class: 'cheque-img', alt: 'صورة الشيك', src, loading: 'lazy', decoding: 'async' });
-    const link = el('a', { href: src, target: '_blank', rel: 'noopener', class: 'img-link ' + cls, title: 'فتح الصورة بحجمها الكامل' }, img);
-    img.addEventListener('error', () => link.replaceWith(el('div', { class: 'img-empty warn ' + cls, text: 'تعذّر تحميل الصورة' })));
-    return link;
+  function parseRoute() {
+    const h = decodeURIComponent(location.hash.replace(/^#/, ''));
+    const m = h.match(/^cheques\/c\/(\d{10,25})$/);
+    if (m) return { view: 'detail', id: m[1] };
+    if (h === 'cheques/all') return { view: 'all' };
+    if (h === 'cheques/alerts') return { view: 'alerts' };
+    return { view: 'deposit' };
   }
 
   // ——— بطاقة تأكيد الإيداع (شيك واحد أو عدة شيكات) ———
@@ -217,7 +136,7 @@
     });
   }
 
-  // ——— الشاشة ———
+  // ——— الشاشات ———
 
   async function render(root) {
     const st = {
@@ -225,26 +144,47 @@
       loadedAt: 0,
       loc: storedLoc(),
       q: '',
+      status: '',
+      limit: PAGE,
       selected: new Map(),
-      open: {},
+      open: Object.fromEntries(ALERTS.map((a) => ['al-' + a.kind, !a.closed])),
       busy: false,
       dialogOpen: false,
+      route: parseRoute(),
+      fromList: false,
+      scroll: {},
     };
+
+    // الأشرطة العلوية: تنقّل بين الشاشات
+    const tabDefs = [['deposit', 'الإيداع', '#cheques'], ['all', 'كل الشيكات', '#cheques/all'], ['alerts', 'التنبيهات', '#cheques/alerts']];
+    const alertCount = el('span', { class: 'count hidden' });
+    const tabs = el('nav', { class: 'tabs', 'aria-label': 'شاشات الشيكات' }, tabDefs.map(([id, label, href]) =>
+      el('a', { class: 'tab', href, 'data-view': id }, el('span', { text: label }), id === 'alerts' ? alertCount : null)));
 
     const kpiBox = el('div');
     const listBox = el('div', { 'aria-live': 'polite' });
+    const detailBox = el('div');
     const timeLabel = el('span', { class: 'muted' });
     const refreshBtn = el('button', { type: 'button', class: 'btn-plain', text: 'تحديث' });
+    const toolbar = el('div', { class: 'toolbar' }, timeLabel, refreshBtn);
 
-    const chips = el('div', { class: 'chips', role: 'group', 'aria-label': 'الموقع' }, LOCATIONS.map(([value, label]) => {
-      const b = el('button', { type: 'button', class: 'chip', 'data-loc': value, text: label });
-      b.addEventListener('click', () => { st.loc = value; saveLoc(value); updateChips(); draw(); });
-      return b;
-    }));
-    const updateChips = () => chips.querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.loc === st.loc)));
+    const chipRow = (defs, key, label, onPick) => {
+      const row = el('div', { class: 'chips', role: 'group', 'aria-label': label }, defs.map(([value, text]) => {
+        const b = el('button', { type: 'button', class: 'chip', 'data-v': value, text });
+        b.addEventListener('click', () => { st[key] = value; onPick(value); update(); draw(); });
+        return b;
+      }));
+      const update = () => row.querySelectorAll('.chip').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === st[key])));
+      update();
+      return row;
+    };
+    const locChips = chipRow(LOCATIONS, 'loc', 'الموقع', (v) => { saveLoc(v); st.limit = PAGE; });
+    const statusChips = chipRow(STATUS_FILTERS, 'status', 'الحالة', () => { st.limit = PAGE; });
+    statusChips.classList.add('scroll');
 
-    const search = el('input', { type: 'search', class: 'search', placeholder: 'بحث باسم العميل أو رقم الشيك', 'aria-label': 'بحث', enterkeyhint: 'search' });
-    search.addEventListener('input', () => { st.q = norm(search.value); draw(); });
+    const search = el('input', { type: 'search', class: 'search', placeholder: 'بحث باسم العميل أو رقم الشيك أو الفاتورة', 'aria-label': 'بحث', enterkeyhint: 'search' });
+    search.addEventListener('input', () => { st.q = norm(search.value); st.limit = PAGE; draw(); });
+    const filters = el('div', { class: 'filters' }, locChips, statusChips, search);
 
     // شريط الإيداع أسفل الشاشة، يظهر عند تحديد شيك أو أكثر
     const barInfo = el('div', { class: 'ab-info' });
@@ -275,7 +215,7 @@
     }
 
     function updateBar() {
-      const items = [...st.selected.values()];
+      const items = st.route.view === 'deposit' ? [...st.selected.values()] : [];
       bar.classList.toggle('hidden', !items.length);
       document.body.classList.toggle('has-bar', items.length > 0);
       barInfo.replaceChildren(
@@ -283,16 +223,15 @@
         el('span', {}, ltr(fmtAmount(sum(items)), 'num')));
     }
 
-    function draw() {
-      const d = st.data;
-      if (!d) return;
-      const pick = (sec) => sec.items.filter((c) =>
-        (!st.loc || c.location === st.loc) &&
-        (!st.q || norm(c.customer).includes(st.q) || norm(c.cheque_number).includes(st.q)));
+    const matches = (c) =>
+      (!st.loc || c.location === st.loc) &&
+      (!st.q || norm(c.customer).includes(st.q) || norm(c.cheque_number).includes(st.q) || norm(c.invoices).includes(st.q) || norm(c.number) === st.q);
+    const pick = (items) => items.filter(matches);
 
-      const agb = pick(d.agb_in_hand);
-      const rost = pick(d.rostomia_in_hand);
-      const noDest = pick(d.no_destination);
+    function drawDeposit(d) {
+      const agb = pick(d.agb_in_hand.items);
+      const rost = pick(d.rostomia_in_hand.items);
+      const noDest = pick(d.no_destination.items);
       const waiting = [...agb, ...rost, ...noDest];
 
       // إزالة ما لم يعد قابلاً للإيداع من التحديد
@@ -300,7 +239,7 @@
       for (const id of [...st.selected.keys()]) if (!available.has(id)) st.selected.delete(id);
 
       const locLabel = st.loc ? ` — ${st.loc}` : '';
-      const inBank = pick(d.agb_pending_collection);
+      const inBank = pick(d.agb_pending_collection.items);
       kpiBox.replaceChildren(el('div', { class: 'kpis' },
         el('div', { class: 'kpi' },
           el('div', { class: 'label', text: 'تنتظر الإيداع' + locLabel }),
@@ -311,28 +250,114 @@
           el('div', { class: 'value display' }, ltr(fmtAmount(sum(inBank))))),
       ));
 
-      const opts = { selected: st.selected, onToggle: toggle };
+      const opts = { selected: st.selected, onToggle: toggle, link: true, today: d.today };
       const parts = [
         section('agb', 'للإيداع في بنك AGB', agb, {
           ...opts,
           selectable: d.can_deposit,
+          link: !d.can_deposit,
           note: d.can_deposit && agb.some((c) => !c.lock) ? 'اضغط الشيكات التي سلّمتها للبنك لتحديدها، ثم «أودعت المحدد».' : null,
           emptyText: st.q || st.loc ? 'لا شيك يطابق البحث أو الموقع.' : 'لا شيكات تنتظر الإيداع في بنك AGB.',
         }, st),
       ];
-      const rejected = pick(d.rejected);
+      const rejected = pick(d.rejected.items);
       if (rejected.length) parts.push(section('rejected', 'شيكات مرفوضة', rejected, { ...opts, collapsible: true, note: 'تحتاج متابعة مع العميل.', noteClass: 'alert' }, st));
       if (noDest.length) parts.push(section('nodest', 'في الحوزة والوجهة غير محددة', noDest, { ...opts, collapsible: true, note: 'لا تأخذها إلى البنك قبل أن تُحدَّد وجهتها في زوهو.', noteClass: 'warn' }, st));
       parts.push(section('rost', 'للإيداع في بنك روستمية', rost, { ...opts, collapsible: true, note: 'للعرض فقط.' }, st));
-      parts.push(section('pending', 'في بنك AGB بانتظار التحصيل', pick(d.agb_pending_collection), { ...opts, collapsible: true }, st));
-      parts.push(section('recent', 'آخر 5 شيكات أُودعت في بنك AGB', pick(d.agb_recent), {
+      parts.push(section('pending', 'في بنك AGB بانتظار التحصيل', inBank, { ...opts, collapsible: true }, st));
+      parts.push(section('recent', 'آخر 5 شيكات أُودعت في بنك AGB', pick(d.agb_recent.items), {
         ...opts, collapsible: true, showStatus: true, noAge: true, hideTotal: true, emptyText: 'لا توجد إيداعات بعد.',
       }, st));
-
       listBox.replaceChildren(...parts);
+    }
+
+    function drawAll(d) {
+      const byStatus = (c) => !st.status || (st.status === 'other' ? !MAIN_STATUSES.includes(c.status) : c.status === st.status);
+      const items = d.all.filter((c) => byStatus(c) && matches(c));
+      const shown = items.slice(0, st.limit);
+      const more = items.length - shown.length;
+      const moreBtn = more > 0 ? el('button', { type: 'button', class: 'btn-plain more', text: `عرض المزيد (${more})` }) : null;
+      if (moreBtn) moreBtn.addEventListener('click', () => { st.limit += PAGE; draw(); });
+      kpiBox.replaceChildren();
+      listBox.replaceChildren(
+        el('div', { class: 'result-head' },
+          el('span', { class: 'strong', text: items.length ? chequeWord(items.length) : 'لا نتائج' }),
+          items.length ? ltr(fmtAmount(sum(items)), 'num muted') : null),
+        items.length
+          ? el('ul', { class: 'list' }, shown.map((c) => chequeItem(c, { link: true, showStatus: true, showDue: true, ageInHandOnly: true, today: d.today })))
+          : el('div', { class: 'empty', text: 'لا شيك يطابق البحث أو التصفية.' }),
+        moreBtn);
+    }
+
+    function drawAlerts(d) {
+      const byId = new Map(d.all.map((c) => [c.id, c]));
+      kpiBox.replaceChildren();
+      const parts = [];
+      for (const a of ALERTS) {
+        const rows = d.alerts.filter((x) => x.kind === a.kind);
+        const texts = new Map(rows.map((x) => [x.id, x.text]));
+        const items = pick(rows.map((x) => byId.get(x.id)).filter(Boolean));
+        if (!items.length) continue;
+        parts.push(section('al-' + a.kind, a.title, items, {
+          link: true, collapsible: true, showDue: true, ageInHandOnly: true, today: d.today, noteClass: a.cls, note: a.note,
+          showStatus: a.kind === 'incomplete' || a.kind === 'box' || a.kind === 'fiscal',
+          noteFor: a.withText ? (c) => texts.get(c.id) || null : null,
+        }, st));
+      }
+      listBox.replaceChildren(...(parts.length ? parts : [el('div', { class: 'empty', text: st.q || st.loc ? 'لا تنبيه يطابق البحث أو الموقع.' : 'لا توجد تنبيهات. كل الشيكات في وضع سليم.' })]));
+    }
+
+    function updateTabs() {
+      tabs.querySelectorAll('.tab').forEach((t) => {
+        const on = t.dataset.view === st.route.view;
+        t.classList.toggle('on', on);
+        if (on) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
+      });
+      if (st.data) {
+        const loud = new Set(ALERTS.filter((a) => !a.quiet).map((a) => a.kind));
+        const n = new Set(st.data.alerts.filter((x) => loud.has(x.kind)).map((x) => x.id)).size;
+        alertCount.textContent = String(n);
+        alertCount.classList.toggle('hidden', !n);
+      }
+    }
+
+    function draw() {
+      const v = st.route.view;
+      updateTabs();
+      const isList = v !== 'detail';
+      [kpiBox, toolbar, filters, listBox].forEach((x) => x.classList.toggle('hidden', !isList));
+      detailBox.classList.toggle('hidden', isList);
+      statusChips.classList.toggle('hidden', v !== 'all');
+      updateBar();
+      const d = st.data;
+      if (!isList || !d) return;
+      if (v === 'all') drawAll(d);
+      else if (v === 'alerts') drawAlerts(d);
+      else drawDeposit(d);
       updateBar();
       timeLabel.textContent = 'آخر تحديث ' + relTime(st.loadedAt);
     }
+
+    function route() {
+      const prev = st.route;
+      const next = parseRoute();
+      if (prev.view !== 'detail') st.scroll[prev.view] = window.scrollY;
+      st.fromList = next.view === 'detail' && prev.view !== 'detail' ? true : (next.view === 'detail' ? st.fromList : false);
+      st.route = next;
+      document.title = 'شيكاتي';
+      draw();
+      if (next.view === 'detail') {
+        window.scrollTo(0, 0);
+        window.ShikatiChequeDetail.render(detailBox, next.id, {
+          today: st.data ? st.data.today : '',
+          onBack: () => { if (st.fromList) history.back(); else location.hash = '#cheques'; },
+        });
+      } else {
+        detailBox.replaceChildren();
+        window.scrollTo(0, st.scroll[next.view] || 0);
+      }
+    }
+    window.addEventListener('hashchange', route);
 
     async function load(refresh) {
       if (st.busy) return;
@@ -363,14 +388,9 @@
     });
     setInterval(() => { if (st.loadedAt) timeLabel.textContent = 'آخر تحديث ' + relTime(st.loadedAt); }, 30_000);
 
-    updateChips();
-    root.replaceChildren(
-      kpiBox,
-      el('div', { class: 'toolbar' }, timeLabel, refreshBtn),
-      el('div', { class: 'filters' }, chips, search),
-      listBox,
-    );
+    root.replaceChildren(tabs, kpiBox, toolbar, filters, listBox, detailBox);
     listBox.replaceChildren(el('p', { class: 'muted', text: 'جارٍ التحميل…' }));
+    route();
     await load(false);
   }
 
