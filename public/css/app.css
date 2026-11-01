@@ -160,3 +160,10 @@ dialog.confirm h2 { font-size: 18px; margin: 0 0 12px; }
 .dlg-actions button { flex: 1; padding: 12px; font-size: 15px; }
 .form-ok { color: var(--ink); font-size: 14px; padding: 8px 10px; margin-top: 10px; border-inline-start: 3px solid #4cc38a; background: var(--surface-alt); }
 .form-warn { color: var(--ink); font-size: 14px; padding: 8px 10px; margin-top: 10px; border-inline-start: 3px solid var(--warning); background: var(--surface-alt); }
+
+/* صفحة الشرح */
+.help h1 { font-size: 22px; margin: 8px 0 4px; }
+.help h3 { font-size: 15px; margin: 14px 0 4px; }
+.help ol, .help ul { padding-inline-start: 22px; margin: 6px 0; }
+.help li { margin: 4px 0; }
+.login-help { display: block; text-align: center; margin-top: 16px; font-size: 14px; color: var(--ink-muted); }

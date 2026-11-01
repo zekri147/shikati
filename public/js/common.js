@@ -93,5 +93,12 @@
     location.href = '/login';
   }
 
+  // تسجيل عامل الخدمة لتثبيت التطبيق على الهاتف
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => { /* التطبيق يعمل بدونه */ });
+    });
+  }
+
   window.Shikati = { api, fmtAmount, fmtDate, fmtTime, fmtDateTime, el, ltr, logout };
 })();

@@ -55,6 +55,9 @@ export default {
         if (!(await setupAvailable(env))) return Response.redirect(new URL('/login', url).toString(), 302);
         return env.ASSETS.fetch(new Request(new URL('/setup.html', url), req));
       }
+      if (url.pathname === '/help') {
+        return env.ASSETS.fetch(new Request(new URL('/help.html', url), req));
+      }
       if (url.pathname === '/login') {
         return env.ASSETS.fetch(new Request(new URL('/login.html', url), req));
       }
