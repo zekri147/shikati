@@ -56,7 +56,7 @@ export async function handleDiag(env: Env, refresh = false): Promise<Response> {
       const res = await fetch(env.ZOHO_RELAY_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: env.ZOHO_RELAY_KEY || '', force: true }),
+        body: JSON.stringify({ key: (env.ZOHO_RELAY_KEY || '').trim(), force: true }),
       });
       const text = await res.text();
       let d: { access_token?: string; error?: string } = {};
@@ -85,8 +85,11 @@ export async function handleDiag(env: Env, refresh = false): Promise<Response> {
       has_client_secret: !!env.ZOHO_CLIENT_SECRET,
       has_refresh_token: !!env.ZOHO_REFRESH_TOKEN,
       refresh_token_prefix: env.ZOHO_REFRESH_TOKEN ? env.ZOHO_REFRESH_TOKEN.slice(0, 5) : null,
-      relay_host: env.ZOHO_RELAY_URL ? new URL(env.ZOHO_RELAY_URL).host : null,
+      relay_host: env.ZOHO_RELAY_URL ? new URL(env.ZOHO_RELAY_URL.trim()).host : null,
       has_relay_key: !!env.ZOHO_RELAY_KEY,
+      relay_key_length: env.ZOHO_RELAY_KEY ? env.ZOHO_RELAY_KEY.trim().length : 0,
+      relay_key_hint: env.ZOHO_RELAY_KEY && env.ZOHO_RELAY_KEY.trim().length >= 8
+        ? env.ZOHO_RELAY_KEY.trim().slice(0, 2) + '…' + env.ZOHO_RELAY_KEY.trim().slice(-2) : null,
     },
     probes: await Promise.all([
       probe(accounts.replace(/\/+$/, '') + '/oauth/v2/token'),

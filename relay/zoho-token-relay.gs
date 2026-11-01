@@ -96,6 +96,17 @@ function exchangeCode() {
   Logger.log('تم حفظ رمز التجديد. الصلاحيات: ' + (d.scope || '؟') + ' — مركز البيانات: ' + (d.api_domain || '؟'));
 }
 
+// تُشغَّل يدوياً من المحرر لفحص الإعداد، ولا تطبع أي قيمة سرية
+function checkSetup() {
+  var props = PropertiesService.getScriptProperties();
+  var key = (props.getProperty('RELAY_KEY') || '').trim();
+  Logger.log('طول RELAY_KEY: ' + key.length + ' (المطلوب 32 على الأقل)');
+  Logger.log('أول حرفين وآخر حرفين من RELAY_KEY: ' + (key.length >= 8 ? key.slice(0, 2) + '…' + key.slice(-2) : '—'));
+  ['ZOHO_CLIENT_ID', 'ZOHO_CLIENT_SECRET', 'ZOHO_REFRESH_TOKEN'].forEach(function (n) {
+    Logger.log(n + ': ' + ((props.getProperty(n) || '').trim() ? 'موجود' : 'غير موجود'));
+  });
+}
+
 // لا نقبل الطلبات العادية من المتصفح
 function doGet() {
   return out_({ error: 'forbidden' });

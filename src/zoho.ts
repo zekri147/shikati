@@ -74,10 +74,10 @@ async function viaRelay(env: Env, force: boolean): Promise<TokenReply> {
   if (!env.ZOHO_RELAY_KEY) throw new HttpError(503, 'الربط مع زوهو غير مُعدّ بعد.');
   let res: Response;
   try {
-    res = await fetch(env.ZOHO_RELAY_URL!, {
+    res = await fetch(env.ZOHO_RELAY_URL!.trim(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: env.ZOHO_RELAY_KEY, force }),
+      body: JSON.stringify({ key: env.ZOHO_RELAY_KEY.trim(), force }),
       redirect: 'follow',
     });
   } catch (e) {
