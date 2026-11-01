@@ -3,6 +3,7 @@ import type { AppModule } from './types';
 import { HttpError, json } from '../http';
 import { cacheGet, cachePut, zohoGet } from '../zoho';
 import { canDeposit, handleDeposit, lockStates, reconcileDoneLocks } from './deposit';
+import { handleChequeImage } from './image';
 import { ACCOUNT_CHEQUES_IN_HAND, CACHE_KEY, DEST, STATUS, todayAlgiers } from './constants';
 
 export { ACCOUNT_CHEQUES_IN_HAND, DEST, STATUS, todayAlgiers };
@@ -23,6 +24,7 @@ interface ZohoPayment {
   location_name?: string;
   reference_number?: string;
   last_modified_time?: string;
+  has_attachment?: boolean;
   cf_5d7197?: string;
   cf_d_pos_vers?: string;
   cf_n_cheque?: string;
@@ -44,6 +46,8 @@ export interface Cheque {
   location: string;
   status: string;
   destination: string;
+  // هل للدفعة مرفق في زوهو (صورة الشيك عادةً)
+  has_image?: boolean;
   // حالة قفل الإيداع في التطبيق، إن وُجد
   lock?: string;
 }
@@ -106,6 +110,7 @@ export function buildView(payments: ZohoPayment[], today: string): ChequesView {
     location: LOCATIONS[(p.location_name || '').toUpperCase()] || p.location_name || '',
     status: (p.cf_5d7197 || '').trim(),
     destination: (p.cf_d_pos_vers || '').trim(),
+    has_image: !!p.has_attachment,
   });
 
   const rejected: Cheque[] = [];
@@ -174,6 +179,8 @@ export const chequesModule: AppModule = {
       return json({ ...view, can_deposit: canDeposit(env, user) });
     }
     if (req.method === 'POST' && subpath === '/deposit') return handleDeposit(req, env, user);
+    const img = subpath.match(/^\/image\/(\d{10,25})$/);
+    if (req.method === 'GET' && img) return handleChequeImage(env, img[1]);
     throw new HttpError(404, 'غير موجود.');
   },
 };

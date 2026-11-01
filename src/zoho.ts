@@ -163,6 +163,24 @@ export async function zohoRequest<T>(
   return { status: 401, data: null };
 }
 
+// تحميل ملف خام من زوهو (صورة مرفقة مثلاً)، مع تجديد الرمز مرة واحدة عند 401
+export async function zohoFetchRaw(env: Env, path: string, params: Record<string, string> = {}): Promise<Response> {
+  const url = new URL(env.ZOHO_API_BASE + path);
+  url.searchParams.set('organization_id', env.ZOHO_ORG_ID);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  let res: Response | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const token = await accessToken(env, attempt > 0);
+    res = await fetch(url.toString(), {
+      headers: { Authorization: `Zoho-oauthtoken ${token}` },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (res.status !== 401) return res;
+    memToken = null;
+  }
+  return res!;
+}
+
 export async function zohoGet<T>(env: Env, path: string, params: Record<string, string | number> = {}): Promise<T> {
   let r;
   try {

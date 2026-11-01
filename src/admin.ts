@@ -5,6 +5,7 @@ import { audit } from './audit';
 import { handleDiag } from './diag';
 import { listDeposits, releaseDeposit } from './modules/deposit';
 import { handleReconcile } from './modules/reconcile';
+import { probeImage } from './modules/image';
 
 const USERNAME_RE = /^[a-z0-9._-]{3,32}$/;
 const ROLES: Role[] = ['admin', 'depositor'];
@@ -87,6 +88,11 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
   // GET /api/admin/reconcile
   if (req.method === 'GET' && path === '/reconcile') return handleReconcile(env);
 
+  // GET /api/admin/diag?image=<payment_id>
+  if (req.method === 'GET' && path === '/diag') {
+    const pid = new URL(req.url).searchParams.get('image');
+    if (pid && /^\d{10,25}$/.test(pid)) return probeImage(env, pid);
+  }
   // GET /api/admin/diag
   if (req.method === 'GET' && path === '/diag') return handleDiag(env, new URL(req.url).searchParams.get('refresh') === '1');
 

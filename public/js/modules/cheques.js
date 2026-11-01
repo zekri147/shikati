@@ -49,6 +49,19 @@
     );
   }
 
+  // صورة الشيك المرفقة بالدفعة في زوهو، تُجلب عبر الخادم
+  function chequeImage(c) {
+    if (!c.has_image) return el('div', { class: 'img-empty', text: 'لا توجد صورة مرفقة بهذا الشيك في زوهو.' });
+    const src = `/api/m/cheques/image/${encodeURIComponent(c.id)}`;
+    const status = el('div', { class: 'img-status', text: 'جارٍ تحميل صورة الشيك…' });
+    const img = el('img', { class: 'cheque-img', alt: 'صورة الشيك', src, decoding: 'async' });
+    const link = el('a', { href: src, target: '_blank', rel: 'noopener', class: 'img-link hidden', title: 'فتح الصورة بحجمها الكامل' }, img);
+    img.addEventListener('load', () => { status.remove(); link.classList.remove('hidden'); });
+    img.addEventListener('error', () => { status.textContent = 'تعذّر تحميل صورة الشيك. راجعها في زوهو قبل التأكيد.'; status.classList.add('warn'); });
+    return el('figure', { class: 'cheque-fig' }, status, link,
+      el('figcaption', { class: 'muted small', text: 'اضغط الصورة لفتحها بحجمها الكامل.' }));
+  }
+
   // بطاقة التأكيد قبل الإيداع. تعيد true إن نجح الطلب أو تغيّرت حالة الشيك.
   function confirmDeposit(c) {
     return new Promise((resolve) => {
@@ -62,6 +75,7 @@
           el('dt', { text: 'المبلغ' }), el('dd', {}, ltr(fmtAmount(c.amount), 'num strong')),
           el('dt', { text: 'رقم الشيك' }), el('dd', {}, c.cheque_number ? ltr(c.cheque_number, 'num strong') : el('span', { text: 'غير مسجّل' })),
         ),
+        chequeImage(c),
         el('p', { class: 'muted small', text: 'تأكد أن الشيك سُلِّم فعلاً للبنك. سيُسجَّل الإيداع في زوهو باسمك.' }),
         status,
         el('div', { class: 'dlg-actions' }, okBtn, cancelBtn),

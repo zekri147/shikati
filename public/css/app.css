@@ -145,7 +145,7 @@ td.nowrap { white-space: nowrap; }
 .item-action { grid-column: 1 / -1; display: flex; justify-content: flex-end; margin-top: 6px; }
 .btn-deposit { padding: 8px 22px; }
 dialog.confirm {
-  border: 0; padding: 20px; width: min(420px, calc(100vw - 32px));
+  border: 0; padding: 20px; width: min(420px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow-y: auto;
   background: var(--surface); color: var(--ink);
   border-top: 4px solid var(--brand);
 }
@@ -167,3 +167,10 @@ dialog.confirm h2 { font-size: 18px; margin: 0 0 12px; }
 .help ol, .help ul { padding-inline-start: 22px; margin: 6px 0; }
 .help li { margin: 4px 0; }
 .login-help { display: block; text-align: center; margin-top: 16px; font-size: 14px; color: var(--ink-muted); }
+
+/* صورة الشيك في بطاقة التأكيد */
+.cheque-fig { margin: 4px 0 10px; }
+.cheque-img { display: block; width: 100%; max-height: 240px; object-fit: contain; background: var(--surface-alt); border: 1px solid var(--line); }
+.img-status, .img-empty { font-size: 13px; color: var(--ink-muted); background: var(--surface-alt); padding: 18px 10px; text-align: center; margin-bottom: 10px; }
+.img-status.warn { color: var(--ink); border-inline-start: 3px solid var(--warning); text-align: start; }
+.cheque-fig figcaption { margin-top: 4px; }
