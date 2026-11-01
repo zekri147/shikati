@@ -68,9 +68,8 @@ npx wrangler d1 create shikati
 
 ```bash
 npm run db:migrate:remote
-npx wrangler secret put ZOHO_CLIENT_ID
-npx wrangler secret put ZOHO_CLIENT_SECRET
-npx wrangler secret put ZOHO_REFRESH_TOKEN
+npx wrangler secret put ZOHO_RELAY_URL
+npx wrangler secret put ZOHO_RELAY_KEY
 npm run deploy
 node scripts/create-user.mjs --remote
 ```
@@ -81,15 +80,7 @@ node scripts/create-user.mjs --remote
 
 ## رمز تجديد زوهو
 
-1. في لوحة مطوري زوهو، افتح تطبيق (Self Client) ثم تبويب إنشاء الرمز.
-2. الصلاحية للمرحلة الأولى: `ZohoBooks.customerpayments.READ`
-3. استبدل الرمز المؤقت برمز تجديد خلال مدته (أمر واحد على جهازك):
-
-```bash
-curl -s -X POST https://accounts.zoho.com/oauth/v2/token -d grant_type=authorization_code -d client_id=CLIENT_ID -d client_secret=CLIENT_SECRET -d code=CODE
-```
-
-4. خذ قيمة `refresh_token` من الرد وضعها بالأمر `wrangler secret put ZOHO_REFRESH_TOKEN`. لا تحفظها في أي ملف.
+يحصل عليه الوسيط في غوغل بنفسه بالدالة `exchangeCode`، ويحفظه في خصائصه. الخطوات في الملف `RELAY.md`.
 
 ## التجربة المحلية
 

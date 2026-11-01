@@ -2,3 +2,6 @@
 ZOHO_CLIENT_ID=
 ZOHO_CLIENT_SECRET=
 ZOHO_REFRESH_TOKEN=
+# أو بدل الأسرار الثلاثة أعلاه، عبر وسيط غوغل:
+# ZOHO_RELAY_URL=
+# ZOHO_RELAY_KEY=
