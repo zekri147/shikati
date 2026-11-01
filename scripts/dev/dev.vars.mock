@@ -1,0 +1,5 @@
+# إعدادات التجربة المحلية مع خادم زوهو الوهمي. انسخه إلى .dev.vars
+ZOHO_API_BASE=http://127.0.0.1:8788/books/v3
+ZOHO_RELAY_URL=http://127.0.0.1:8788/relay
+ZOHO_RELAY_KEY=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk
+DEPOSIT_ROLES=admin,depositor

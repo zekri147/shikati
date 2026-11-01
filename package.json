@@ -10,7 +10,8 @@
     "db:migrate:local": "wrangler d1 migrations apply shikati --local",
     "db:migrate:remote": "wrangler d1 migrations apply shikati --remote",
     "create-user": "node scripts/create-user.mjs",
-    "deploy:ci": "wrangler d1 migrations apply shikati --remote && wrangler deploy"
+    "deploy:ci": "wrangler d1 migrations apply shikati --remote && wrangler deploy",
+    "mock": "node scripts/dev/mock-zoho.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261023.1",
