@@ -4,6 +4,7 @@ import { hashPassword } from './crypto';
 import { audit } from './audit';
 import { handleDiag } from './diag';
 import { listDeposits, releaseDeposit } from './modules/deposit';
+import { handleReconcile } from './modules/reconcile';
 
 const USERNAME_RE = /^[a-z0-9._-]{3,32}$/;
 const ROLES: Role[] = ['admin', 'depositor'];
@@ -82,6 +83,9 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
   // POST /api/admin/deposits/:id/release
   const rel = path.match(/^\/deposits\/(\d+)\/release$/);
   if (req.method === 'POST' && rel) return releaseDeposit(env, admin, rel[1]);
+
+  // GET /api/admin/reconcile
+  if (req.method === 'GET' && path === '/reconcile') return handleReconcile(env);
 
   // GET /api/admin/diag
   if (req.method === 'GET' && path === '/diag') return handleDiag(env, new URL(req.url).searchParams.get('refresh') === '1');

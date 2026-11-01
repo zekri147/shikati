@@ -79,8 +79,53 @@
     catch (e) { alert(e.message); }
   }
 
+  async function runReconcile() {
+    const btn = document.getElementById('rec-run');
+    const out = document.getElementById('rec-out');
+    btn.disabled = true; btn.textContent = 'جارٍ المطابقة…';
+    try {
+      const r = await api('/api/admin/reconcile');
+      const table = (head, rows) => el('div', { class: 'table-wrap' }, el('table', {},
+        el('thead', {}, el('tr', {}, head.map((h) => el('th', { text: h })))),
+        el('tbody', {}, rows)));
+      const appRows = r.app.items.map((d) => el('tr', {},
+        el('td', { class: d.ok ? '' : 'strong', text: d.ok ? 'سليم' : 'للمراجعة: ' + d.problem }),
+        el('td', { text: d.customer || '—' }),
+        el('td', {}, d.cheque_number ? ltr(d.cheque_number, 'num') : '—'),
+        el('td', { class: 'nowrap' }, d.amount != null ? ltr(fmtAmount(d.amount), 'num') : '—'),
+        el('td', { text: d.display_name || '—' }),
+        el('td', { class: 'nowrap' }, ltr(fmtDateTime(d.finished_at || ''), 'num')),
+      ));
+      const fmtIso = (iso) => {
+        const t = new Date(String(iso || '').replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
+        return Number.isNaN(t.getTime()) ? '—' : fmtDateTime(t.toISOString().slice(0, 19).replace('T', ' '));
+      };
+      const outRows = r.outside.items.map((d) => el('tr', {},
+        el('td', { text: d.customer }),
+        el('td', {}, d.cheque_number ? ltr(d.cheque_number, 'num') : '—'),
+        el('td', { class: 'nowrap' }, ltr(fmtAmount(d.amount), 'num')),
+        el('td', { text: d.status }),
+        el('td', { class: 'nowrap' }, ltr(fmtIso(d.modified), 'num')),
+      ));
+      out.replaceChildren(
+        el('h3', { text: `إيداعات سجّلها التطبيق: ${r.app.count}، منها للمراجعة: ${r.app.problems}` }),
+        r.app.count ? table(['النتيجة', 'العميل', 'الشيك', 'المبلغ', 'الموظف', 'الوقت'], appRows)
+          : el('p', { class: 'muted', text: 'لا إيداعات من التطبيق في آخر 7 أيام.' }),
+        el('h3', { text: `شيكات AGB مودعة من خارج التطبيق: ${r.outside.count}` }),
+        el('p', { class: 'muted small', text: 'من القسم القديم أو يدوياً في زوهو. التاريخ هو آخر تعديل للدفعة، وهو تقريبي.' }),
+        r.outside.count ? table(['العميل', 'الشيك', 'المبلغ', 'الحالة', 'آخر تعديل'], outRows)
+          : el('p', { class: 'muted', text: 'لا شيء.' }),
+      );
+    } catch (e) {
+      out.replaceChildren(el('div', { class: 'error-box', text: e.message }));
+    } finally {
+      btn.disabled = false; btn.textContent = 'تشغيل المطابقة';
+    }
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('logout').addEventListener('click', logout);
+    document.getElementById('rec-run').addEventListener('click', runReconcile);
     const form = document.getElementById('new-user');
     const err = document.getElementById('nu-error');
     form.addEventListener('submit', async (e) => {

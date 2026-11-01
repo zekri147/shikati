@@ -73,7 +73,7 @@ function daysBetween(from: string, to: string): number {
   return Math.max(0, Math.round((b - a) / 86_400_000));
 }
 
-async function fetchAllChequePayments(env: Env): Promise<ZohoPayment[]> {
+export async function fetchAllChequePayments(env: Env): Promise<ZohoPayment[]> {
   const all: ZohoPayment[] = [];
   for (let page = 1; page <= MAX_PAGES; page++) {
     const data = await zohoGet<ListResponse>(env, '/customerpayments', {
