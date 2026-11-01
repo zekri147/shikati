@@ -33,14 +33,14 @@
     try {
       res = await fetch(path, init);
     } catch {
-      throw new Error('لا يوجد اتصال بالإنترنت. تحقق من الشبكة ثم حاول مجدداً.');
+      throw Object.assign(new Error('لا يوجد اتصال بالإنترنت. تحقق من الشبكة ثم حاول مجدداً.'), { status: 0 });
     }
     const data = await res.json().catch(() => ({}));
     if (res.status === 401 && !opts.noRedirect) {
       location.href = '/login';
       throw new Error(data.error || 'انتهت الجلسة.');
     }
-    if (!res.ok) throw new Error(data.error || 'حدث خطأ غير متوقع.');
+    if (!res.ok) throw Object.assign(new Error(data.error || 'حدث خطأ غير متوقع.'), { status: res.status });
     return data;
   }
 
@@ -88,6 +88,18 @@
   }
   const ltr = (text, cls = '') => el('bdi', { dir: 'ltr', class: ('ltr ' + cls).trim(), text });
 
+  // رسالة قصيرة أسفل الشاشة تختفي وحدها
+  function toast(message, kind = 'ok') {
+    let host = document.getElementById('toast-host');
+    if (!host) {
+      host = el('div', { id: 'toast-host', class: 'toast-host', 'aria-live': 'polite' });
+      document.body.append(host);
+    }
+    const t = el('div', { class: 'toast ' + kind, role: 'status', text: message });
+    host.append(t);
+    setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 300); }, kind === 'ok' ? 3500 : 6000);
+  }
+
   async function logout() {
     try { await api('/api/logout', { method: 'POST', body: {}, noRedirect: true }); } catch { /* نكمل */ }
     location.href = '/login';
@@ -100,5 +112,5 @@
     });
   }
 
-  window.Shikati = { api, fmtAmount, fmtDate, fmtTime, fmtDateTime, el, ltr, logout };
+  window.Shikati = { api, toast, fmtAmount, fmtDate, fmtTime, fmtDateTime, el, ltr, logout };
 })();

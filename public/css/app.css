@@ -174,3 +174,78 @@ dialog.confirm h2 { font-size: 18px; margin: 0 0 12px; }
 .img-status, .img-empty { font-size: 13px; color: var(--ink-muted); background: var(--surface-alt); padding: 18px 10px; text-align: center; margin-bottom: 10px; }
 .img-status.warn { color: var(--ink); border-inline-start: 3px solid var(--warning); text-align: start; }
 .cheque-fig figcaption { margin-top: 4px; }
+
+/* ——— تحسينات الشاشة الرئيسية ——— */
+
+/* التصفية والبحث */
+.filters { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 4px; }
+.chips { display: flex; gap: 6px; }
+.chip {
+  flex: 1; padding: 9px 6px; font-size: 14px; background: var(--surface-alt); color: var(--ink);
+  border: 1px solid var(--line);
+}
+.chip[aria-pressed="true"] { background: var(--black); color: var(--white); border-color: var(--black); }
+:root[data-theme="dark"] .chip[aria-pressed="true"] { background: var(--white); color: var(--black); border-color: var(--white); }
+.search { margin-top: 0; font-size: 15px; }
+
+/* تحديد الشيكات */
+.item.selectable { cursor: pointer; padding-inline: 8px; margin-inline: -8px; -webkit-tap-highlight-color: transparent; }
+.item.selectable:active { background: var(--surface-alt); }
+.item.selected { background: color-mix(in srgb, var(--brand) 14%, transparent); box-shadow: inset 4px 0 0 var(--brand); }
+[dir="rtl"] .item.selected { box-shadow: inset -4px 0 0 var(--brand); }
+.item .customer { display: flex; align-items: center; gap: 10px; }
+.check {
+  flex: none; width: 22px; height: 22px; border: 2px solid var(--ink-muted); display: inline-flex;
+  align-items: center; justify-content: center; font-size: 15px; line-height: 1; color: var(--white);
+}
+.item.selected .check { background: var(--brand); border-color: var(--brand); }
+.item.selected .check::after { content: "✓"; font-weight: 700; }
+
+/* الأقسام المطوية */
+details.fold > summary { cursor: pointer; list-style: none; }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary h2::before { content: "◂"; display: inline-block; margin-inline-end: 8px; font-size: 13px; transition: transform .15s; color: var(--ink-muted); }
+details.fold[open] > summary h2::before { transform: rotate(-90deg); }
+
+/* شريط الإيداع أسفل الشاشة */
+.actionbar {
+  position: fixed; inset-inline: 0; bottom: 0; z-index: 20;
+  background: var(--black); color: var(--white);
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  border-top: 3px solid var(--brand);
+}
+.ab-info { display: flex; flex-direction: column; font-size: 14px; }
+.ab-buttons { display: flex; gap: 6px; }
+.actionbar .btn-primary { padding: 11px 16px; font-size: 15px; }
+.actionbar .btn-plain { padding: 11px 10px; background: transparent; color: var(--white); border-color: rgba(255,255,255,.4); }
+body.has-bar main { padding-bottom: 96px; }
+
+/* قائمة الشيكات في بطاقة التأكيد */
+.b-list { list-style: none; padding: 0; margin: 0 0 8px; }
+.b-row { display: grid; grid-template-columns: 72px 1fr; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); align-items: start; }
+.b-list.single .b-row { grid-template-columns: 1fr; }
+.img-thumb .cheque-img, .img-thumb.img-empty { height: 56px; max-height: 56px; }
+.img-thumb.img-empty { padding: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; margin: 0; }
+.img-big .cheque-img { max-height: 240px; }
+.img-big.img-empty { margin: 0; }
+.b-info { font-size: 14px; display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.b-status { font-size: 13px; margin-top: 2px; }
+.b-status.ok { color: var(--ink); }
+.b-status.ok::before { content: "✓ "; color: #4cc38a; font-weight: 700; }
+.b-status.warn::before { content: "⚠ "; color: var(--warning); }
+.b-status.err { color: var(--accent-text); }
+.b-total { display: flex; justify-content: space-between; padding: 8px 0; font-size: 15px; border-bottom: 2px solid var(--ink); margin-bottom: 8px; }
+
+/* الرسائل القصيرة */
+.toast-host { position: fixed; inset-inline: 16px; bottom: 16px; z-index: 30; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+body.has-bar .toast-host { bottom: 92px; }
+.toast {
+  background: var(--black); color: var(--white); padding: 12px 14px; font-size: 14px;
+  border-inline-start: 4px solid #4cc38a; box-shadow: 0 0 0 1px rgba(255,255,255,.12);
+  transition: opacity .3s, transform .3s;
+}
+:root[data-theme="dark"] .toast { background: #000; }
+.toast.warn { border-color: var(--warning); }
+.toast.err { border-color: var(--brand); }
+.toast.out { opacity: 0; transform: translateY(8px); }
