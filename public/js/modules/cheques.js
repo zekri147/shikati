@@ -15,10 +15,7 @@
   const ALERTS = [
     { kind: 'unknown_lock', title: 'بانتظار التحقق', cls: 'alert', note: 'انقطع الرد بعد محاولة الإيداع. تحقق في زوهو، ثم حرّر القفل من صفحة الإدارة.' },
     { kind: 'rejected', title: 'شيكات مرفوضة', cls: 'alert', note: 'تحتاج متابعة مع العميل.' },
-    { kind: 'due_past', title: 'حلّ استحقاقها وما زالت في الحوزة', cls: 'alert', due: true },
-    { kind: 'due_soon', title: 'تستحق خلال 3 أيام', cls: 'warn', due: true },
-    { kind: 'late', title: 'في الحوزة منذ أكثر من 7 أيام', cls: 'warn', note: 'تاريخ استحقاقها غير مسجّل.' },
-    { kind: 'incomplete', title: 'بيانات ناقصة', cls: 'warn', withText: true },
+    { kind: 'late', title: 'في الحوزة منذ أكثر من 7 أيام', cls: 'warn', note: 'أعطها الأولوية في الإيداع.' },
     { kind: 'box', title: 'صندوق غير مطابق', cls: 'warn', withText: true },
     { kind: 'fiscal', title: 'الملف الجبائي للعميل ناقص', cls: '', withText: true, closed: true, quiet: true },
   ];
@@ -250,7 +247,7 @@
           el('div', { class: 'value display' }, ltr(fmtAmount(sum(inBank))))),
       ));
 
-      const opts = { selected: st.selected, onToggle: toggle, link: true, today: d.today };
+      const opts = { selected: st.selected, onToggle: toggle, link: true };
       const parts = [
         section('agb', 'للإيداع في بنك AGB', agb, {
           ...opts,
@@ -284,7 +281,7 @@
           el('span', { class: 'strong', text: items.length ? chequeWord(items.length) : 'لا نتائج' }),
           items.length ? ltr(fmtAmount(sum(items)), 'num muted') : null),
         items.length
-          ? el('ul', { class: 'list' }, shown.map((c) => chequeItem(c, { link: true, showStatus: true, showDue: true, ageInHandOnly: true, today: d.today })))
+          ? el('ul', { class: 'list' }, shown.map((c) => chequeItem(c, { link: true, showStatus: true, ageInHandOnly: true })))
           : el('div', { class: 'empty', text: 'لا شيك يطابق البحث أو التصفية.' }),
         moreBtn);
     }
@@ -299,8 +296,8 @@
         const items = pick(rows.map((x) => byId.get(x.id)).filter(Boolean));
         if (!items.length) continue;
         parts.push(section('al-' + a.kind, a.title, items, {
-          link: true, collapsible: true, showDue: true, ageInHandOnly: true, today: d.today, noteClass: a.cls, note: a.note,
-          showStatus: a.kind === 'incomplete' || a.kind === 'box' || a.kind === 'fiscal',
+          link: true, collapsible: true, ageInHandOnly: true, noteClass: a.cls, note: a.note,
+          showStatus: a.kind === 'box' || a.kind === 'fiscal',
           noteFor: a.withText ? (c) => texts.get(c.id) || null : null,
         }, st));
       }
@@ -349,7 +346,6 @@
       if (next.view === 'detail') {
         window.scrollTo(0, 0);
         window.ShikatiChequeDetail.render(detailBox, next.id, {
-          today: st.data ? st.data.today : '',
           onBack: () => { if (st.fromList) history.back(); else location.hash = '#cheques'; },
         });
       } else {

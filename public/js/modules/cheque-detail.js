@@ -1,7 +1,7 @@
 // صفحة تفاصيل الشيك: كل ما في زوهو عن الشيك، دون الحاجة إلى فتح زوهو. قراءة فقط.
 (function () {
   const { api, el, ltr, fmtAmount, fmtDate, fmtDateTime } = window.Shikati;
-  const { statusBadge, chequeImage, dueText } = window.ShikatiChequesUI;
+  const { statusBadge, chequeImage } = window.ShikatiChequesUI;
   const LOCK_TEXT = {
     pending: 'الإيداع قيد التنفيذ الآن',
     done: 'سجّل التطبيق إيداعه',
@@ -10,11 +10,11 @@
   };
   const ACTION_TEXT = { deposit: 'إيداع', 'deposit.release': 'تحرير القفل', 'deposit.reverted': 'إلغاء الإيداع في زوهو' };
 
-  // صف «عنوان: قيمة». القيمة الفارغة تظهر بعبارة واضحة، وبلون التنبيه إن كانت ناقصة.
+  // صف «عنوان: قيمة». القيمة الفارغة تظهر بشرطة.
   function row(label, value, opts = {}) {
     const empty = value === '' || value === null || value === undefined;
     const v = empty
-      ? el('span', { class: opts.required ? 'missing' : 'muted', text: opts.required ? 'غير مسجّل' : '—' })
+      ? el('span', { class: 'muted', text: '—' })
       : (typeof value === 'string' && opts.ltr ? ltr(value, 'num') : value);
     return el('div', { class: 'kv' }, el('dt', { text: label }), el('dd', {}, v, opts.after ? el('span', { class: 'muted small', text: ' · ' + opts.after }) : null));
   }
@@ -23,7 +23,7 @@
     return el('section', { class: 'd-block' }, el('h2', { text: title }), ...children);
   }
 
-  function view(d, today) {
+  function view(d) {
     const parts = [];
 
     parts.push(el('div', { class: 'd-head' },
@@ -33,9 +33,6 @@
         statusBadge(d.status),
         d.destination ? el('span', { class: 'badge dest', text: 'الوجهة: ' + d.destination }) : el('span', { class: 'badge warn', text: 'الوجهة غير محددة' }))));
 
-    // بيانات ناقصة أو حساب غير مطابق، كما تكتبها دالة الحالة في زوهو
-    const info = d.info && d.info.startsWith('✖') ? d.info.replace(/^✖\s*/, '') : (d.missing.length ? 'ينقص: ' + d.missing.join(' · ') : '');
-    if (info) parts.push(el('div', { class: 'note warn', text: info }));
     if (d.box_alert) parts.push(el('div', { class: 'note alert', text: 'صندوق غير مطابق: ' + d.box_alert }));
     if (d.app.lock && d.app.lock.state === 'unknown') {
       parts.push(el('div', { class: 'note alert', text: 'بانتظار التحقق: انقطع الرد بعد محاولة إيداع هذا الشيك. تحقق في صفحة الإدارة قبل أي محاولة جديدة.' }));
@@ -49,9 +46,8 @@
     parts.push(el('div', { class: 'd-image' }, img));
 
     parts.push(block('بيانات الشيك', el('dl', { class: 'kvs' },
-      row('رقم الشيك', d.cheque_number, { required: true, ltr: true }),
-      row('البنك الساحب', d.bank, { required: true }),
-      row('تاريخ الاستحقاق', d.due_date ? fmtDate(d.due_date) : '', { required: true, ltr: true, after: d.status === 'في الحوزة' ? dueText(d.due_date, today) : '' }),
+      row('رقم الشيك', d.cheque_number, { ltr: true }),
+      row('البنك الساحب', d.bank),
       row('تاريخ الاستلام', fmtDate(d.date), { ltr: true }),
       row('الموقع', d.location),
       row('سجّله', d.created_by),
@@ -108,7 +104,7 @@
     try {
       const d = await api('/api/m/cheques/detail/' + encodeURIComponent(id));
       if (!box.isConnected) return;
-      body.replaceChildren(...view(d, ctx.today));
+      body.replaceChildren(...view(d));
       document.title = 'شيك ' + d.customer;
     } catch (e) {
       body.replaceChildren(el('div', { class: 'error-box', text: e.message }));

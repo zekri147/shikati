@@ -1,7 +1,7 @@
 import type { Env, User } from '../env';
 import { HttpError, json } from '../http';
 import { zohoRequest, ZohoTimeout } from '../zoho';
-import { chequeNumber, isoDate, missingData } from './fields';
+import { chequeNumber, isoDate } from './fields';
 
 // صفحة تفاصيل الشيك: قراءة فقط. تُقرأ الدفعة من زوهو مباشرة في كل مرة،
 // ثم يُضاف إليها ما سجّله التطبيق نفسه (قفل الإيداع وسجل العمليات).
@@ -51,11 +51,6 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
   if (!r.data || r.data.code !== 0 || !p) throw new HttpError(502, 'تعذّرت قراءة الشيك من زوهو.');
 
   const cf = p.custom_field_hash || {};
-  const cheque = {
-    cheque_number: chequeNumber(cf.cf_n_cheque),
-    due_date: isoDate(cf.cf_93b2c3_unformatted || cf.cf_93b2c3),
-    bank: str(cf.cf_fafa0d),
-  };
   const drive = str(cf.cf_drive);
   const log = str(cf.cf_fffaad).split('\n').map((l) => l.trim()).filter((l) => l && !BOT_TAG_RE.test(l));
 
@@ -79,9 +74,8 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
     date: isoDate(p.date),
     status: str(cf.cf_5d7197),
     destination: str(cf.cf_d_pos_vers),
-    ...cheque,
-    missing: missingData(cheque),
-    info: str(cf.cf_6924c6),
+    cheque_number: chequeNumber(cf.cf_n_cheque),
+    bank: str(cf.cf_fafa0d),
     account: str(p.account_name),
     location: LOCATIONS[str(p.location_name).toUpperCase()] || str(p.location_name),
     created_by: str(p.created_by_name || p.created_by),

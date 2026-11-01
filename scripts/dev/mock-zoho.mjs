@@ -15,9 +15,9 @@
 //
 // شيكات إضافية بحالات أخرى لتجربة «كل الشيكات» و«التنبيهات» وصفحة التفاصيل
 // (معرّفاتها تنتهي بـ 0 أو 9، فلا تدخل في سيناريوهات الإيداع أعلاه):
-//   ..10 روستمية يستحق بعد يومين     ..19 مودع في AGB      ..20 محصّل
-//   ..29 مظهّر لمورد                  ..30 مرفوض            ..39 بيانات ناقصة بلا وجهة
-//   ..40 شيك ضمان                     ..49 AGB حلّ استحقاقه
+//   ..10 روستمية في الحوزة           ..19 مودع في AGB      ..20 محصّل
+//   ..29 مظهّر لمورد                  ..30 مرفوض            ..39 بلا وجهة ولا رقم ولا صورة
+//   ..40 شيك ضمان                     ..49 AGB متأخر
 //
 // أدوات إضافية:
 //   GET /__log             سجل طلبات الكتابة والصور
@@ -38,11 +38,6 @@ const BANKS = ['BNA', 'CPA', 'BEA', 'BADR', 'BDL', 'AGB', 'CNEP', 'Al Baraka'];
 // التواريخ نسبية إلى اليوم حتى تبقى التنبيهات صالحة في أي يوم تُشغَّل فيه التجربة
 const day = (n) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
 const DATES = [day(-6), day(-12), day(-2), day(-17), day(-1), day(-4), day(-8), day(-3)];
-const DUE = [day(5), day(-5), day(1), day(20), day(10), day(3), day(-1), day(15)];
-const fmtZoho = (iso) => {
-  const [y, m, d] = iso.split('-');
-  return `${d} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(m) - 1]} ${y}`;
-};
 
 const payments = {};
 for (let n = 1; n <= 8; n++) {
@@ -61,8 +56,7 @@ for (let n = 1; n <= 8; n++) {
     last_modified_time: new Date(Date.now() - n * 3_600_000).toISOString(),
     custom_field_hash: {
       cf_5d7197: 'في الحوزة', cf_d_pos_vers: 'ELONAC', cf_n_cheque: `72431${String(n).padStart(2, '0')}`, cf_fffaad: `${day(-6)} — سطر قديم`,
-      cf_93b2c3: fmtZoho(DUE[n - 1]), cf_93b2c3_unformatted: DUE[n - 1], cf_fafa0d: BANKS[n - 1],
-      cf_6924c6: '✔ كاملة', cf_023de7: '✔ كاملة',
+      cf_fafa0d: BANKS[n - 1], cf_023de7: '✔ كاملة',
     },
   };
 }
@@ -78,34 +72,33 @@ const extra = (id, n, over, cf) => {
     deposit_details: over.deposit_details || [], has_attachment: over.image !== false,
     documents: over.image === false ? [] : [{ document_id: `D${id}`, file_type: 'jpg', file_name: 'cheque.jpg' }],
     last_modified_time: new Date(Date.now() - n * 1_800_000).toISOString(),
-    custom_field_hash: { cf_6924c6: '✔ كاملة', cf_023de7: '✔ كاملة', ...cf },
+    custom_field_hash: { cf_023de7: '✔ كاملة', ...cf },
   };
 };
-const due = (iso) => ({ cf_93b2c3: fmtZoho(iso), cf_93b2c3_unformatted: iso });
 extra('7418400000000010', 10, { customer: 'SARL ROSTOM BATI', amount: 410000, date: day(-3) },
-  { cf_5d7197: 'في الحوزة', cf_d_pos_vers: 'ROSTOMIA', cf_n_cheque: '5512010', cf_fafa0d: 'BNA', ...due(day(2)) });
+  { cf_5d7197: 'في الحوزة', cf_d_pos_vers: 'ROSTOMIA', cf_n_cheque: '5512010', cf_fafa0d: 'BNA' });
 extra('7418400000000019', 19, { customer: 'EURL METAL PRO', amount: 225000, date: day(-9), location: 'EL EULMA',
   deposit_details: [{ deposit_id: 'TX19', date: day(-5), account_name: 'Bank – AGB', amount: 225000 }] },
-  { cf_5d7197: 'مودع في البنك', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512019', cf_fafa0d: 'CPA', ...due(day(-5)),
+  { cf_5d7197: 'مودع في البنك', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512019', cf_fafa0d: 'CPA',
     cf_fffaad: `${day(-5)} — إيداع في AGB من تطبيق شيكاتي (أمين)` });
 extra('7418400000000020', 20, { customer: 'SARL COMINOX', amount: 180000, date: day(-25),
   deposit_details: [{ deposit_id: 'TX20', date: day(-20), account_name: 'Bank – AGB', amount: 180000 }] },
-  { cf_5d7197: 'محصّل', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512020', cf_fafa0d: 'BEA', ...due(day(-20)),
+  { cf_5d7197: 'محصّل', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512020', cf_fafa0d: 'BEA',
     cf_fffaad: `${day(-20)} — إيداع في AGB من تطبيق شيكاتي (أمين)\n${day(-17)} — تحصيل آلي عبر رسالة AGB` });
 extra('7418400000000029', 29, { customer: 'EURL HOUSE FIX', amount: 835400, date: day(-4), location: 'EL EULMA',
   account_id: '7418406000009849106', account_name: 'Endorsed Cheques' },
-  { cf_5d7197: 'مظهّر لمورد', cf_d_pos_vers: 'Autre Fournisseur', cf_n_cheque: '0499308', cf_fafa0d: 'BADR', ...due(day(-4)),
+  { cf_5d7197: 'مظهّر لمورد', cf_d_pos_vers: 'Autre Fournisseur', cf_n_cheque: '0499308', cf_fafa0d: 'BADR',
     cf_fffaad: `[END|741840600001|741840600002]\nظُهّر للمورد SARL ACIER بتاريخ ${day(-3)} باعتماد الإدارة` });
 extra('7418400000000030', 30, { customer: 'SARL TECHNO FER', amount: 95000, date: day(-15) },
-  { cf_5d7197: 'مرفوض', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512030', cf_fafa0d: 'BDL', ...due(day(-12)) });
+  { cf_5d7197: 'مرفوض', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512030', cf_fafa0d: 'BDL' });
 extra('7418400000000039', 39, { customer: 'EURL SANS DATE', amount: 60000, date: day(-10), image: false },
-  { cf_5d7197: 'في الحوزة', cf_n_cheque: '0000000', cf_6924c6: '✖ ينقص: رقم الشيك · تاريخ الاستحقاق · البنك الساحب',
+  { cf_5d7197: 'في الحوزة', cf_n_cheque: '0000000',
     cf_023de7: '✖ ينقص: NIF · NIS · ART', cf_51a7f5: 'Caisse ALGER → AMINE | مُنشئ العملية: SAMIR',
     cf_drive: 'https://drive.google.com/file/d/abc123/view' });
 extra('7418400000000040', 40, { customer: 'SARL GARANTIE', amount: 1000000, date: day(-40) },
   { cf_5d7197: 'شيك ضمان', cf_n_cheque: '5512040', cf_fafa0d: 'AGB' });
 extra('7418400000000049', 49, { customer: 'SARL ECHU AGB', amount: 133000, date: day(-12), location: 'EL EULMA' },
-  { cf_5d7197: 'في الحوزة', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512049', cf_fafa0d: 'BNA', ...due(day(-5)) });
+  { cf_5d7197: 'في الحوزة', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512049', cf_fafa0d: 'BNA' });
 payments['7418400000000002'].deposit_details = [{ deposit_id: 'x' }];
 payments['7418400000000003'].custom_field_hash.cf_5d7197 = 'محصّل';
 

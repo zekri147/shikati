@@ -16,19 +16,6 @@
     return `منذ ${n} يوماً`;
   }
 
-  // المدة حتى تاريخ الاستحقاق أو منذ حلوله
-  function dueText(iso, today) {
-    if (!iso || !today) return '';
-    const n = Math.round((Date.parse(iso + 'T00:00:00Z') - Date.parse(today + 'T00:00:00Z')) / 86_400_000);
-    if (Number.isNaN(n)) return '';
-    if (n === 0) return 'يستحق اليوم';
-    if (n < 0) return 'حلّ استحقاقه ' + daysText(-n);
-    if (n === 1) return 'يستحق غداً';
-    if (n === 2) return 'يستحق بعد يومين';
-    if (n <= 10) return `يستحق بعد ${n} أيام`;
-    return `يستحق بعد ${n} يوماً`;
-  }
-
   function relTime(ts) {
     const m = Math.floor((Date.now() - ts) / 60_000);
     if (m < 1) return 'الآن';
@@ -55,7 +42,7 @@
 
   // ——— بطاقة الشيك ———
   // opts: selectable وselected وonToggle للتحديد، أو link لفتح التفاصيل بالضغط،
-  // وshowStatus وnoAge وageInHandOnly وshowDue وtoday وnote لنص تنبيه تحت البطاقة.
+  // وshowStatus وnoAge وageInHandOnly وnote لنص تنبيه تحت البطاقة.
   function chequeItem(c, opts) {
     // ageInHandOnly: عمر الشيك يهم ما دام في الحوزة فقط
     const noAge = opts.noAge || (opts.ageInHandOnly && c.status !== 'في الحوزة');
@@ -77,7 +64,6 @@
         el('div', { class: 'tags' },
           tag('شيك', c.cheque_number ? ltr(c.cheque_number, 'num') : el('span', { text: 'غير مسجّل' })),
           tag('استلام', ltr(fmtDate(c.date), 'num')),
-          opts.showDue && c.due_date ? tag('استحقاق', ltr(fmtDate(c.due_date), 'num')) : null,
           c.location ? el('span', { class: 'tag', text: c.location }) : null,
           opts.showStatus ? statusBadge(c.status) : null),
         noAge ? null : el('span', { class: 'age' + (late ? ' late' : ''), text: daysText(c.days) + (late ? ' · متأخر' : '') })),
@@ -147,6 +133,6 @@
   }
 
   window.ShikatiChequesUI = {
-    daysText, dueText, relTime, norm, sum, chequeWord, statusBadge, chequeItem, section, chequeImage, openDetail, detailHash,
+    daysText, relTime, norm, sum, chequeWord, statusBadge, chequeItem, section, chequeImage, openDetail, detailHash,
   };
 })();

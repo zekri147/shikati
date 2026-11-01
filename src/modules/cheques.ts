@@ -6,7 +6,7 @@ import { canDeposit, handleDeposit, lockStates, reconcileDoneLocks } from './dep
 import { handleChequeImage } from './image';
 import { handleChequeDetail } from './detail';
 import { ACCOUNT_CHEQUES_IN_HAND, CACHE_KEY, DEST, STATUS, todayAlgiers } from './constants';
-import { chequeNumber, isoDate, missingData } from './fields';
+import { chequeNumber } from './fields';
 
 export { ACCOUNT_CHEQUES_IN_HAND, DEST, STATUS, todayAlgiers };
 
@@ -15,7 +15,6 @@ const LOCATIONS: Record<string, string> = { ALGER: 'الجزائر', 'EL EULMA':
 const CACHE_TTL = 60;
 const MAX_PAGES = 50;
 const LATE_DAYS = 7;
-const DUE_SOON_DAYS = 3;
 
 interface ZohoPayment {
   payment_id: string;
@@ -34,10 +33,7 @@ interface ZohoPayment {
   cf_5d7197?: string;
   cf_d_pos_vers?: string;
   cf_n_cheque?: string;
-  cf_93b2c3?: string;
-  cf_93b2c3_unformatted?: string;
   cf_fafa0d?: string;
-  cf_6924c6?: string;
   cf_023de7?: string;
   cf_51a7f5?: string;
   check_details?: { check_number?: string };
@@ -59,8 +55,6 @@ export interface Cheque {
   location: string;
   status: string;
   destination: string;
-  // تاريخ الاستحقاق المكتوب على الشيك، بصيغة YYYY-MM-DD أو فارغ
-  due_date: string;
   bank: string;
   account: string;
   invoices: string;
@@ -77,7 +71,7 @@ interface Section {
 }
 
 // التنبيهات تعوّض ما كان يصل عبر تيليجرام. كل تنبيه يشير إلى شيك في قائمة all.
-export type AlertKind = 'rejected' | 'due_past' | 'due_soon' | 'late' | 'incomplete' | 'unknown_lock' | 'box' | 'fiscal';
+export type AlertKind = 'rejected' | 'late' | 'unknown_lock' | 'box' | 'fiscal';
 export interface ChequeAlert {
   kind: AlertKind;
   id: string;
@@ -142,7 +136,6 @@ export function buildView(payments: ZohoPayment[], today: string): ChequesView {
     location: LOCATIONS[(p.location_name || '').toUpperCase()] || p.location_name || '',
     status: (p.cf_5d7197 || '').trim(),
     destination: (p.cf_d_pos_vers || '').trim(),
-    due_date: isoDate(p.cf_93b2c3_unformatted || p.cf_93b2c3),
     bank: (p.cf_fafa0d || '').trim(),
     account: (p.account_name || '').trim(),
     invoices: (p.invoice_numbers || '').trim(),
@@ -176,16 +169,7 @@ export function buildView(payments: ZohoPayment[], today: string): ChequesView {
     if (c.status === STATUS.REJECTED) alerts.push({ kind: 'rejected', id: c.id });
     const active = c.status === STATUS.IN_HAND || c.status === STATUS.DEPOSITED || c.status === '';
     if (!active) continue;
-    if (c.status === STATUS.IN_HAND) {
-      const toDue = c.due_date ? daysBetween(today, c.due_date) : null;
-      if (toDue !== null && toDue < 0) alerts.push({ kind: 'due_past', id: c.id });
-      else if (toDue !== null && toDue <= DUE_SOON_DAYS) alerts.push({ kind: 'due_soon', id: c.id });
-      else if (toDue === null && c.days > LATE_DAYS) alerts.push({ kind: 'late', id: c.id });
-    }
-    const info = (p.cf_6924c6 || '').trim();
-    const missing = missingData(c);
-    if (info.startsWith('✖')) alerts.push({ kind: 'incomplete', id: c.id, text: info.replace(/^✖\s*/, '') });
-    else if (missing.length) alerts.push({ kind: 'incomplete', id: c.id, text: 'ينقص: ' + missing.join(' · ') });
+    if (c.status === STATUS.IN_HAND && c.days > LATE_DAYS) alerts.push({ kind: 'late', id: c.id });
     const box = (p.cf_51a7f5 || '').trim();
     if (box) alerts.push({ kind: 'box', id: c.id, text: box });
     const fiscal = (p.cf_023de7 || '').trim();

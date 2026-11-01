@@ -21,12 +21,3 @@ export function chequeNumber(v: unknown): string {
   const s = String(v ?? '').trim();
   return s === '0000000' || s === '0' ? '' : s;
 }
-
-// ما ينقص من بيانات الشيك، بنفس قاعدة دالة الحالة في زوهو
-export function missingData(c: { cheque_number: string; due_date: string; bank: string }): string[] {
-  const out: string[] = [];
-  if (!c.cheque_number) out.push('رقم الشيك');
-  if (!c.due_date) out.push('تاريخ الاستحقاق');
-  if (!c.bank) out.push('البنك الساحب');
-  return out;
-}
