@@ -51,20 +51,24 @@
     const late = c.days > LATE_DAYS && !opts.noAge;
     const selectable = opts.selectable && !c.lock;
     const selected = selectable && opts.selected.has(c.id);
+    const tag = (k, v) => el('span', { class: 'tag' }, el('span', { class: 'k', text: k }), v);
 
     const li = el('li', { class: 'item' + (selectable ? ' selectable' : '') + (selected ? ' selected' : '') },
-      el('div', { class: 'customer' },
-        selectable ? el('span', { class: 'check', 'aria-hidden': 'true' }) : null,
-        el('span', { text: c.customer })),
-      el('div', { class: 'amount' }, ltr(fmtAmount(c.amount), 'num')),
-      el('div', { class: 'details' },
-        el('span', {}, 'شيك رقم ', c.cheque_number ? ltr(c.cheque_number, 'num') : el('span', { text: 'غير مسجّل' })),
-        el('span', {}, 'استلام ', ltr(fmtDate(c.date), 'num')),
-        c.location ? el('span', { text: c.location }) : null,
-        opts.showStatus ? el('span', { class: 'badge', text: c.status }) : null,
-      ),
-      opts.noAge ? el('div') : el('div', { class: 'age' + (late ? ' late' : ''), text: daysText(c.days) + (late ? ' — متأخر' : '') }),
-      opts.selectable && c.lock ? el('div', { class: 'item-action' }, el('span', { class: 'badge', text: LOCK_LABELS[c.lock] || c.lock })) : null,
+      el('div', { class: 'item-main' },
+        el('div', { class: 'customer' },
+          selectable ? el('span', { class: 'check', 'aria-hidden': 'true' }) : null,
+          el('span', { text: c.customer })),
+        el('div', { class: 'amount' }, ltr(fmtAmount(c.amount), 'num'))),
+      el('div', { class: 'item-sub' },
+        el('div', { class: 'tags' },
+          tag('شيك', c.cheque_number ? ltr(c.cheque_number, 'num') : el('span', { text: 'غير مسجّل' })),
+          tag('استلام', ltr(fmtDate(c.date), 'num')),
+          c.location ? el('span', { class: 'tag', text: c.location }) : null,
+          opts.showStatus ? el('span', { class: 'badge', text: c.status }) : null),
+        opts.noAge ? null : el('span', { class: 'age' + (late ? ' late' : ''), text: daysText(c.days) + (late ? ' · متأخر' : '') })),
+      opts.selectable && c.lock
+        ? el('div', { class: 'item-action' }, el('span', { class: 'badge lock-' + c.lock, text: LOCK_LABELS[c.lock] || c.lock }))
+        : null,
     );
 
     if (selectable) {
@@ -80,9 +84,14 @@
   }
 
   function meta(items, hideTotal) {
-    if (!items.length) return el('span', { class: 'meta', text: 'لا شيء' });
-    if (hideTotal) return el('span', { class: 'meta', text: chequeWord(items.length) });
-    return el('span', { class: 'meta' }, `${chequeWord(items.length)} · `, ltr(fmtAmount(sum(items)), 'num'));
+    if (!items.length || hideTotal) return null;
+    return el('span', { class: 'meta' }, ltr(fmtAmount(sum(items)), 'num'));
+  }
+
+  function head(tag, title, items, hideTotal) {
+    return el(tag, { class: 'block-head' },
+      el('h2', {}, el('span', { text: title }), el('span', { class: 'count', text: String(items.length) })),
+      meta(items, hideTotal));
   }
 
   // قسم ثابت أو مطوي. القسم المطوي يتذكر حالته أثناء الجلسة.
@@ -92,12 +101,10 @@
       : el('div', { class: 'empty', text: opts.emptyText || 'لا توجد شيكات هنا.' });
     const note = opts.note ? el('div', { class: 'note ' + (opts.noteClass || ''), text: opts.note }) : null;
     if (!opts.collapsible) {
-      return el('section', { class: 'block' },
-        el('div', { class: 'block-head' }, el('h2', { text: title }), meta(items, opts.hideTotal)), note, list);
+      return el('section', { class: 'block primary' }, head('div', title, items, opts.hideTotal), note, list);
     }
     const open = st.q ? items.length > 0 : !!st.open[id];
-    const d = el('details', { class: 'block fold', open },
-      el('summary', { class: 'block-head' }, el('h2', { text: title }), meta(items, opts.hideTotal)), note, list);
+    const d = el('details', { class: 'block fold ' + (opts.noteClass || ''), open }, head('summary', title, items, opts.hideTotal), note, list);
     d.addEventListener('toggle', () => { if (!st.q) st.open[id] = d.open; });
     return d;
   }
@@ -293,10 +300,15 @@
       for (const id of [...st.selected.keys()]) if (!available.has(id)) st.selected.delete(id);
 
       const locLabel = st.loc ? ` — ${st.loc}` : '';
-      kpiBox.replaceChildren(el('div', { class: 'kpi' },
-        el('div', { class: 'label', text: 'شيكات تنتظر الإيداع' + locLabel }),
-        el('div', { class: 'value display' }, ltr(fmtAmount(sum(waiting)))),
-        el('div', { class: 'sub', text: `${chequeWord(waiting.length)} في الحوزة` }),
+      const inBank = pick(d.agb_pending_collection);
+      kpiBox.replaceChildren(el('div', { class: 'kpis' },
+        el('div', { class: 'kpi' },
+          el('div', { class: 'label', text: 'تنتظر الإيداع' + locLabel }),
+          el('div', { class: 'value display' }, ltr(fmtAmount(sum(waiting)))),
+          el('div', { class: 'sub', text: `${chequeWord(waiting.length)} في الحوزة` })),
+        el('div', { class: 'kpi dark' },
+          el('div', { class: 'label' }, 'في بنك AGB بانتظار التحصيل', el('span', { class: 'sub', text: chequeWord(inBank.length) })),
+          el('div', { class: 'value display' }, ltr(fmtAmount(sum(inBank))))),
       ));
 
       const opts = { selected: st.selected, onToggle: toggle };
