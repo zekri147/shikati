@@ -6,7 +6,7 @@ import { canDeposit, handleDeposit, lockStates, reconcileDoneLocks } from './dep
 import { handleChequeImage } from './image';
 import { handleChequeDetail } from './detail';
 import { ACCOUNT_CHEQUES_IN_HAND, CACHE_KEY, DEST, STATUS, todayAlgiers } from './constants';
-import { chequeNumber } from './fields';
+import { chequeNumber, wrongAccountText } from './fields';
 
 export { ACCOUNT_CHEQUES_IN_HAND, DEST, STATUS, todayAlgiers };
 
@@ -71,7 +71,7 @@ interface Section {
 }
 
 // التنبيهات تعوّض ما كان يصل عبر تيليجرام. كل تنبيه يشير إلى شيك في قائمة all.
-export type AlertKind = 'rejected' | 'late' | 'unknown_lock' | 'box' | 'fiscal';
+export type AlertKind = 'rejected' | 'late' | 'wrong_account' | 'unknown_lock' | 'box' | 'fiscal';
 export interface ChequeAlert {
   kind: AlertKind;
   id: string;
@@ -170,6 +170,8 @@ export function buildView(payments: ZohoPayment[], today: string): ChequesView {
     const active = c.status === STATUS.IN_HAND || c.status === STATUS.DEPOSITED || c.status === '';
     if (!active) continue;
     if (c.status === STATUS.IN_HAND && c.days > LATE_DAYS) alerts.push({ kind: 'late', id: c.id });
+    const wrong = wrongAccountText(p.account_id, c.account, c.destination);
+    if (wrong) alerts.push({ kind: 'wrong_account', id: c.id, text: wrong });
     const box = (p.cf_51a7f5 || '').trim();
     if (box) alerts.push({ kind: 'box', id: c.id, text: box });
     const fiscal = (p.cf_023de7 || '').trim();

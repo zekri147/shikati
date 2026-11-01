@@ -33,6 +33,7 @@
         statusBadge(d.status),
         d.destination ? el('span', { class: 'badge dest', text: 'الوجهة: ' + d.destination }) : el('span', { class: 'badge warn', text: 'الوجهة غير محددة' }))));
 
+    if (d.wrong_account) parts.push(el('div', { class: 'note warn', text: 'حساب غير صحيح: ' + d.wrong_account }));
     if (d.box_alert) parts.push(el('div', { class: 'note alert', text: 'صندوق غير مطابق: ' + d.box_alert }));
     if (d.app.lock && d.app.lock.state === 'unknown') {
       parts.push(el('div', { class: 'note alert', text: 'بانتظار التحقق: انقطع الرد بعد محاولة إيداع هذا الشيك. تحقق في صفحة الإدارة قبل أي محاولة جديدة.' }));

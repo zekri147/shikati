@@ -21,3 +21,20 @@ export function chequeNumber(v: unknown): string {
   const s = String(v ?? '').trim();
   return s === '0000000' || s === '0' ? '' : s;
 }
+
+const CIH = '7418406000000000358';
+const ENDORSED = '7418406000009849106';
+const ENDORSED_DEST = 'Autre Fournisseur';
+
+// فحص الحساب، بنفس قاعدة دالة الحالة في زوهو: الشيك المظهّر لمورد في حساب الشيكات المظهّرة،
+// والشيك بلا وجهة في أحدهما، وكل شيك آخر في حساب الحوزة. يعيد اسم الحساب المتوقع، أو فارغاً إن كان سليماً.
+export function expectedAccount(accountId: string, destination: string): string {
+  if (destination === ENDORSED_DEST) return accountId === ENDORSED ? '' : 'Endorsed Cheques';
+  if (!destination) return accountId === CIH || accountId === ENDORSED ? '' : 'Cheques in Hand';
+  return accountId === CIH ? '' : 'Cheques in Hand';
+}
+
+export function wrongAccountText(accountId: string, accountName: string, destination: string): string {
+  const expected = expectedAccount(accountId, destination);
+  return expected ? `مسجّل في حساب «${accountName || 'غير معروف'}»، والصحيح «${expected}»` : '';
+}

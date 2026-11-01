@@ -16,6 +16,7 @@
     { kind: 'unknown_lock', title: 'بانتظار التحقق', cls: 'alert', note: 'انقطع الرد بعد محاولة الإيداع. تحقق في زوهو، ثم حرّر القفل من صفحة الإدارة.' },
     { kind: 'rejected', title: 'شيكات مرفوضة', cls: 'alert', note: 'تحتاج متابعة مع العميل.' },
     { kind: 'late', title: 'في الحوزة منذ أكثر من 7 أيام', cls: 'warn', note: 'أعطها الأولوية في الإيداع.' },
+    { kind: 'wrong_account', title: 'حساب غير صحيح في زوهو', cls: 'warn', withText: true },
     { kind: 'box', title: 'صندوق غير مطابق', cls: 'warn', withText: true },
     { kind: 'fiscal', title: 'الملف الجبائي للعميل ناقص', cls: '', withText: true, closed: true, quiet: true },
   ];
@@ -297,7 +298,7 @@
         if (!items.length) continue;
         parts.push(section('al-' + a.kind, a.title, items, {
           link: true, collapsible: true, ageInHandOnly: true, noteClass: a.cls, note: a.note,
-          showStatus: a.kind === 'box' || a.kind === 'fiscal',
+          showStatus: a.kind === 'wrong_account' || a.kind === 'box' || a.kind === 'fiscal',
           noteFor: a.withText ? (c) => texts.get(c.id) || null : null,
         }, st));
       }

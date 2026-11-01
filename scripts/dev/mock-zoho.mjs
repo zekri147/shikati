@@ -16,7 +16,7 @@
 // شيكات إضافية بحالات أخرى لتجربة «كل الشيكات» و«التنبيهات» وصفحة التفاصيل
 // (معرّفاتها تنتهي بـ 0 أو 9، فلا تدخل في سيناريوهات الإيداع أعلاه):
 //   ..10 روستمية في الحوزة           ..19 مودع في AGB      ..20 محصّل
-//   ..29 مظهّر لمورد                  ..30 مرفوض            ..39 بلا وجهة ولا رقم ولا صورة
+//   ..29 مظهّر لمورد                  ..30 مرفوض            ..39 في صندوق نقدي بالخطأ
 //   ..40 شيك ضمان                     ..49 AGB متأخر
 //
 // أدوات إضافية:
@@ -91,7 +91,8 @@ extra('7418400000000029', 29, { customer: 'EURL HOUSE FIX', amount: 835400, date
     cf_fffaad: `[END|741840600001|741840600002]\nظُهّر للمورد SARL ACIER بتاريخ ${day(-3)} باعتماد الإدارة` });
 extra('7418400000000030', 30, { customer: 'SARL TECHNO FER', amount: 95000, date: day(-15) },
   { cf_5d7197: 'مرفوض', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512030', cf_fafa0d: 'BDL' });
-extra('7418400000000039', 39, { customer: 'EURL SANS DATE', amount: 60000, date: day(-10), image: false },
+extra('7418400000000039', 39, { customer: 'EURL SANS DATE', amount: 60000, date: day(-10), image: false,
+  account_id: '7418406000000000999', account_name: 'Caisse ALGER' },
   { cf_5d7197: 'في الحوزة', cf_n_cheque: '0000000',
     cf_023de7: '✖ ينقص: NIF · NIS · ART', cf_51a7f5: 'Caisse ALGER → AMINE | مُنشئ العملية: SAMIR',
     cf_drive: 'https://drive.google.com/file/d/abc123/view' });

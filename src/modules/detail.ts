@@ -1,7 +1,7 @@
 import type { Env, User } from '../env';
 import { HttpError, json } from '../http';
 import { zohoRequest, ZohoTimeout } from '../zoho';
-import { chequeNumber, isoDate } from './fields';
+import { chequeNumber, isoDate, wrongAccountText } from './fields';
 
 // صفحة تفاصيل الشيك: قراءة فقط. تُقرأ الدفعة من زوهو مباشرة في كل مرة،
 // ثم يُضاف إليها ما سجّله التطبيق نفسه (قفل الإيداع وسجل العمليات).
@@ -77,6 +77,7 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
     cheque_number: chequeNumber(cf.cf_n_cheque),
     bank: str(cf.cf_fafa0d),
     account: str(p.account_name),
+    wrong_account: wrongAccountText(str(p.account_id), str(p.account_name), str(cf.cf_d_pos_vers)),
     location: LOCATIONS[str(p.location_name).toUpperCase()] || str(p.location_name),
     created_by: str(p.created_by_name || p.created_by),
     captured_at: str(cf.cf_3e4e94_unformatted || cf.cf_3e4e94),
