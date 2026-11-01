@@ -4,7 +4,7 @@
   const ACTION = {
     login: 'دخول', 'user.create': 'إنشاء مستخدم', 'user.disable': 'إيقاف مستخدم',
     'user.enable': 'تفعيل مستخدم', 'user.password': 'تغيير رمز سري', setup: 'الإعداد الأولي',
-    deposit: 'إيداع شيك', 'deposit.release': 'تحرير إيداع',
+    deposit: 'إيداع شيك', 'deposit.release': 'تحرير إيداع', 'deposit.reverted': 'إيداع أُلغي في زوهو',
   };
   const RESULT = { ok: 'تمّ', denied: 'مرفوض', error: 'خطأ' };
 

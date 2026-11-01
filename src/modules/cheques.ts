@@ -2,7 +2,7 @@ import type { Env } from '../env';
 import type { AppModule } from './types';
 import { HttpError, json } from '../http';
 import { cacheGet, cachePut, zohoGet } from '../zoho';
-import { canDeposit, handleDeposit, lockStates } from './deposit';
+import { canDeposit, handleDeposit, lockStates, reconcileDoneLocks } from './deposit';
 import { ACCOUNT_CHEQUES_IN_HAND, CACHE_KEY, DEST, STATUS, todayAlgiers } from './constants';
 
 export { ACCOUNT_CHEQUES_IN_HAND, DEST, STATUS, todayAlgiers };
@@ -170,6 +170,7 @@ export const chequesModule: AppModule = {
       // الأقفال تُقرأ في كل طلب، لا من التخزين المؤقت
       const locks = await lockStates(env);
       for (const c of view.agb_in_hand.items) if (locks[c.id]) c.lock = locks[c.id];
+      await reconcileDoneLocks(env, view.agb_in_hand.items);
       return json({ ...view, can_deposit: canDeposit(env, user) });
     }
     if (req.method === 'POST' && subpath === '/deposit') return handleDeposit(req, env, user);

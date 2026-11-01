@@ -56,6 +56,33 @@ export async function lockStates(env: Env): Promise<Record<string, DepositState>
   return out;
 }
 
+// شيك مقفل بحالة «تم» لكنه عاد إلى قسم «في الحوزة»: إما أن الإيداع أُلغي في زوهو،
+// وإما أن تحديث الحالة فشل بعد الإيداع. نقرأ الدفعة لنفرّق بينهما.
+// إن لم يكن لها أي إيداع وحالتها «في الحوزة»، نحرّر القفل فيعود الزر.
+// هذا آمن: محاولة الإيداع الجديدة تعيد كل الفحوص في زوهو قبل أي كتابة.
+export async function reconcileDoneLocks(env: Env, items: { id: string; lock?: string }[]): Promise<void> {
+  const candidates = items.filter((c) => c.lock === 'done').slice(0, 10);
+  for (const c of candidates) {
+    try {
+      const r = await zohoRequest<{ payment?: ZohoPayment }>(env, 'GET', `/customerpayments/${c.id}`, { timeoutMs: 10_000 });
+      const p = r.data?.payment;
+      if (!r.data || r.data.code !== 0 || !p) continue;
+      const hasDeposit = Array.isArray(p.deposit_details) && p.deposit_details.length > 0;
+      const status = String(p.custom_field_hash?.cf_5d7197 || '').trim();
+      if (hasDeposit || status !== STATUS.IN_HAND) continue;
+      const res = await env.DB.prepare(
+        "UPDATE deposits SET state = 'failed', message = ?, finished_at = datetime('now') WHERE payment_id = ? AND state = 'done'",
+      ).bind('أُلغي الإيداع في زوهو بعد تسجيله، فأصبح الشيك قابلاً للإيداع من جديد', c.id).run();
+      if (res.meta.changes) {
+        delete c.lock;
+        await audit(env, null, 'deposit.reverted', 'ok', c.id, 'no deposit in Zoho');
+      }
+    } catch {
+      // عند أي خطأ يبقى القفل كما هو
+    }
+  }
+}
+
 const LOCKED_MESSAGES: Record<DepositState, string> = {
   pending: 'إيداع هذا الشيك قيد التنفيذ الآن. انتظر قليلاً ثم حدّث الصفحة.',
   done: 'سُجّل إيداع هذا الشيك من قبل في التطبيق.',
