@@ -3,6 +3,7 @@ import { HttpError, json, readJson } from './http';
 import { hashPassword } from './crypto';
 import { audit } from './audit';
 import { handleDiag } from './diag';
+import { listDeposits, releaseDeposit } from './modules/deposit';
 
 const USERNAME_RE = /^[a-z0-9._-]{3,32}$/;
 const ROLES: Role[] = ['admin', 'depositor'];
@@ -75,6 +76,12 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
     await audit(env, admin, `user.${action}`, 'ok', target.username);
     return json({ ok: true });
   }
+
+  // GET /api/admin/deposits
+  if (req.method === 'GET' && path === '/deposits') return listDeposits(env);
+  // POST /api/admin/deposits/:id/release
+  const rel = path.match(/^\/deposits\/(\d+)\/release$/);
+  if (req.method === 'POST' && rel) return releaseDeposit(env, admin, rel[1]);
 
   // GET /api/admin/diag
   if (req.method === 'GET' && path === '/diag') return handleDiag(env, new URL(req.url).searchParams.get('refresh') === '1');

@@ -2,21 +2,13 @@ import type { Env } from '../env';
 import type { AppModule } from './types';
 import { HttpError, json } from '../http';
 import { cacheGet, cachePut, zohoGet } from '../zoho';
+import { canDeposit, handleDeposit, lockStates } from './deposit';
+import { ACCOUNT_CHEQUES_IN_HAND, CACHE_KEY, DEST, STATUS, todayAlgiers } from './constants';
 
-export const ACCOUNT_CHEQUES_IN_HAND = '7418406000000000358';
-
-export const STATUS = {
-  IN_HAND: 'في الحوزة',
-  DEPOSITED: 'مودع في البنك',
-  COLLECTED: 'محصّل',
-  REJECTED: 'مرفوض',
-} as const;
-
-export const DEST = { AGB: 'ELONAC', ROSTOMIA: 'ROSTOMIA' } as const;
+export { ACCOUNT_CHEQUES_IN_HAND, DEST, STATUS, todayAlgiers };
 
 const LOCATIONS: Record<string, string> = { ALGER: 'الجزائر', 'EL EULMA': 'العلمة' };
 
-const CACHE_KEY = 'cheques_v1';
 const CACHE_TTL = 60;
 const MAX_PAGES = 50;
 
@@ -52,6 +44,8 @@ export interface Cheque {
   location: string;
   status: string;
   destination: string;
+  // حالة قفل الإيداع في التطبيق، إن وُجد
+  lock?: string;
 }
 
 interface Section {
@@ -70,11 +64,6 @@ export interface ChequesView {
   no_destination: Section;
   agb_pending_collection: Section;
   agb_recent: Section;
-}
-
-// تاريخ اليوم بتوقيت الجزائر بصيغة YYYY-MM-DD
-export function todayAlgiers(now = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Algiers' }).format(now);
 }
 
 function daysBetween(from: string, to: string): number {
@@ -174,12 +163,16 @@ export const chequesModule: AppModule = {
   id: 'cheques',
   title: 'شيكاتي',
   roles: ['admin', 'depositor'],
-  async handle(req, env, _user, subpath) {
+  async handle(req, env, user, subpath) {
     if (req.method === 'GET' && (subpath === '' || subpath === '/')) {
       const refresh = new URL(req.url).searchParams.get('refresh') === '1';
-      // المرحلة الأولى: لا يوجد زر إيداع
-      return json({ ...(await getView(env, refresh)), can_deposit: false });
+      const view = await getView(env, refresh);
+      // الأقفال تُقرأ في كل طلب، لا من التخزين المؤقت
+      const locks = await lockStates(env);
+      for (const c of view.agb_in_hand.items) if (locks[c.id]) c.lock = locks[c.id];
+      return json({ ...view, can_deposit: canDeposit(env, user) });
     }
+    if (req.method === 'POST' && subpath === '/deposit') return handleDeposit(req, env, user);
     throw new HttpError(404, 'غير موجود.');
   },
 };

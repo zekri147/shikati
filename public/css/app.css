@@ -140,3 +140,23 @@ td.nowrap { white-space: nowrap; }
 .row-actions button { padding: 4px 10px; font-size: 13px; white-space: nowrap; }
 .grid-form { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 @media (max-width: 520px) { .grid-form { grid-template-columns: 1fr; } }
+
+/* زر الإيداع وبطاقة التأكيد */
+.item-action { grid-column: 1 / -1; display: flex; justify-content: flex-end; margin-top: 6px; }
+.btn-deposit { padding: 8px 22px; }
+dialog.confirm {
+  border: 0; padding: 20px; width: min(420px, calc(100vw - 32px));
+  background: var(--surface); color: var(--ink);
+  border-top: 4px solid var(--brand);
+}
+dialog.confirm::backdrop { background: rgba(0, 0, 0, .6); }
+dialog.confirm h2 { font-size: 18px; margin: 0 0 12px; }
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0 0 12px; }
+.facts dt { color: var(--ink-muted); font-size: 14px; }
+.facts dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.strong { font-weight: 600; }
+.small { font-size: 13px; }
+.dlg-actions { display: flex; gap: 8px; margin-top: 8px; }
+.dlg-actions button { flex: 1; padding: 12px; font-size: 15px; }
+.form-ok { color: var(--ink); font-size: 14px; padding: 8px 10px; margin-top: 10px; border-inline-start: 3px solid #4cc38a; background: var(--surface-alt); }
+.form-warn { color: var(--ink); font-size: 14px; padding: 8px 10px; margin-top: 10px; border-inline-start: 3px solid var(--warning); background: var(--surface-alt); }

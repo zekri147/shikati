@@ -11,8 +11,17 @@
     return `منذ ${n} يوماً`;
   }
 
+  const LOCK_LABELS = { pending: 'الإيداع قيد التنفيذ', unknown: 'بانتظار التحقق', done: 'سُجّل إيداعه' };
+
   function chequeItem(c, opts = {}) {
     const late = c.days > LATE_DAYS && !opts.noAge;
+    let action = null;
+    if (opts.depositable) {
+      action = c.lock
+        ? el('div', { class: 'item-action' }, el('span', { class: 'badge', text: LOCK_LABELS[c.lock] || c.lock }))
+        : el('div', { class: 'item-action' },
+            el('button', { type: 'button', class: 'btn-primary btn-deposit', text: 'أودعت', onclick: () => opts.onDeposit(c) }));
+    }
     return el('li', { class: 'item' },
       el('div', { class: 'customer', text: c.customer }),
       el('div', { class: 'amount' }, ltr(fmtAmount(c.amount), 'num')),
@@ -23,6 +32,7 @@
         opts.showStatus ? el('span', { class: 'badge', text: c.status }) : null,
       ),
       opts.noAge ? el('div') : el('div', { class: 'age' + (late ? ' late' : ''), text: daysText(c.days) + (late ? ' — متأخر' : '') }),
+      action,
     );
   }
 
@@ -37,6 +47,59 @@
         ? el('ul', { class: 'list' }, sec.items.map((c) => chequeItem(c, opts)))
         : el('div', { class: 'empty', text: opts.emptyText || 'لا توجد شيكات في هذا القسم.' }),
     );
+  }
+
+  // بطاقة التأكيد قبل الإيداع. تعيد true إن نجح الطلب أو تغيّرت حالة الشيك.
+  function confirmDeposit(c) {
+    return new Promise((resolve) => {
+      const status = el('div', { class: 'form-error', role: 'alert' });
+      const okBtn = el('button', { type: 'button', class: 'btn-primary', text: 'تأكيد الإيداع' });
+      const cancelBtn = el('button', { type: 'button', class: 'btn-plain', text: 'إلغاء' });
+      const dlg = el('dialog', { class: 'confirm', 'aria-labelledby': 'dlg-title' },
+        el('h2', { id: 'dlg-title', text: 'تأكيد إيداع شيك في بنك AGB' }),
+        el('dl', { class: 'facts' },
+          el('dt', { text: 'العميل' }), el('dd', { text: c.customer }),
+          el('dt', { text: 'المبلغ' }), el('dd', {}, ltr(fmtAmount(c.amount), 'num strong')),
+          el('dt', { text: 'رقم الشيك' }), el('dd', {}, c.cheque_number ? ltr(c.cheque_number, 'num strong') : el('span', { text: 'غير مسجّل' })),
+        ),
+        el('p', { class: 'muted small', text: 'تأكد أن الشيك سُلِّم فعلاً للبنك. سيُسجَّل الإيداع في زوهو باسمك.' }),
+        status,
+        el('div', { class: 'dlg-actions' }, okBtn, cancelBtn),
+      );
+      let changed = false;
+      let busy = false;
+      const close = () => { if (busy) return; dlg.close(); dlg.remove(); resolve(changed); };
+      cancelBtn.addEventListener('click', close);
+      dlg.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
+      okBtn.addEventListener('click', async () => {
+        busy = true;
+        okBtn.disabled = true; cancelBtn.disabled = true;
+        okBtn.textContent = 'جارٍ التسجيل…';
+        status.className = 'form-error';
+        status.textContent = '';
+        try {
+          const r = await api('/api/m/cheques/deposit', { method: 'POST', body: {
+            payment_id: c.id, amount: c.amount, cheque_number: c.cheque_number,
+          } });
+          changed = true;
+          status.className = r.warning ? 'form-warn' : 'form-ok';
+          status.textContent = r.warning || r.message || 'تم.';
+          okBtn.remove();
+          cancelBtn.textContent = 'إغلاق';
+        } catch (e) {
+          changed = true; // الحالة ربما تغيّرت، فنحدّث القائمة بعد الإغلاق
+          status.textContent = e.message;
+          okBtn.remove();
+          cancelBtn.textContent = 'إغلاق';
+        } finally {
+          busy = false;
+          cancelBtn.disabled = false;
+        }
+      });
+      document.body.append(dlg);
+      dlg.showModal();
+      okBtn.focus();
+    });
   }
 
   function renderData(root, d, onRefresh) {
@@ -58,7 +121,8 @@
       parts.push(block('شيكات مرفوضة', d.rejected, { note: 'تحتاج متابعة مع العميل.', noteClass: 'alert' }));
     }
     parts.push(block('في الحوزة للإيداع في بنك AGB', d.agb_in_hand, {
-      note: d.can_deposit ? null : 'زر «أودعت» سيُضاف في المرحلة الثانية.',
+      depositable: d.can_deposit,
+      onDeposit: async (c) => { if (await confirmDeposit(c)) onRefresh(); },
     }));
     parts.push(block('في الحوزة للإيداع في بنك روستمية', d.rostomia_in_hand, { note: 'للعرض فقط.' }));
     if (d.no_destination.count) {

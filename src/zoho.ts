@@ -1,7 +1,7 @@
 import type { Env } from './env';
 import { HttpError, nowSec } from './http';
 
-// المرحلة الأولى: قراءة فقط. هذا الملف لا يحتوي أي طلب كتابة إلى زوهو بوكس.
+// طلبات زوهو بوكس. طلبات الكتابة لا تُستعمل إلا من وحدة الإيداع (modules/deposit.ts).
 
 const TOKEN_HINTS: Record<string, string> = {
   invalid_client: 'معرّف العميل أو سرّه غير صحيح، أو التطبيق في مركز بيانات آخر.',
@@ -113,28 +113,61 @@ async function accessToken(env: Env, force = false): Promise<string> {
   return data.access_token;
 }
 
-export async function zohoGet<T>(env: Env, path: string, params: Record<string, string | number> = {}): Promise<T> {
+export class ZohoTimeout extends Error {}
+
+type ZohoResult = { code?: number; message?: string };
+
+// طلب إلى زوهو بوكس. خطأ 401 يعني أن الطلب لم يُنفَّذ، فنجدّد الرمز ونعيده مرة واحدة.
+// أي خطأ آخر لا يُعاد تلقائياً، خصوصاً في طلبات الكتابة.
+export async function zohoRequest<T>(
+  env: Env,
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  path: string,
+  opts: { params?: Record<string, string | number>; body?: unknown; timeoutMs?: number } = {},
+): Promise<{ status: number; data: (ZohoResult & T) | null }> {
   const url = new URL(env.ZOHO_API_BASE + path);
   url.searchParams.set('organization_id', env.ZOHO_ORG_ID);
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
+  for (const [k, v] of Object.entries(opts.params || {})) url.searchParams.set(k, String(v));
 
   for (let attempt = 0; attempt < 2; attempt++) {
     const token = await accessToken(env, attempt > 0);
-    const res = await fetch(url.toString(), {
-      method: 'GET',
-      headers: { Authorization: `Zoho-oauthtoken ${token}` },
-    });
+    const headers: Record<string, string> = { Authorization: `Zoho-oauthtoken ${token}` };
+    if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
+    let res: Response;
+    try {
+      res = await fetch(url.toString(), {
+        method,
+        headers,
+        body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+        signal: AbortSignal.timeout(opts.timeoutMs ?? 25_000),
+      });
+    } catch (e) {
+      // انقطاع أو مهلة: لا نعرف إن كان زوهو نفّذ الطلب
+      console.error('zoho request failed', method, path, e instanceof Error ? e.name : e);
+      throw new ZohoTimeout(String(e));
+    }
     if (res.status === 401 && attempt === 0) {
       memToken = null;
       continue;
     }
-    const data = (await res.json().catch(() => null)) as ({ code?: number; message?: string } & T) | null;
-    if (!res.ok || !data || data.code !== 0) {
-      console.error('zoho GET failed', path, res.status, data?.code, data?.message);
-      if (res.status === 429) throw new HttpError(503, 'زوهو مشغول الآن. حاول بعد دقيقة.');
-      throw new HttpError(502, 'تعذّر جلب البيانات من زوهو.');
-    }
-    return data;
+    const data = (await res.json().catch(() => null)) as (ZohoResult & T) | null;
+    return { status: res.status, data };
   }
-  throw new HttpError(502, 'تعذّر جلب البيانات من زوهو.');
+  return { status: 401, data: null };
+}
+
+export async function zohoGet<T>(env: Env, path: string, params: Record<string, string | number> = {}): Promise<T> {
+  let r;
+  try {
+    r = await zohoRequest<T>(env, 'GET', path, { params });
+  } catch (e) {
+    if (e instanceof ZohoTimeout) throw new HttpError(504, 'زوهو لم يرد في الوقت المحدد. حاول مرة أخرى.');
+    throw e;
+  }
+  if (r.status >= 400 || !r.data || r.data.code !== 0) {
+    console.error('zoho GET failed', path, r.status, r.data?.code, r.data?.message);
+    if (r.status === 429) throw new HttpError(503, 'زوهو مشغول الآن. حاول بعد دقيقة.');
+    throw new HttpError(502, 'تعذّر جلب البيانات من زوهو.');
+  }
+  return r.data;
 }

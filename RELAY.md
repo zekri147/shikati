@@ -123,6 +123,16 @@ https://shikati.zekri3047.workers.dev/api/admin/diag?refresh=1
 | ‏`invalid_code` | رمز التجديد في خصائص السكربت غير صحيح |
 | ‏`not_json` | الرابط غير صحيح، أو خيار «Who has access» ليس «Anyone» |
 
+## صلاحيات المرحلة الثانية
+
+تسجيل الإيداع يحتاج رمز تجديد بصلاحيات الكتابة. كرر الخطوة «3 مكرر» بهذه الصلاحيات معاً، مفصولة بفاصلة دون مسافات:
+
+```
+ZohoBooks.customerpayments.READ,ZohoBooks.customerpayments.UPDATE,ZohoBooks.banking.CREATE,ZohoBooks.banking.READ,ZohoBooks.banking.DELETE
+```
+
+الدالة `exchangeCode` تستبدل رمز التجديد القديم بالجديد. لا حاجة لنشر نسخة جديدة من السكربت ولا لتغيير شيء في كلاود فلير.
+
 ## تحديث الشيفرة بعد نسخة سابقة
 
 إن كنت أنشأت الوسيط بنسخة سابقة من الشيفرة: الصق الشيفرة الجديدة كاملة مكان القديمة واحفظ، ثم انشر نسخة جديدة كما في القسم التالي.

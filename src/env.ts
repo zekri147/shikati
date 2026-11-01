@@ -5,6 +5,8 @@ export interface Env {
   ZOHO_API_BASE: string;
   ZOHO_ACCOUNTS_URL: string;
   SESSION_HOURS: string;
+  // الأدوار المسموح لها بتسجيل الإيداع، مفصولة بفاصلة: admin أو admin,depositor
+  DEPOSIT_ROLES?: string;
   // أسرار تُضاف بـ wrangler secret put، لا تُكتب في الشيفرة
   ZOHO_CLIENT_ID?: string;
   ZOHO_CLIENT_SECRET?: string;

@@ -25,6 +25,8 @@ ZOHO_ORG_ID = "904099546"
 ZOHO_API_BASE = "https://www.zohoapis.com/books/v3"
 ZOHO_ACCOUNTS_URL = "https://accounts.zoho.com"
 SESSION_HOURS = "12"
+# من يستطيع تسجيل الإيداع: "admin" للتجربة الأولى، ثم "admin,depositor" لأمين
+DEPOSIT_ROLES = "admin"
 
 # الأسرار لا تُكتب هنا أبداً. تُضاف بالأوامر:
 #   npx wrangler secret put ZOHO_CLIENT_ID

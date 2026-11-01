@@ -1,9 +1,10 @@
 (function () {
-  const { api, el, ltr, logout, fmtDateTime } = window.Shikati;
+  const { api, el, ltr, logout, fmtDateTime, fmtAmount } = window.Shikati;
   const ROLE = { admin: 'مدير', depositor: 'مودِع' };
   const ACTION = {
     login: 'دخول', 'user.create': 'إنشاء مستخدم', 'user.disable': 'إيقاف مستخدم',
     'user.enable': 'تفعيل مستخدم', 'user.password': 'تغيير رمز سري', setup: 'الإعداد الأولي',
+    deposit: 'إيداع شيك', 'deposit.release': 'تحرير إيداع',
   };
   const RESULT = { ok: 'تمّ', denied: 'مرفوض', error: 'خطأ' };
 
@@ -45,8 +46,36 @@
     )));
   }
 
+  const DEP_STATE = { pending: 'قيد التنفيذ', done: 'تم', failed: 'لم يتم', unknown: 'بانتظار التحقق' };
+
+  async function loadDeposits() {
+    const { deposits } = await api('/api/admin/deposits');
+    let attention = false;
+    document.getElementById('deposits').replaceChildren(...deposits.map((d) => {
+      const state = d.stale ? 'unknown' : d.state;
+      if (state === 'unknown') attention = true;
+      return el('tr', {},
+        el('td', { class: 'nowrap' }, ltr(fmtDateTime(d.started_at), 'num')),
+        el('td', { text: d.display_name || '—' }),
+        el('td', { text: d.customer || '—' }),
+        el('td', {}, d.cheque_number ? ltr(d.cheque_number, 'num') : '—'),
+        el('td', { class: 'nowrap' }, d.amount != null ? ltr(fmtAmount(d.amount), 'num') : '—'),
+        el('td', { class: 'nowrap', text: DEP_STATE[state] || state }),
+        el('td', { text: d.message || '' }),
+        el('td', {}, state === 'unknown'
+          ? el('button', { type: 'button', class: 'btn-plain', text: 'تحرير', onclick: async () => {
+              if (!confirm('هل تحققت في زوهو؟ التحرير يسمح بمحاولة إيداع جديدة لهذا الشيك.')) return;
+              try { await api(`/api/admin/deposits/${d.payment_id}/release`, { method: 'POST', body: {} }); await refresh(); }
+              catch (e) { alert(e.message); }
+            } })
+          : ''),
+      );
+    }));
+    document.getElementById('dep-attention').hidden = !attention;
+  }
+
   async function refresh() {
-    try { await Promise.all([loadUsers(), loadAudit()]); }
+    try { await Promise.all([loadUsers(), loadDeposits(), loadAudit()]); }
     catch (e) { alert(e.message); }
   }
 
