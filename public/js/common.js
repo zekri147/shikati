@@ -5,7 +5,8 @@
   function applyTheme(t) {
     document.documentElement.setAttribute('data-theme', t);
     document.querySelectorAll('[data-theme-toggle]').forEach((b) => {
-      b.textContent = t === 'dark' ? 'فاتح' : 'داكن';
+      const long = b.dataset.themeToggle === 'long';
+      b.textContent = t === 'dark' ? (long ? 'الوضع الفاتح' : 'فاتح') : (long ? 'الوضع الداكن' : 'داكن');
       b.setAttribute('aria-label', t === 'dark' ? 'التبديل إلى الوضع الفاتح' : 'التبديل إلى الوضع الداكن');
     });
   }
@@ -21,7 +22,43 @@
   document.addEventListener('DOMContentLoaded', () => {
     applyTheme(storedTheme());
     document.querySelectorAll('[data-theme-toggle]').forEach((b) => b.addEventListener('click', toggleTheme));
+    setupMenu();
   });
+
+  // قائمة الشريط العلوي: تُفتح بزر «القائمة»، وتُغلق بالضغط خارجها أو بزر الرجوع في الهاتف أو بمفتاح الهروب
+  function setupMenu() {
+    const btn = document.getElementById('menu-btn');
+    const menu = document.getElementById('menu');
+    if (!btn || !menu) return;
+    let open = false;
+    const set = (v) => {
+      open = v;
+      menu.classList.toggle('hidden', !v);
+      btn.setAttribute('aria-expanded', String(v));
+    };
+    const onPop = () => { if (open) set(false); };
+    const close = () => {
+      if (!open) return;
+      if (history.state && history.state.menu) history.back(); else set(false);
+    };
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (open) { close(); return; }
+      set(true);
+      history.pushState({ menu: true }, '');
+      const first = menu.querySelector('.menu-item:not(.hidden)');
+      if (first) first.focus();
+    });
+    window.addEventListener('popstate', onPop);
+    document.addEventListener('click', (e) => { if (open && !menu.contains(e.target)) close(); });
+    document.addEventListener('keydown', (e) => { if (open && e.key === 'Escape') { close(); btn.focus(); } });
+    // تغيير الوضع يُبقي القائمة مفتوحة ليرى المستعمل النتيجة، وغيره يغلقها
+    menu.addEventListener('click', (e) => {
+      if (e.target.closest('[data-theme-toggle]')) return;
+      if (e.target.closest('a')) { set(false); return; } // الرابط ينتقل بنفسه
+      if (e.target.closest('.menu-item')) close();
+    });
+  }
 
   async function api(path, opts = {}) {
     const init = { method: opts.method || 'GET', credentials: 'same-origin', headers: {} };
