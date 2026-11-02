@@ -68,7 +68,11 @@
           c.location ? el('span', { class: 'tag', text: c.location }) : null,
           opts.showStatus ? statusBadge(c.status) : null),
         c.status === 'مودع في البنك' && c.deposit_days !== undefined
-          ? el('span', { class: 'age' + (c.deposit_days > LATE_DAYS ? ' late' : ''), text: 'في البنك ' + daysText(c.deposit_days) + (c.deposit_days > LATE_DAYS ? ' · تحصيل متأخر' : '') })
+          ? (() => {
+            // التحصيل المتأخر لبنك AGB وحده: الرستمية لا تتحوّل إلى «محصّل» في زوهو
+            const slow = c.destination === 'ELONAC' && c.deposit_days > LATE_DAYS;
+            return el('span', { class: 'age' + (slow ? ' late' : ''), text: 'في البنك ' + daysText(c.deposit_days) + (slow ? ' · تحصيل متأخر' : '') });
+          })()
           : noAge ? null : el('span', { class: 'age' + (late ? ' late' : ''), text: daysText(c.days) + (late ? ' · متأخر' : '') })),
       opts.note ? el('div', { class: 'item-note', text: opts.note }) : null,
       opts.selectable

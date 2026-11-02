@@ -221,13 +221,14 @@ async function getView(env: Env, refresh: boolean): Promise<ChequesView> {
   }
   const today = todayAlgiers();
   const view = buildView(await fetchAllChequePayments(env), today);
-  // تحصيل متأخر: مودع منذ أكثر من 7 أيام ولم يُحصَّل
+  // تحصيل متأخر: مودع منذ أكثر من 7 أيام ولم يُحصَّل. لبنك AGB وحده بطلب ZEKRI،
+  // لأن تحصيله يُسجَّل آلياً من رسائل البنك، أما الرستمية فلا تتحوّل إلى «محصّل».
   const deposited = view.all.filter((c) => c.status === STATUS.DEPOSITED);
   await fillDepositDates(env, deposited);
   for (const c of deposited) {
     if (!c.deposit_date) continue;
     c.deposit_days = Math.max(0, daysBetween(c.deposit_date, today));
-    if (c.deposit_days > COLLECT_LATE_DAYS) view.alerts.push({ kind: 'collect_late', id: c.id });
+    if (c.destination === DEST.AGB && c.deposit_days > COLLECT_LATE_DAYS) view.alerts.push({ kind: 'collect_late', id: c.id });
   }
   // الأقسام نسخ من all بعد التخزين، فنكمّل تاريخ الإيداع فيها أيضاً
   const byId = new Map(view.all.map((c) => [c.id, c]));
