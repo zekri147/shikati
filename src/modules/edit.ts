@@ -18,7 +18,7 @@ const CHEQUE_RE = /^\d{7}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const ENDORSED_DEST = 'Autre Fournisseur';
 
-interface PaymentInvoice { invoice_id?: string; invoice_number?: string; date?: string; amount_applied?: number; balance?: number }
+interface PaymentInvoice { invoice_id?: string; invoice_payment_id?: string; invoice_number?: string; date?: string; amount_applied?: number; balance?: number }
 interface Payment {
   payment_id: string;
   customer_id?: string;
@@ -238,7 +238,14 @@ export async function handleEdit(req: Request, env: Env, user: User): Promise<Re
         customer_id: p.customer_id,
         payment_mode: 'Check',
         amount,
-        invoices: alloc.lines.map((l) => ({ invoice_id: l.invoice_id, amount_applied: l.applied })),
+        // معرّف التطبيق الحالي على الفاتورة: دونه يعدّه زوهو تطبيقاً جديداً على فاتورة مسدّدة فيرفضه
+        // (جُرّب على زوهو يوم 2/11/2026)
+        invoices: alloc.lines.map((l) => {
+          const cur = (p.invoices || []).find((i) => str(i.invoice_id) === l.invoice_id && str(i.invoice_payment_id));
+          return cur
+            ? { invoice_id: l.invoice_id, invoice_payment_id: str(cur.invoice_payment_id), amount_applied: l.applied }
+            : { invoice_id: l.invoice_id, amount_applied: l.applied };
+        }),
       });
     }
 
