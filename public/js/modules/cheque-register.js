@@ -130,7 +130,8 @@
           row('رقم الشيك', ltr(form.cheque_number, 'num')),
           row('الوجهة', el('span', { text: DEST_LABELS[form.destination] })),
           endorsed ? row('المورد', el('span', { text: form.vendor.name })) : null,
-          row('الموقع', el('span', { text: form.locationLabel }))),
+          row('الموقع', el('span', { text: form.locationLabel })),
+          row('تاريخ الاستلام', ltr(fmtDate(form.date), 'num'))),
         el('h3', { class: 'reg-sub', text: endorsed ? 'التوزيع على فواتير العميل' : 'التوزيع على الفواتير' }),
         alloc,
         preview.unused > 0 ? el('p', { class: 'note warn' }, 'يبقى ', ltr(fmtAmount(preview.unused), 'num strong'), ' رصيداً مسبقاً للعميل.') : null,
@@ -154,7 +155,7 @@
           const res = await api('/api/m/cheques/register', { method: 'POST', body: {
             request_id: form.requestId, customer_id: form.customer.id, customer: form.customer.name,
             amount: form.amount, cheque_number: form.cheque_number,
-            destination: form.destination, location: form.location, image: form.image || undefined,
+            destination: form.destination, location: form.location, image: form.image || undefined, date: form.date,
             vendor_id: endorsed ? form.vendor.id : undefined, vendor: endorsed ? form.vendor.name : undefined,
           } });
           busy = false;
@@ -277,6 +278,11 @@
     });
     const locChips = chipGroup('الموقع', opts.locations.map((l) => [l.key, l.label]), form.location, (v) => { form.location = v; form.locationLabel = locLabels[v]; });
 
+    // تاريخ الاستلام: اليوم افتراضياً. يصير تاريخ الدفعة في زوهو، ولا يُقبل إيداع قبله.
+    const d0 = new Date();
+    const today = `${d0.getFullYear()}-${String(d0.getMonth() + 1).padStart(2, '0')}-${String(d0.getDate()).padStart(2, '0')}`;
+    const dateInput = el('input', { type: 'date', dir: 'ltr', value: today, max: today, required: 'required' });
+
     const errorBox = el('div', { role: 'alert' });
     const submitBtn = el('button', { type: 'button', class: 'btn-primary wide', text: 'مراجعة وتسجيل' });
     submitBtn.addEventListener('click', async () => {
@@ -284,12 +290,14 @@
       errorBox.textContent = '';
       form.amount = parseAmount(amountInput.value);
       form.cheque_number = numberInput.value.replace(/\D/g, '');
+      form.date = dateInput.value;
       const problems = [];
       if (!form.customer) problems.push('اختر العميل');
       if (form.destination === 'Autre Fournisseur' && !form.vendor) problems.push('اختر المورد');
       if (!form.amount) problems.push('اكتب المبلغ');
       if (!/^\d{7}$/.test(form.cheque_number) || form.cheque_number === '0000000') problems.push('رقم الشيك 7 أرقام');
       if (!form.location) problems.push('اختر الموقع');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(form.date || '') || form.date > today) problems.push('تاريخ الاستلام لا يكون بعد اليوم');
       if (problems.length) {
         errorBox.className = 'form-error';
         errorBox.textContent = problems.join('، ') + '.';
@@ -330,7 +338,8 @@
         field('رقم الشيك', numberInput),
         el('div', { class: 'field' }, el('span', { class: 'label', text: 'الوجهة' }), destChips),
         vendorField,
-        el('div', { class: 'field' }, el('span', { class: 'label', text: 'الموقع' }), locChips)),
+        el('div', { class: 'field' }, el('span', { class: 'label', text: 'الموقع' }), locChips),
+        field('تاريخ الاستلام', dateInput, el('p', { class: 'muted small', text: 'غيّره إن استُلم الشيك قبل اليوم. لا يُقبل إيداع قبل هذا التاريخ.' }))),
       errorBox,
       submitBtn));
   }
