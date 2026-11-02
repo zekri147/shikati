@@ -20,16 +20,17 @@ export interface ChequeReading {
   note: string | null;
 }
 
+// صيغة بسيطة بأنواع ثابتة فقط: «غير مقروء» يُكتب 0 للمبلغ ونصاً فارغاً لغيره
 const SCHEMA = {
   type: 'object',
   additionalProperties: false,
   required: ['amount', 'cheque_number', 'bank', 'drawer', 'note'],
   properties: {
-    amount: { type: ['number', 'null'], description: 'المبلغ بالدينار الجزائري كرقم، مثل 366600.39' },
-    cheque_number: { type: ['string', 'null'], description: 'رقم الشيك كما هو مطبوع، أرقام فقط' },
-    bank: { type: ['string', 'null'], enum: [...BANKS, null], description: 'البنك الساحب من القائمة فقط' },
-    drawer: { type: ['string', 'null'], description: 'اسم صاحب الحساب الساحب كما هو مطبوع' },
-    note: { type: ['string', 'null'], description: 'ملاحظة قصيرة بالعربية إن كان شيء غير واضح، وإلا null' },
+    amount: { type: 'number', description: 'المبلغ بالدينار الجزائري، مثل 366600.39. صفر إن لم يُقرأ' },
+    cheque_number: { type: 'string', description: 'رقم الشيك أرقاماً فقط، أو نص فارغ' },
+    bank: { type: 'string', enum: [...BANKS, ''], description: 'البنك الساحب من القائمة، أو نص فارغ' },
+    drawer: { type: 'string', description: 'اسم صاحب الحساب الساحب، أو نص فارغ' },
+    note: { type: 'string', description: 'ملاحظة قصيرة بالعربية إن كان شيء غير واضح، أو نص فارغ' },
   },
 };
 
@@ -39,8 +40,9 @@ const PROMPT = `هذه صورة شيك بنكي جزائري استلمته شر
 - cheque_number: رقم الشيك المطبوع (عادة 7 أرقام). أرقام فقط، دون مسافات.
 - bank: البنك الساحب، واختر قيمة واحدة من القائمة المسموحة. إن لم يكن فيها فاختر «أخرى».
 - drawer: اسم صاحب الحساب (الشخص أو الشركة) كما هو مطبوع على الشيك.
-- note: اكتب ملاحظة قصيرة فقط إن كان جزء غير مقروء أو مشكوك فيه، وإلا null.
-اترك أي حقل لا تستطيع قراءته بثقة null بدل التخمين.`;
+- note: اكتب ملاحظة قصيرة فقط إن كان جزء غير مقروء أو مشكوك فيه، وإلا نصاً فارغاً.
+الصورة قد تكون مقلوبة أو مائلة، فاقرأها في أي اتجاه.
+أي حقل لا تستطيع قراءته بثقة: اكتب 0 للمبلغ ونصاً فارغاً لغيره، بدل التخمين.`;
 
 export function readerConfigured(env: Env): boolean {
   return !!env.ANTHROPIC_API_KEY;
@@ -57,7 +59,8 @@ export function parseImage(dataUrl: unknown): { type: ImageType; data: string } 
 
 const clean = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 200) : null);
 
-export async function readCheque(env: Env, image: { type: ImageType; data: string }): Promise<ChequeReading> {
+// verbose: يضيف للمدير رمز الخطأ ورسالة الواجهة، لتشخيص أي مشكلة دون فتح سجلات كلاود فلير
+export async function readCheque(env: Env, image: { type: ImageType; data: string }, verbose = false): Promise<ChequeReading> {
   if (!env.ANTHROPIC_API_KEY) throw new HttpError(503, 'القراءة الآلية غير مُعدّة بعد. اكتب البيانات بيدك.');
   const client = new Anthropic({
     apiKey: env.ANTHROPIC_API_KEY,
@@ -90,7 +93,8 @@ export async function readCheque(env: Env, image: { type: ImageType; data: strin
     if (e instanceof Anthropic.RateLimitError) throw new HttpError(503, 'خدمة القراءة مشغولة الآن. حاول بعد دقيقة، أو اكتب البيانات بيدك.');
     if (e instanceof Anthropic.APIError) {
       console.error('anthropic error', e.status, e.message);
-      throw new HttpError(502, 'تعذّرت قراءة الصورة. اكتب البيانات بيدك.');
+      const detail = verbose ? ` (${e.status ?? '—'}: ${String(e.message).slice(0, 300)})` : ` (${e.status ?? '—'})`;
+      throw new HttpError(502, 'تعذّرت قراءة الصورة. اكتب البيانات بيدك.' + detail);
     }
     console.error('anthropic request failed', e instanceof Error ? e.name : e);
     throw new HttpError(504, 'خدمة القراءة لم ترد. اكتب البيانات بيدك.');

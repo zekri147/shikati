@@ -56,7 +56,7 @@ export async function searchCustomers(env: Env, user: User, q: string): Promise<
 export async function handleRead(req: Request, env: Env, user: User): Promise<Response> {
   requireRegister(env, user);
   const body = await readJson<{ image?: string }>(req);
-  const reading = await readCheque(env, parseImage(body.image));
+  const reading = await readCheque(env, parseImage(body.image), user.role === 'admin');
   await audit(env, user, 'register.read', 'ok', reading.cheque_number, reading.note);
   return json({ reading });
 }
