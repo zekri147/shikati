@@ -31,12 +31,13 @@ interface ZohoPayment {
   customer_id: string;
   customer_name: string;
   date?: string;
+  txn_posting_date?: string;
   amount: number;
   account_id: string;
   payment_mode?: string;
   currency_id?: string;
   location_id?: string;
-  invoices?: unknown[];
+  invoices?: { apply_date?: string }[];
   deposit_details?: unknown[];
   custom_field_hash?: Record<string, string>;
 }
@@ -178,6 +179,13 @@ export async function handleDeposit(req: Request, env: Env, user: User): Promise
   if (depositDate < String(p.date || '').slice(0, 10)) {
     return fail(400, 'تاريخ الإيداع قبل تاريخ استلام الشيك. صحّحه.');
   }
+  // زوهو يرفض إيداعاً قبل تاريخ ترحيل الدفعة أو تاريخ تطبيقها على الفواتير،
+  // وهذان لا يتغيّران حين يُعدَّل تاريخ الاستلام وحده
+  const posted = [String(p.txn_posting_date || ''), ...(p.invoices || []).map((i) => String(i.apply_date || ''))]
+    .map((d) => d.slice(0, 10)).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort().pop() || '';
+  if (posted && depositDate < posted) {
+    return fail(400, `زوهو لا يقبل إيداعاً قبل ${posted.split('-').reverse().join('/')}: هو تاريخ تسجيل الدفعة في الحسابات. اختر هذا التاريخ أو بعده، أو أخبر المدير.`);
+  }
 
   // 3. إنشاء الإيداع مرتبطاً بالدفعة
   const lineType = Array.isArray(p.invoices) && p.invoices.length > 0 ? 'invoice_payment' : 'customer_payment';
@@ -214,7 +222,9 @@ export async function handleDeposit(req: Request, env: Env, user: User): Promise
   if (!created.data) return unknown(NO_RETRY);
   if (created.data.code !== 0) {
     // زوهو رفض الطلب برمز خطأ صريح، فلم يُنشأ أي إيداع
-    return fail(502, `زوهو رفض الإيداع: ${String(created.data.message || created.data.code).slice(0, 200)}`);
+    const raw = String(created.data.message || created.data.code);
+    const why = /recorded after the deposit date/i.test(raw) ? 'الدفعة مسجّلة في زوهو بتاريخ بعد تاريخ الإيداع.' : raw.slice(0, 200);
+    return fail(502, `زوهو رفض الإيداع: ${why}`);
   }
   const tid = String(created.data.banktransaction?.transaction_id || '');
   if (!tid) return unknown(NO_RETRY);
