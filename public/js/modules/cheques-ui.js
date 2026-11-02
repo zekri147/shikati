@@ -123,16 +123,59 @@
 
   // ——— صورة الشيك ———
 
+  // تدوير صورة باتجاه عقارب الساعة على لوح رسم، فيظهر الشيك أفقياً ومعتدلاً
+  function rotateImage(img, deg, type = 'image/jpeg') {
+    const turn = deg === 90 || deg === 270;
+    const canvas = document.createElement('canvas');
+    canvas.width = turn ? img.naturalHeight : img.naturalWidth;
+    canvas.height = turn ? img.naturalWidth : img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate((deg * Math.PI) / 180);
+    ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+    return canvas.toDataURL(type, 0.88);
+  }
+
+  // تدوير صورة بصيغة data URL (قبل رفعها إلى زوهو)
+  function rotateDataUrl(src, deg) {
+    if (!deg) return Promise.resolve(src);
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(rotateImage(img, deg));
+      img.onerror = () => reject(new Error('تعذّر تدوير الصورة.'));
+      img.src = src;
+    });
+  }
+
+  // الصورة المرفقة بالدفعة، معتدلة دائماً: الخادم يعرف اتجاهها (يحدّده كلود مرة واحدة)
   function chequeImage(c, cls) {
     if (!c.has_image) return el('div', { class: 'img-empty ' + cls, text: 'لا صورة' });
-    const src = `/api/m/cheques/image/${encodeURIComponent(c.id)}` + (c.v ? `?v=${encodeURIComponent(c.v)}` : '');
-    const img = el('img', { class: 'cheque-img', alt: 'صورة الشيك', src, loading: 'lazy', decoding: 'async' });
+    const base = `/api/m/cheques/image/${encodeURIComponent(c.id)}`;
+    const src = base + (c.v ? `?v=${encodeURIComponent(c.v)}` : '');
+    const img = el('img', { class: 'cheque-img', alt: 'صورة الشيك', src, decoding: 'async' });
     const link = el('a', { href: src, target: '_blank', rel: 'noopener', class: 'img-link ' + cls, title: 'فتح الصورة بحجمها الكامل' }, img);
-    img.addEventListener('error', () => link.replaceWith(el('div', { class: 'img-empty warn ' + cls, text: 'تعذّر تحميل الصورة' })));
+    let failed = false;
+    img.addEventListener('error', () => {
+      if (failed) return;
+      failed = true;
+      link.replaceWith(el('div', { class: 'img-empty warn ' + cls, text: 'تعذّر تحميل الصورة' }));
+    });
+    const rotation = fetch(base + '/rotation', { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : { rotation: 0 })).then((j) => Number(j.rotation) || 0).catch(() => 0);
+    let done = false;
+    img.addEventListener('load', async () => {
+      if (done) return;
+      done = true;
+      const deg = await rotation;
+      if (!deg || !img.isConnected) return;
+      try {
+        img.src = rotateImage(img, deg);
+      } catch { /* تبقى الصورة كما هي */ }
+    });
     return link;
   }
 
   window.ShikatiChequesUI = {
-    daysText, relTime, norm, sum, chequeWord, statusBadge, chequeItem, section, chequeImage, openDetail, detailHash,
+    daysText, relTime, norm, sum, chequeWord, statusBadge, chequeItem, section, chequeImage, rotateDataUrl, openDetail, detailHash,
   };
 })();

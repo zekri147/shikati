@@ -3,9 +3,9 @@ import type { AppModule } from './types';
 import { HttpError, json } from '../http';
 import { cacheGet, cachePut, zohoGet } from '../zoho';
 import { canDeposit, handleDeposit, lockStates, reconcileDoneLocks } from './deposit';
-import { handleChequeImage } from './image';
+import { handleChequeImage, handleImageRotation } from './image';
 import { handleChequeDetail } from './detail';
-import { canRegister, handlePreview, handleRead, handleRegister, registerOptions, searchCustomers } from './register';
+import { canRegister, handleOrient, handlePreview, handleRead, handleRegister, registerOptions, searchCustomers } from './register';
 import { ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, CACHE_KEY, DEST, STATUS, todayAlgiers } from './constants';
 import { handleBillsPreview, handleEndorse, searchVendors } from './endorse';
 import { handleUndo } from './undo';
@@ -254,10 +254,13 @@ export const chequesModule: AppModule = {
       return searchCustomers(env, user, new URL(req.url).searchParams.get('q') || '');
     }
     if (req.method === 'POST' && subpath === '/register/read') return handleRead(req, env, user);
+    if (req.method === 'POST' && subpath === '/register/orient') return handleOrient(req, env, user);
     if (req.method === 'POST' && subpath === '/register/preview') return handlePreview(req, env, user);
     if (req.method === 'POST' && subpath === '/register') return handleRegister(req, env, user);
     const img = subpath.match(/^\/image\/(\d{10,25})$/);
     if (req.method === 'GET' && img) return handleChequeImage(env, img[1]);
+    const rot = subpath.match(/^\/image\/(\d{10,25})\/rotation$/);
+    if (req.method === 'GET' && rot) return handleImageRotation(env, rot[1]);
     const det = subpath.match(/^\/detail\/(\d{10,25})$/);
     if (req.method === 'GET' && det) return handleChequeDetail(env, user, det[1]);
     throw new HttpError(404, 'غير موجود.');

@@ -1,7 +1,7 @@
 // عامل الخدمة: يحفظ ملفات الواجهة الثابتة فقط لتسريع الفتح.
 // لا يحفظ أبداً بيانات الشيكات ولا الصفحات المحمية ولا أي طلب إلى /api،
 // فكل رقم يظهر يأتي من الخادم مباشرة.
-const VERSION = 'shikati-v10';
+const VERSION = 'shikati-v11';
 const STATIC = /^\/(css|js|fonts|img|icons)\//;
 
 self.addEventListener('install', () => self.skipWaiting());

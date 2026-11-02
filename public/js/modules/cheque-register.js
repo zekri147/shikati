@@ -228,8 +228,14 @@
       readStatus.textContent = 'جارٍ قراءة الشيك…';
       shootBtn.disabled = true;
       try {
-        const { reading } = await api('/api/m/cheques/register/read', { method: 'POST', body: { image: form.image } });
+        const shot = form.image;
+        const { reading } = await api('/api/m/cheques/register/read', { method: 'POST', body: { image: shot } });
         applyReading(reading);
+        // الصورة تُدار قبل رفعها، فتظهر معتدلة في التطبيق وفي زوهو
+        if (reading.rotation && form.image === shot) {
+          form.image = await window.ShikatiChequesUI.rotateDataUrl(shot, reading.rotation);
+          photoBox.replaceChildren(el('img', { class: 'cheque-img reg-preview', src: form.image, alt: 'صورة الشيك' }));
+        }
       } catch (e) {
         readStatus.className = 'note warn';
         readStatus.textContent = e.message;

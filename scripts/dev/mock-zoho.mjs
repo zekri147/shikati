@@ -28,7 +28,8 @@
 //   4 ينقطع الرد بعد الإرسال    7 زوهو يرفض التسجيل    غير ذلك: نجاح
 // ودفعة المورد عند التظهير (POST /vendorpayments) حسب آخر رقم في رقم الشيك:
 //   8 زوهو يرفض دفعة المورد     6 ينقطع الرد بعد الإرسال
-// ويقلّد أيضاً واجهة كلود (POST /v1/messages) فيعيد قراءة ثابتة لصورة الشيك.
+// ويقلّد أيضاً واجهة كلود (POST /v1/messages) فيعيد قراءة ثابتة لصورة الشيك،
+// واتجاهها 180 درجة (MOCK_ROTATION) فتظهر الصورة السليمة مقلوبة، دليلاً على أن التدوير يُطبَّق.
 
 import http from 'node:http';
 import fs from 'node:fs';
@@ -166,7 +167,8 @@ http.createServer((req, res) => {
     if (path.startsWith('/v1/messages') && req.method === 'POST') {
       const key = req.headers['x-api-key'] || String(req.headers.authorization || '').replace(/^Bearer /, '');
       if (key !== 'mock-key') return send({ type: 'error', error: { type: 'authentication_error', message: 'bad key' } }, 401);
-      const reading = { amount: 250000, cheque_number: '6309259', note: '' };
+      // الاتجاه: 180 لتجربة تدوير الصورة المقلوبة (يمكن تغييره بالمتغير MOCK_ROTATION)
+      const reading = { amount: 250000, cheque_number: '6309259', note: '', rotation: process.env.MOCK_ROTATION || '180' };
       log.push('CLAUDE read');
       return setTimeout(() => send({
         id: 'msg_mock', type: 'message', role: 'assistant', model: 'claude-opus-5-5',

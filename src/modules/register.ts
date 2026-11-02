@@ -5,7 +5,7 @@ import { audit } from '../audit';
 import {
   ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, CACHE_KEY, DESTINATIONS, LOCATIONS, STATUS, todayAlgiers,
 } from './constants';
-import { parseImage, readCheque, readerConfigured } from './ocr';
+import { parseImage, readCheque, readerConfigured, readOrientation } from './ocr';
 import { allocateBills, endorseCheque } from './endorse';
 
 // تسجيل شيك جديد من التطبيق: دفعة عميل بطريقة «شيك»، موزّعة على أقدم فواتير العميل.
@@ -99,6 +99,13 @@ export async function handlePreview(req: Request, env: Env, user: User): Promise
   const vendorId = String(b.vendor_id || '');
   const vendor = ID_RE.test(vendorId) ? await allocateBills(env, vendorId, amount) : null;
   return json({ ...customer, vendor });
+}
+
+// اتجاه صورة جديدة فقط (صورة بديلة عند تعديل الشيك)
+export async function handleOrient(req: Request, env: Env, user: User): Promise<Response> {
+  requireRegister(env, user);
+  const body = await readJson<{ image?: string }>(req);
+  return json({ rotation: (await readOrientation(env, parseImage(body.image))) ?? 0 });
 }
 
 // ——— الكتابة: إنشاء الدفعة ———

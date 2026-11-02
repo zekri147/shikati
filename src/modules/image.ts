@@ -1,4 +1,5 @@
 import type { Env } from '../env';
+import { isReadableType, readOrientation } from './ocr';
 import { HttpError, json } from '../http';
 import { cacheGet, cachePut, zohoFetchRaw, zohoRequest, ZohoTimeout } from '../zoho';
 
@@ -45,12 +46,31 @@ export async function handleChequeImage(env: Env, pid: string): Promise<Response
   }
   if (!found) throw new HttpError(404, 'لا توجد صورة مرفقة بهذا الشيك.');
 
+  const res = await fetchImage(env, pid, found.doc);
+  if (!res) {
+    console.error('cheque image: no route worked', pid);
+    throw new HttpError(502, 'تعذّر تحميل صورة الشيك من زوهو.');
+  }
+  return new Response(res.body, {
+    headers: {
+      'Content-Type': contentType(res, found.type),
+      'Cache-Control': 'private, max-age=600',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Disposition': 'inline',
+    },
+  });
+}
+
+const contentType = (res: Response, fallback: string) =>
+  ((res.headers.get('Content-Type') || '').startsWith('image/') ? res.headers.get('Content-Type')!.split(';')[0].trim() : fallback);
+
+async function fetchImage(env: Env, pid: string, doc: Doc): Promise<Response | null> {
   const preferred = await cacheGet(env, ROUTE_CACHE);
   const ordered = [...ROUTES].sort((a, b) => Number(b.id === preferred) - Number(a.id === preferred));
   for (const route of ordered) {
     let res: Response;
     try {
-      res = await zohoFetchRaw(env, route.path(pid, found.doc.document_id!), route.params);
+      res = await zohoFetchRaw(env, route.path(pid, doc.document_id!), route.params);
     } catch {
       continue;
     }
@@ -59,17 +79,51 @@ export async function handleChequeImage(env: Env, pid: string): Promise<Response
       continue;
     }
     if (route.id !== preferred) await cachePut(env, ROUTE_CACHE, route.id, 30 * 86_400);
-    return new Response(res.body, {
-      headers: {
-        'Content-Type': (res.headers.get('Content-Type') || '').startsWith('image/') ? res.headers.get('Content-Type')! : found.type,
-        'Cache-Control': 'private, max-age=600',
-        'X-Content-Type-Options': 'nosniff',
-        'Content-Disposition': 'inline',
-      },
-    });
+    return res;
   }
-  console.error('cheque image: no route worked', pid);
-  throw new HttpError(502, 'تعذّر تحميل صورة الشيك من زوهو.');
+  return null;
+}
+
+// كلود يقبل الصورة حتى 5 ميغابايت بعد الترميز
+const MAX_ORIENT_BYTES = 3_700_000;
+
+function toBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+// اتجاه صورة الشيك: يُحدَّد بكلود مرة واحدة لكل مرفق ويُحفظ، فتظهر الصورة دائماً أفقية ومعتدلة
+export async function handleImageRotation(env: Env, pid: string): Promise<Response> {
+  let found;
+  try {
+    found = await firstImageDoc(env, pid);
+  } catch {
+    return json({ rotation: 0 });
+  }
+  if (!found) return json({ rotation: 0 });
+  const docId = found.doc.document_id!;
+  const row = await env.DB.prepare('SELECT document_id, rotation FROM image_rotation WHERE payment_id = ?')
+    .bind(pid).first<{ document_id: string; rotation: number }>();
+  if (row && row.document_id === docId) return json({ rotation: row.rotation });
+
+  const save = async (rotation: number, source: string) => {
+    await env.DB.prepare(
+      'INSERT INTO image_rotation (payment_id, document_id, rotation, source) VALUES (?, ?, ?, ?) ' +
+      "ON CONFLICT(payment_id) DO UPDATE SET document_id = excluded.document_id, rotation = excluded.rotation, source = excluded.source, at = datetime('now')",
+    ).bind(pid, docId, rotation, source).run();
+    return json({ rotation });
+  };
+  const res = await fetchImage(env, pid, found.doc).catch(() => null);
+  if (!res) return json({ rotation: 0 });
+  const type = contentType(res, found.type);
+  const buf = await res.arrayBuffer();
+  // صيغة لا يقرؤها كلود (مثل HEIC) أو صورة كبيرة جداً: تُعرض كما هي
+  if (!isReadableType(type) || buf.byteLength > MAX_ORIENT_BYTES) return save(0, 'skip');
+  const rotation = await readOrientation(env, { type, data: toBase64(buf) });
+  if (rotation === null) return json({ rotation: 0 }); // يُعاد التحديد في المرة القادمة
+  return save(rotation, 'claude');
 }
 
 // للمدير: نتيجة كل طريق لدفعة معيّنة، دون محتوى الصورة

@@ -38,6 +38,15 @@
       }
       photoBox.replaceChildren(el('img', { class: 'cheque-img reg-preview', src: form.image, alt: 'الصورة الجديدة' }));
       photoBtn.textContent = 'إعادة التصوير';
+      // كلود يحدد اتجاه الصورة، فتُدار قبل رفعها
+      const shot = form.image;
+      try {
+        const { rotation } = await api('/api/m/cheques/register/orient', { method: 'POST', body: { image: shot } });
+        if (rotation && form.image === shot) {
+          form.image = await window.ShikatiChequesUI.rotateDataUrl(shot, rotation);
+          photoBox.replaceChildren(el('img', { class: 'cheque-img reg-preview', src: form.image, alt: 'الصورة الجديدة' }));
+        }
+      } catch { /* تُرفع كما هي */ }
     });
     const error = el('div', { role: 'alert' });
     const reviewBtn = el('button', { type: 'button', class: 'btn-primary wide', text: 'مراجعة التعديل' });

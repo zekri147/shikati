@@ -16,17 +16,24 @@ export interface ChequeReading {
   cheque_number: string | null;
   // ملاحظة قصيرة من القارئ إن كانت الصورة غير واضحة أو فيها تعارض
   note: string | null;
+  // كم درجة تُدار الصورة باتجاه عقارب الساعة ليظهر الشيك معتدلاً
+  rotation: Rotation;
 }
+
+export type Rotation = 0 | 90 | 180 | 270;
+const ROTATION = { type: 'string', enum: ['0', '90', '180', '270'], description: 'كم درجة تُدار الصورة باتجاه عقارب الساعة ليصبح نص الشيك أفقياً مقروءاً من الأعلى' };
+const toRotation = (v: unknown): Rotation => (['90', '180', '270'].includes(String(v)) ? (Number(v) as Rotation) : 0);
 
 // صيغة بسيطة بأنواع ثابتة فقط: «غير مقروء» يُكتب 0 للمبلغ ونصاً فارغاً لغيره
 const SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['amount', 'cheque_number', 'note'],
+  required: ['amount', 'cheque_number', 'note', 'rotation'],
   properties: {
     amount: { type: 'number', description: 'المبلغ بالدينار الجزائري، مثل 366600.39. صفر إن لم يُقرأ' },
     cheque_number: { type: 'string', description: 'رقم الشيك أرقاماً فقط، أو نص فارغ' },
     note: { type: 'string', description: 'ملاحظة قصيرة بالعربية إن كان شيء غير واضح، أو نص فارغ' },
+    rotation: ROTATION,
   },
 };
 
@@ -35,6 +42,7 @@ const PROMPT = `هذه صورة شيك بنكي جزائري استلمته شر
 - amount: المبلغ بالأرقام. إن اختلف المبلغ بالأرقام عن المبلغ بالحروف، خذ المبلغ بالحروف واذكر ذلك في note.
 - cheque_number: رقم الشيك المطبوع (عادة 7 أرقام). أرقام فقط، دون مسافات.
 - note: اكتب ملاحظة قصيرة فقط إن كان جزء غير مقروء أو مشكوك فيه، وإلا نصاً فارغاً.
+- rotation: كم درجة يجب تدوير الصورة باتجاه عقارب الساعة (0 أو 90 أو 180 أو 270) ليظهر الشيك أفقياً ونصه معتدلاً.
 الصورة قد تكون مقلوبة أو مائلة، فاقرأها في أي اتجاه.
 أي حقل لا تستطيع قراءته بثقة: اكتب 0 للمبلغ ونصاً فارغاً لغيره، بدل التخمين.`;
 
@@ -105,5 +113,39 @@ export async function readCheque(env: Env, image: { type: ImageType; data: strin
   const amount = typeof out.amount === 'number' && Number.isFinite(out.amount) && out.amount > 0
     ? Math.round(out.amount * 100) / 100 : null;
   const num = clean(out.cheque_number)?.replace(/\D/g, '') || null;
-  return { amount, cheque_number: num, note: clean(out.note) };
+  return { amount, cheque_number: num, note: clean(out.note), rotation: toRotation(out.rotation) };
+}
+
+const ORIENT_SCHEMA = { type: 'object', additionalProperties: false, required: ['rotation'], properties: { rotation: ROTATION } };
+const ORIENT_PROMPT = `هذه صورة شيك بنكي. قد تكون مصوّرة والهاتف عمودي، فيظهر الشيك مائلاً أو مقلوباً.
+كم درجة يجب تدوير الصورة باتجاه عقارب الساعة (0 أو 90 أو 180 أو 270) ليظهر الشيك أفقياً ونصه المطبوع معتدلاً ومقروءاً؟`;
+
+// اتجاه الصورة فقط، لعرض الصور القديمة معتدلة. يعيد null إن تعذّر، فتُعرض الصورة كما هي.
+export async function readOrientation(env: Env, image: { type: ImageType; data: string }): Promise<Rotation | null> {
+  if (!env.ANTHROPIC_API_KEY) return null;
+  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, baseURL: env.ANTHROPIC_BASE_URL || undefined, timeout: 45_000, maxRetries: 1 });
+  try {
+    const res = await client.beta.messages.create({
+      model: MODEL,
+      max_tokens: 1000,
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+      output_config: { effort: 'low', format: { type: 'json_schema', schema: ORIENT_SCHEMA } },
+      messages: [{ role: 'user', content: [
+        { type: 'image', source: { type: 'base64', media_type: image.type, data: image.data } },
+        { type: 'text', text: ORIENT_PROMPT },
+      ] }],
+    });
+    if (res.stop_reason === 'refusal') return null;
+    const text = res.content.find((b) => b.type === 'text');
+    const out = JSON.parse(text && text.type === 'text' ? text.text : '{}') as { rotation?: unknown };
+    return toRotation(out.rotation);
+  } catch (e) {
+    console.error('orientation failed', e instanceof Error ? e.name : e);
+    return null;
+  }
+}
+
+export function isReadableType(t: string): t is ImageType {
+  return (IMAGE_TYPES as readonly string[]).includes(t);
 }
