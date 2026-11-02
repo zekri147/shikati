@@ -20,8 +20,8 @@
     { kind: 'unknown_lock', title: 'بانتظار التحقق', cls: 'alert', note: 'انقطع الرد بعد محاولة الإيداع. تحقق في زوهو، ثم حرّر القفل من صفحة الإدارة.' },
     { kind: 'rejected', title: 'شيكات مرفوضة', cls: 'alert', note: 'تحتاج متابعة مع العميل.' },
     { kind: 'endorse_incomplete', title: 'تظهير غير مكتمل', cls: 'alert', note: 'مسجّل لمورد في حساب الشيكات المظهّرة دون دفعة مورد. افتح الشيك وأتمّ التظهير.' },
-    { kind: 'collect_late', title: 'تحصيل متأخر في AGB: مودع منذ أكثر من 7 أيام', cls: 'warn', note: 'أودعت في البنك ولم تُحصَّل بعد. تابعها مع البنك.' },
-    { kind: 'late', title: 'لم يودع: في الحوزة منذ أكثر من 7 أيام من الاستلام', cls: 'warn', note: 'أعطها الأولوية في الإيداع.' },
+    { kind: 'collect_late', title: 'تحصيل متأخر في AGB', cls: 'warn', note: 'أودعت في AGB منذ أكثر من 7 أيام ولم تُحصَّل بعد. تابعها مع البنك.' },
+    { kind: 'late', title: 'لم يودع بعد 7 أيام', cls: 'warn', note: 'في الحوزة منذ أكثر من 7 أيام من الاستلام. أعطها الأولوية في الإيداع.' },
     { kind: 'wrong_account', title: 'حساب غير صحيح في زوهو', cls: 'warn', withText: true },
     { kind: 'box', title: 'صندوق غير مطابق', cls: 'warn', withText: true },
     { kind: 'fiscal', title: 'الملف الجبائي للعميل ناقص', cls: '', withText: true, closed: true, quiet: true },
@@ -314,7 +314,7 @@
           el('span', { class: 'strong', text: items.length ? chequeWord(items.length) : 'لا نتائج' }),
           items.length ? ltr(fmtAmount(sum(items)), 'num muted') : null),
         items.length
-          ? el('ul', { class: 'list' }, shown.map((c) => chequeItem(c, { link: true, showStatus: true, ageInHandOnly: true })))
+          ? el('ul', { class: 'list' }, shown.map((c) => chequeItem(c, { link: true, showStatus: true, ageInHandOnly: true, lateOnly: true })))
           : el('div', { class: 'empty', text: 'لا شيك يطابق البحث أو التصفية.' }),
         ...(moreBtn ? [moreBtn] : []));
     }

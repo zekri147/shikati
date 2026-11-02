@@ -206,8 +206,11 @@
     // التصوير بالكاميرا، أو اختيار صورة محفوظة من المعرض
     const fileInput = el('input', { type: 'file', accept: 'image/*', capture: 'environment', class: 'hidden' });
     const galleryInput = el('input', { type: 'file', accept: 'image/*', class: 'hidden' });
-    const shootBtn = el('button', { type: 'button', class: 'btn-primary wide', text: 'تصوير الشيك' });
-    const galleryBtn = el('button', { type: 'button', class: 'btn-plain wide', text: 'اختيار صورة من المعرض' });
+    // زر التصوير عادي كبير برمز الكاميرا، فيبقى الأحمر لزر التسجيل وحده
+    const shootLabel = el('span', { text: 'تصوير الشيك' });
+    const shootBtn = el('button', { type: 'button', class: 'btn-plain shoot' }, el('span', { class: 'ico ico-camera', 'aria-hidden': 'true' }), shootLabel);
+    const galleryBtn = el('button', { type: 'button', class: 'btn-plain', text: 'من المعرض' });
+    const photoBtns = el('div', { class: 'photo-btns first' }, shootBtn, galleryBtn);
     galleryBtn.addEventListener('click', () => galleryInput.click());
     const photoBox = el('div', { class: 'reg-photo' });
     const readStatus = el('div', { 'aria-live': 'polite' });
@@ -223,7 +226,8 @@
         return;
       }
       photoBox.replaceChildren(el('img', { class: 'cheque-img reg-preview', src: form.image, alt: 'صورة الشيك' }));
-      shootBtn.textContent = 'إعادة التصوير';
+      shootLabel.textContent = 'إعادة التصوير';
+      photoBtns.classList.remove('first');
       if (!opts.reader) {
         readStatus.className = 'note';
         readStatus.textContent = 'القراءة الآلية غير مُعدّة بعد. اكتب البيانات بيدك.';
@@ -254,8 +258,8 @@
     galleryInput.addEventListener('change', () => onPick(galleryInput));
 
     // ——— البيانات ———
-    const customerPicker = partyPicker('customer', (c) => { form.customer = c; });
-    const vendorPicker = partyPicker('vendor', (v) => { form.vendor = v; });
+    const customerPicker = partyPicker('customer', (c) => { form.customer = c; refresh(); });
+    const vendorPicker = partyPicker('vendor', (v) => { form.vendor = v; refresh(); });
     const vendorField = field('المورد الذي سُلّم له الشيك', vendorPicker.box);
     vendorField.classList.toggle('hidden', form.destination !== 'Autre Fournisseur');
     const amountInput = el('input', { type: 'text', inputmode: 'decimal', dir: 'ltr', placeholder: '0.00', autocomplete: 'off' });
@@ -267,6 +271,7 @@
       const filled = [];
       if (r.amount) { amountInput.value = String(r.amount); filled.push('المبلغ'); }
       if (r.cheque_number) { numberInput.value = r.cheque_number; filled.push('الرقم'); }
+      refresh();
       readStatus.className = r.note ? 'note warn' : 'note ok';
       readStatus.textContent = (filled.length ? 'قُرئ: ' + filled.join('، ') + '. راجعها مع الصورة.' : 'لم تُقرأ أي بيانات بثقة. اكتبها بيدك.')
         + (r.note ? ' ملاحظة: ' + r.note : '');
@@ -275,8 +280,9 @@
     const destChips = chipGroup('الوجهة', opts.destinations.map((d) => [d, DEST_LABELS[d] || d]), form.destination, (v) => {
       form.destination = v;
       vendorField.classList.toggle('hidden', v !== 'Autre Fournisseur');
+      refresh();
     });
-    const locChips = chipGroup('الموقع', opts.locations.map((l) => [l.key, l.label]), form.location, (v) => { form.location = v; form.locationLabel = locLabels[v]; });
+    const locChips = chipGroup('الموقع', opts.locations.map((l) => [l.key, l.label]), form.location, (v) => { form.location = v; form.locationLabel = locLabels[v]; refresh(); });
 
     // تاريخ الاستلام: اليوم افتراضياً. يصير تاريخ الدفعة في زوهو، ولا يُقبل إيداع قبله.
     const d0 = new Date();
@@ -284,10 +290,34 @@
     const dateInput = el('input', { type: 'date', dir: 'ltr', value: today, max: today, required: 'required' });
 
     const errorBox = el('div', { role: 'alert' });
-    const submitBtn = el('button', { type: 'button', class: 'btn-primary wide', text: 'مراجعة وتسجيل' });
+
+    // شريط ثابت فوق شريط التنقل: ما ينقص، وزر «مراجعة وتسجيل».
+    // الزر باهت حتى تكتمل البيانات، ولمسه يذكر الناقص بدل أن يكون معطّلاً بلا تفسير.
+    const barInfo = el('div', { class: 'fb-info', 'aria-live': 'polite' });
+    const submitBtn = el('button', { type: 'button', class: 'btn-primary', text: 'مراجعة وتسجيل' });
+    const formBar = el('div', { class: 'formbar' }, barInfo, submitBtn);
+    function missing() {
+      const m = [];
+      if (!form.customer) m.push('العميل');
+      if (form.destination === 'Autre Fournisseur' && !form.vendor) m.push('المورد');
+      if (!parseAmount(amountInput.value)) m.push('المبلغ');
+      if (numberInput.value.replace(/\D/g, '').length !== 7) m.push('رقم الشيك');
+      if (!form.location) m.push('الموقع');
+      if (!dateInput.value) m.push('التاريخ');
+      return m;
+    }
+    function refresh(loud) {
+      const m = missing();
+      submitBtn.classList.toggle('is-blocked', m.length > 0);
+      barInfo.classList.toggle('err', !!loud && m.length > 0);
+      barInfo.textContent = m.length ? 'ينقص: ' + m.join('، ') : 'البيانات كاملة. راجعها ثم سجّل.';
+    }
+    [amountInput, numberInput, dateInput].forEach((i) => i.addEventListener('input', () => refresh()));
+
     submitBtn.addEventListener('click', async () => {
       errorBox.className = '';
       errorBox.textContent = '';
+      if (missing().length) { refresh(true); return; }
       form.amount = parseAmount(amountInput.value);
       form.cheque_number = numberInput.value.replace(/\D/g, '');
       form.date = dateInput.value;
@@ -301,11 +331,13 @@
       if (problems.length) {
         errorBox.className = 'form-error';
         errorBox.textContent = problems.join('، ') + '.';
+        errorBox.scrollIntoView({ block: 'center' });
         return;
       }
       if (form.locked) {
         errorBox.className = 'form-error';
         errorBox.textContent = 'محاولة التسجيل السابقة لم تُعرف نتيجتها. افتح «كل الشيكات» وتحقق قبل أي محاولة.';
+        errorBox.scrollIntoView({ block: 'center' });
         return;
       }
       submitBtn.disabled = true;
@@ -319,6 +351,7 @@
       } catch (e) {
         errorBox.className = 'form-error';
         errorBox.textContent = e.message;
+        errorBox.scrollIntoView({ block: 'center' });
         return;
       } finally {
         submitBtn.disabled = false;
@@ -331,7 +364,7 @@
     });
 
     box.replaceChildren(el('div', { class: 'register' },
-      el('section', { class: 'd-block' }, el('h2', { text: 'صورة الشيك' }), fileInput, galleryInput, photoBox, shootBtn, galleryBtn, readStatus),
+      el('section', { class: 'd-block' }, el('h2', { text: 'صورة الشيك' }), fileInput, galleryInput, photoBox, photoBtns, readStatus),
       el('section', { class: 'd-block' }, el('h2', { text: 'البيانات' }),
         field('العميل', customerPicker.box),
         field('المبلغ (دج)', amountInput),
@@ -340,8 +373,9 @@
         vendorField,
         el('div', { class: 'field' }, el('span', { class: 'label', text: 'الموقع' }), locChips),
         field('تاريخ الاستلام', dateInput, el('p', { class: 'muted small', text: 'غيّره إن استُلم الشيك قبل اليوم. لا يُقبل إيداع قبل هذا التاريخ.' }))),
-      errorBox,
-      submitBtn));
+      errorBox),
+    formBar);
+    refresh();
   }
 
   window.ShikatiChequeRegister = { render, partyPicker, allocList, chipGroup, field, shrink, parseAmount, DEST_LABELS };
