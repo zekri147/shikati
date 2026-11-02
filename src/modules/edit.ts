@@ -213,25 +213,19 @@ export async function handleEdit(req: Request, env: Env, user: User): Promise<Re
   const summary = changes.map((c) => (c.from ? `${c.label} ${c.from} ← ${c.to}` : c.to)).join('، ');
   const target = `${pid} / ${chq}`;
 
-  // 1. تحديث الدفعة. الفواتير تُرسل دائماً: الجديدة إن تغيّر المبلغ، وإلا الحالية كما هي.
+  // 1. تحديث الدفعة. المبلغ والفواتير يُرسلان فقط إن تغيّر المبلغ: زوهو يرفض إعادة إرسال
+  // الفواتير الحالية كما هي («المبلغ أكبر من باقي الفواتير»)، ويُبقي التوزيع إن لم تُرسل.
   if (fieldChanges.length) {
-    const invoices = alloc
-      ? alloc.lines.map((l) => ({ invoice_id: l.invoice_id, amount_applied: l.applied }))
-      : (p.invoices || []).filter((i) => str(i.invoice_id)).map((i) => ({ invoice_id: str(i.invoice_id), amount_applied: Number(i.amount_applied) || 0 }));
     const logOld = str(cf.cf_fffaad);
     const logLine = `${todayAlgiers()} — تعديل من تطبيق شيكاتي (${user.display_name}): ${fieldChanges.map((c) => `${c.label} ${c.from} ← ${c.to}`).join('، ')}`;
     const oldChq = r.old.chq;
     let description = str(p.description);
     if (oldChq && chq !== oldChq && description.includes(oldChq)) description = description.split(oldChq).join(chq);
     const body: Record<string, unknown> = {
-      customer_id: p.customer_id,
-      payment_mode: 'Check',
-      amount,
       date,
       reference_number: chq,
       account_id: dest === ENDORSED_DEST ? ACCOUNT_ENDORSED : ACCOUNT_CHEQUES_IN_HAND,
       location_id: LOCATIONS[locKey].id,
-      invoices,
       custom_fields: [
         { api_name: 'cf_n_cheque', value: chq },
         { api_name: 'cf_d_pos_vers', value: dest },
@@ -239,6 +233,14 @@ export async function handleEdit(req: Request, env: Env, user: User): Promise<Re
       ],
     };
     if (description) body.description = description;
+    if (alloc) {
+      Object.assign(body, {
+        customer_id: p.customer_id,
+        payment_mode: 'Check',
+        amount,
+        invoices: alloc.lines.map((l) => ({ invoice_id: l.invoice_id, amount_applied: l.applied })),
+      });
+    }
 
     const NO_RETRY = 'لم يصل رد واضح من زوهو بعد حفظ التعديل. لا تعد المحاولة: حدّث الصفحة بعد دقيقة وتحقق، ثم أخبر المدير.';
     let up;
@@ -253,7 +255,8 @@ export async function handleEdit(req: Request, env: Env, user: User): Promise<Re
       throw new HttpError(504, NO_RETRY);
     }
     if (up.data.code !== 0) {
-      const msg = `زوهو رفض التعديل: ${str(up.data.message || up.data.code).slice(0, 200)}`;
+      const raw = str(up.data.message || up.data.code);
+      const msg = `زوهو رفض التعديل: ${/more than the balance due/i.test(raw) ? 'المبلغ الموزّع أكبر من باقي الفواتير.' : raw.slice(0, 200)}`;
       await audit(env, user, 'edit', 'denied', target, msg);
       throw new HttpError(502, msg);
     }

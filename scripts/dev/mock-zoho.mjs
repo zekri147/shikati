@@ -279,11 +279,16 @@ http.createServer((req, res) => {
         for (const f of JSON.parse(body).custom_fields) p.custom_field_hash[f.api_name] = f.value;
         // تعديل الشيك: الحقول الأساسية والفواتير
         const j = JSON.parse(body);
-        if (j.amount !== undefined) {
+        if (j.date) {
           if (!/^\d{7}$/.test(String(p.custom_field_hash.cf_n_cheque))) return send({ code: 9, message: 'رقم الشيك إجباري (7 أرقام)' }, 400);
-          Object.assign(p, { amount: j.amount, date: j.date, account_id: j.account_id, location_id: j.location_id, description: j.description ?? p.description,
+          // زوهو يرفض إعادة إرسال الفواتير الحالية كما هي
+          if (j.invoices && j.amount === p.amount) return send({ code: 9, message: 'The amount entered is more than the balance due for the selected invoices.' }, 400);
+          Object.assign(p, { date: j.date, account_id: j.account_id, location_id: j.location_id, description: j.description ?? p.description,
             account_name: j.account_id === CIH ? 'Cheques in Hand' : 'Endorsed Cheques',
             location_name: j.location_id === '7418406000000093289' ? 'ALGER' : 'EL EULMA' });
+        }
+        if (j.amount !== undefined) {
+          p.amount = j.amount;
           p.invoices = j.invoices.map((i) => {
             const inv = (INVOICES[p.customer_id] || []).find((x) => x.invoice_id === i.invoice_id) || (p.invoices || []).find((x) => x.invoice_id === i.invoice_id) || {};
             return { invoice_id: i.invoice_id, invoice_number: inv.invoice_number, date: inv.date, amount_applied: i.amount_applied, total: inv.total || inv.balance, balance: 0 };
