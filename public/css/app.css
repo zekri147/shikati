@@ -177,6 +177,7 @@ button:disabled { opacity: .55; cursor: default; }
 .ico-new { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 4h16v16H4zM12 8v8M8 12h8'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 4h16v16H4zM12 8v8M8 12h8'/%3E%3C/svg%3E"); }
 .ico-refresh { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 12a8 8 0 1 1-2.3-5.7L20 8.5M20 4v4.5h-4.5'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 12a8 8 0 1 1-2.3-5.7L20 8.5M20 4v4.5h-4.5'/%3E%3C/svg%3E"); }
 .ico-chevron { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 6l-6 6 6 6'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 6l-6 6 6 6'/%3E%3C/svg%3E"); }
+.ico-camera { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8h4l2-3h6l2 3h4v11H3zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8h4l2-3h6l2 3h4v11H3zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8'/%3E%3C/svg%3E"); }
 .ico-back { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 6l6 6-6 6'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 6l6 6-6 6'/%3E%3C/svg%3E"); }
 .ico-more { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 15l6-6 6 6'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 15l6-6 6 6'/%3E%3C/svg%3E"); }
 
@@ -405,7 +406,18 @@ body:has(.detailbar) .toast-host { bottom: calc(76px + env(safe-area-inset-botto
 
 /* ———————————————— تسجيل شيك ———————————————— */
 
-.register { display: flex; flex-direction: column; gap: 12px; }
+.register { display: flex; flex-direction: column; gap: 12px; padding-bottom: 76px; }
+
+/* شريط التسجيل الثابت فوق شريط التنقل: ما ينقص، وزر «مراجعة وتسجيل» */
+.formbar {
+  position: fixed; inset-inline: 0; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom)); z-index: 21;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 16px; background: var(--surface); border-top: 3px solid var(--brand);
+}
+.fb-info { font-size: 13px; line-height: 1.4; color: var(--ink-muted); min-width: 0; }
+.fb-info.err { color: var(--accent-text); font-weight: 600; }
+.formbar .btn-primary { flex: none; padding: 11px 16px; font-size: 15px; }
+body:has(.formbar) .toast-host { bottom: calc(var(--nav-h) + 80px + env(safe-area-inset-bottom)); }
 .btn-primary.wide, .btn-plain.wide { width: 100%; padding: 13px; font-size: 16px; margin-top: 8px; }
 .reg-photo:empty { display: none; }
 .reg-preview { max-height: 260px; margin-top: 4px; }
@@ -545,9 +557,13 @@ main > section.block > form, main > section.block > .btn-plain { margin-top: 6px
 .help ol, .help ul { padding-inline-start: 22px; margin: 6px 0; }
 .help li { margin: 5px 0; }
 /* أزرار الصورة في التعديل: الكاميرا والمعرض جنباً إلى جنب */
-.photo-btns { display: flex; gap: 8px; }
-.photo-btns .btn-plain { flex: 1; padding: 10px; }
-.register .btn-plain.wide + [role], .register .btn-primary.wide + .btn-plain.wide { margin-top: 8px; }
+.photo-btns { display: flex; gap: 8px; margin-top: 8px; }
+.photo-btns .btn-plain { flex: 1; padding: 10px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.photo-btns .ico { width: 20px; height: 20px; }
+/* قبل التصوير: زر الكاميرا كبير وحده، والمعرض تحته */
+.photo-btns.first { flex-direction: column; }
+.photo-btns.first .shoot { padding: 18px; font-size: 17px; border-color: var(--ink-muted); }
+.photo-btns.first .shoot .ico { width: 26px; height: 26px; }
 
 /* ———————————————— عارض الصورة ———————————————— */
 dialog.viewer {
