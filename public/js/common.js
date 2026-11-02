@@ -30,6 +30,18 @@
     const btn = document.getElementById('menu-btn');
     const menu = document.getElementById('menu');
     if (!btn || !menu) return;
+    const out = document.getElementById('logout');
+    if (out) out.addEventListener('click', logout);
+    // صفحتا الإدارة والمساعدة تقرآن المستخدم بنفسهما. صفحة المساعدة تُفتح قبل الدخول أيضاً،
+    // فيختفي الاسم والخروج إن لم يكن هناك دخول.
+    if (menu.hasAttribute('data-me')) {
+      api('/api/me', { noRedirect: true }).then((me) => {
+        const who = document.getElementById('who');
+        if (who) who.textContent = me.user.display_name;
+        const adm = document.getElementById('admin-link');
+        if (adm && me.user.role === 'admin') adm.classList.remove('hidden');
+      }).catch(() => { if (out) out.classList.add('hidden'); });
+    }
     let open = false;
     const set = (v) => {
       open = v;
