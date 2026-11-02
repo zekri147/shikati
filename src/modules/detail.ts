@@ -75,7 +75,6 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
     status: str(cf.cf_5d7197),
     destination: str(cf.cf_d_pos_vers),
     cheque_number: chequeNumber(cf.cf_n_cheque),
-    bank: str(cf.cf_fafa0d),
     account: str(p.account_name),
     wrong_account: wrongAccountText(str(p.account_id), str(p.account_name), str(cf.cf_d_pos_vers)),
     location: LOCATIONS[str(p.location_name).toUpperCase()] || str(p.location_name),

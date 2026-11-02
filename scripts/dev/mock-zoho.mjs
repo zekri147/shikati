@@ -38,7 +38,6 @@ const JPG = fs.readFileSync(new URL('./cheque-sample.jpg', import.meta.url));
 
 const CUSTOMERS = ['SARL COMINOX', 'EURL HOUSE FIX', 'SARL WELD FIXE', 'SARL BATIMETAL', 'EURL SOUDURE PLUS', 'SARL INOX ALGER', 'SARL TECHNO FER', 'EURL AL AMANE'];
 const AMOUNTS = [366600.39, 835400, 263700, 120000, 50000, 99000, 150000, 77000];
-const BANKS = ['BNA', 'CPA', 'BEA', 'BADR', 'BDL', 'AGB', 'CNEP', 'Al Baraka'];
 // التواريخ نسبية إلى اليوم حتى تبقى التنبيهات صالحة في أي يوم تُشغَّل فيه التجربة
 const day = (n) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
 const DATES = [day(-6), day(-12), day(-2), day(-17), day(-1), day(-4), day(-8), day(-3)];
@@ -60,7 +59,7 @@ for (let n = 1; n <= 8; n++) {
     last_modified_time: new Date(Date.now() - n * 3_600_000).toISOString(),
     custom_field_hash: {
       cf_5d7197: 'في الحوزة', cf_d_pos_vers: 'ELONAC', cf_n_cheque: `72431${String(n).padStart(2, '0')}`, cf_fffaad: `${day(-6)} — سطر قديم`,
-      cf_fafa0d: BANKS[n - 1], cf_023de7: '✔ كاملة',
+      cf_023de7: '✔ كاملة',
     },
   };
 }
@@ -80,40 +79,42 @@ const extra = (id, n, over, cf) => {
   };
 };
 extra('7418400000000010', 10, { customer: 'SARL ROSTOM BATI', amount: 410000, date: day(-3) },
-  { cf_5d7197: 'في الحوزة', cf_d_pos_vers: 'ROSTOMIA', cf_n_cheque: '5512010', cf_fafa0d: 'BNA' });
+  { cf_5d7197: 'في الحوزة', cf_d_pos_vers: 'ROSTOMIA', cf_n_cheque: '5512010' });
 extra('7418400000000019', 19, { customer: 'EURL METAL PRO', amount: 225000, date: day(-9), location: 'EL EULMA',
   deposit_details: [{ deposit_id: 'TX19', date: day(-5), account_name: 'Bank – AGB', amount: 225000 }] },
-  { cf_5d7197: 'مودع في البنك', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512019', cf_fafa0d: 'CPA',
+  { cf_5d7197: 'مودع في البنك', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512019',
     cf_fffaad: `${day(-5)} — إيداع في AGB من تطبيق شيكاتي (أمين)` });
 extra('7418400000000020', 20, { customer: 'SARL COMINOX', amount: 180000, date: day(-25),
   deposit_details: [{ deposit_id: 'TX20', date: day(-20), account_name: 'Bank – AGB', amount: 180000 }] },
-  { cf_5d7197: 'محصّل', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512020', cf_fafa0d: 'BEA',
+  { cf_5d7197: 'محصّل', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512020',
     cf_fffaad: `${day(-20)} — إيداع في AGB من تطبيق شيكاتي (أمين)\n${day(-17)} — تحصيل آلي عبر رسالة AGB` });
 extra('7418400000000029', 29, { customer: 'EURL HOUSE FIX', amount: 835400, date: day(-4), location: 'EL EULMA',
   account_id: '7418406000009849106', account_name: 'Endorsed Cheques' },
-  { cf_5d7197: 'مظهّر لمورد', cf_d_pos_vers: 'Autre Fournisseur', cf_n_cheque: '0499308', cf_fafa0d: 'BADR',
+  { cf_5d7197: 'مظهّر لمورد', cf_d_pos_vers: 'Autre Fournisseur', cf_n_cheque: '0499308',
     cf_fffaad: `[END|741840600001|741840600002]\nظُهّر للمورد SARL ACIER بتاريخ ${day(-3)} باعتماد الإدارة` });
 extra('7418400000000030', 30, { customer: 'SARL TECHNO FER', amount: 95000, date: day(-15) },
-  { cf_5d7197: 'مرفوض', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512030', cf_fafa0d: 'BDL' });
+  { cf_5d7197: 'مرفوض', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512030' });
 extra('7418400000000039', 39, { customer: 'EURL SANS DATE', amount: 60000, date: day(-10), image: false,
   account_id: '7418406000000000999', account_name: 'Caisse ALGER' },
   { cf_5d7197: 'في الحوزة', cf_n_cheque: '0000000',
     cf_023de7: '✖ ينقص: NIF · NIS · ART', cf_51a7f5: 'Caisse ALGER → AMINE | مُنشئ العملية: SAMIR',
     cf_drive: 'https://drive.google.com/file/d/abc123/view' });
 extra('7418400000000040', 40, { customer: 'SARL GARANTIE', amount: 1000000, date: day(-40) },
-  { cf_5d7197: 'شيك ضمان', cf_n_cheque: '5512040', cf_fafa0d: 'AGB' });
+  { cf_5d7197: 'شيك ضمان', cf_n_cheque: '5512040' });
 extra('7418400000000049', 49, { customer: 'SARL ECHU AGB', amount: 133000, date: day(-12), location: 'EL EULMA' },
-  { cf_5d7197: 'في الحوزة', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512049', cf_fafa0d: 'BNA' });
+  { cf_5d7197: 'في الحوزة', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512049' });
 payments['7418400000000002'].deposit_details = [{ deposit_id: 'x' }];
 payments['7418400000000003'].custom_field_hash.cf_5d7197 = 'محصّل';
 
 const CONTACTS = [
-  ...CUSTOMERS.map((name, i) => ({ contact_id: `74184000001000${String(i + 1).padStart(2, '0')}`, contact_name: name })),
-  { contact_id: '7418400000100090', contact_name: 'SARL NOUVEAU CLIENT' },
+  ...CUSTOMERS.map((name, i) => ({ contact_id: `74184000001000${String(i + 1).padStart(2, '0')}`, contact_name: name, contact_type: 'customer' })),
+  { contact_id: '7418400000100090', contact_name: 'SARL NOUVEAU CLIENT', contact_type: 'customer' },
+  // مورد يحمل اسم عميل: يجب ألا يظهر في بحث التسجيل
+  { contact_id: '7418400000100091', contact_name: 'SARL COMINOX', contact_type: 'vendor' },
 ];
 // فواتير غير مدفوعة لكل عميل، الأقدم أولاً
 const INVOICES = {};
-for (const c of CONTACTS) {
+for (const c of CONTACTS.filter((x) => x.contact_type === 'customer')) {
   INVOICES[c.contact_id] = [
     { invoice_id: `${c.contact_id}1`, invoice_number: `BL-26/${c.contact_id.slice(-2)}01`, date: day(-40), balance: 120000, customer_id: c.contact_id },
     { invoice_id: `${c.contact_id}2`, invoice_number: `BL-26/${c.contact_id.slice(-2)}02`, date: day(-20), balance: 300000, customer_id: c.contact_id },
@@ -145,7 +146,7 @@ http.createServer((req, res) => {
     if (path.startsWith('/v1/messages') && req.method === 'POST') {
       const key = req.headers['x-api-key'] || String(req.headers.authorization || '').replace(/^Bearer /, '');
       if (key !== 'mock-key') return send({ type: 'error', error: { type: 'authentication_error', message: 'bad key' } }, 401);
-      const reading = { amount: 250000, cheque_number: '6309259', bank: 'BNA', drawer: 'SARL COMINOX', note: null };
+      const reading = { amount: 250000, cheque_number: '6309259', note: '' };
       log.push('CLAUDE read');
       return setTimeout(() => send({
         id: 'msg_mock', type: 'message', role: 'assistant', model: 'claude-opus-5-5',

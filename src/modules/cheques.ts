@@ -34,7 +34,6 @@ interface ZohoPayment {
   cf_5d7197?: string;
   cf_d_pos_vers?: string;
   cf_n_cheque?: string;
-  cf_fafa0d?: string;
   cf_023de7?: string;
   cf_51a7f5?: string;
   check_details?: { check_number?: string };
@@ -56,7 +55,6 @@ export interface Cheque {
   location: string;
   status: string;
   destination: string;
-  bank: string;
   account: string;
   invoices: string;
   // هل للدفعة مرفق في زوهو (صورة الشيك عادةً)
@@ -137,7 +135,6 @@ export function buildView(payments: ZohoPayment[], today: string): ChequesView {
     location: LOCATIONS[(p.location_name || '').toUpperCase()] || p.location_name || '',
     status: (p.cf_5d7197 || '').trim(),
     destination: (p.cf_d_pos_vers || '').trim(),
-    bank: (p.cf_fafa0d || '').trim(),
     account: (p.account_name || '').trim(),
     invoices: (p.invoice_numbers || '').trim(),
     has_image: !!p.has_attachment,

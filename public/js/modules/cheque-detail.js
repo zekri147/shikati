@@ -48,7 +48,6 @@
 
     parts.push(block('بيانات الشيك', el('dl', { class: 'kvs' },
       row('رقم الشيك', d.cheque_number, { ltr: true }),
-      row('البنك الساحب', d.bank),
       row('تاريخ الاستلام', fmtDate(d.date), { ltr: true }),
       row('الموقع', d.location),
       row('سجّله', d.created_by),

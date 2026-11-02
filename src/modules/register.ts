@@ -3,7 +3,7 @@ import { HttpError, json, readJson } from '../http';
 import { zohoGet, zohoRequest, zohoUpload, ZohoTimeout } from '../zoho';
 import { audit } from '../audit';
 import {
-  ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, BANKS, CACHE_KEY, DESTINATIONS, LOCATIONS, STATUS, todayAlgiers,
+  ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, CACHE_KEY, DESTINATIONS, LOCATIONS, STATUS, todayAlgiers,
 } from './constants';
 import { parseImage, readCheque, readerConfigured } from './ocr';
 
@@ -33,13 +33,12 @@ export function registerOptions(env: Env, user: User): Response {
   return json({
     can_register: canRegister(env, user),
     reader: readerConfigured(env),
-    banks: BANKS,
     destinations: DESTINATIONS,
     locations: Object.entries(LOCATIONS).map(([key, v]) => ({ key, label: v.label })),
   });
 }
 
-interface Contact { contact_id: string; contact_name: string; company_name?: string; status?: string }
+interface Contact { contact_id: string; contact_name: string; contact_type?: string; status?: string }
 
 export async function searchCustomers(env: Env, user: User, q: string): Promise<Response> {
   requireRegister(env, user);
@@ -48,8 +47,11 @@ export async function searchCustomers(env: Env, user: User, q: string): Promise<
   const data = await zohoGet<{ contacts?: Contact[] }>(env, '/contacts', {
     contact_type: 'customer', filter_by: 'Status.Active', search_text: term, per_page: 20,
   });
+  // زوهو يتجاهل نوع جهة الاتصال حين يجتمع مع البحث بالاسم، فيعيد الموردين أيضاً. نصفّيهم هنا.
   return json({
-    customers: (data.contacts || []).map((c) => ({ id: c.contact_id, name: c.contact_name })),
+    customers: (data.contacts || [])
+      .filter((c) => c.contact_type === 'customer')
+      .map((c) => ({ id: c.contact_id, name: c.contact_name })),
   });
 }
 
@@ -100,7 +102,6 @@ interface RegisterBody {
   customer?: string;
   amount?: number;
   cheque_number?: string;
-  bank?: string;
   destination?: string;
   location?: string;
   image?: string;
@@ -129,14 +130,12 @@ export async function handleRegister(req: Request, env: Env, user: User): Promis
   const customer = String(b.customer || '').trim().slice(0, 200);
   const amount = Math.round(Number(b.amount) * 100) / 100;
   const chq = String(b.cheque_number || '').trim();
-  const bank = String(b.bank || '');
   const dest = String(b.destination || '');
   const loc = LOCATIONS[String(b.location || '')];
   if (!REQUEST_RE.test(requestId)) throw new HttpError(400, 'طلب غير صالح. أعد فتح الشاشة.');
   if (!ID_RE.test(customerId)) throw new HttpError(400, 'اختر العميل.');
   if (!Number.isFinite(amount) || amount <= 0 || amount > 1e9) throw new HttpError(400, 'المبلغ غير صالح.');
   if (!CHEQUE_RE.test(chq) || chq === '0000000') throw new HttpError(400, 'رقم الشيك يجب أن يكون 7 أرقام.');
-  if (!(BANKS as readonly string[]).includes(bank)) throw new HttpError(400, 'اختر البنك الساحب.');
   if (!(DESTINATIONS as readonly string[]).includes(dest)) throw new HttpError(400, 'اختر وجهة الشيك.');
   if (!loc) throw new HttpError(400, 'اختر الموقع.');
   const image = b.image ? parseImage(b.image) : null;
@@ -201,10 +200,9 @@ export async function handleRegister(req: Request, env: Env, user: User): Promis
     reference_number: chq,
     account_id: dest === 'Autre Fournisseur' ? ACCOUNT_ENDORSED : ACCOUNT_CHEQUES_IN_HAND,
     location_id: loc.id,
-    description: `شيك ${chq} — ${bank} — سجّله ${user.display_name} من تطبيق شيكاتي`,
+    description: `شيك ${chq} — سجّله ${user.display_name} من تطبيق شيكاتي`,
     custom_fields: [
       { api_name: 'cf_n_cheque', value: chq },
-      { api_name: 'cf_fafa0d', value: bank },
       { api_name: 'cf_d_pos_vers', value: dest },
       { api_name: 'cf_5d7197', value: STATUS.IN_HAND },
       { api_name: 'cf_fffaad', value: logLine },

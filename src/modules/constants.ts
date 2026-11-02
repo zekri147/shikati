@@ -29,11 +29,6 @@ export const LOCATIONS: Record<string, { id: string; label: string }> = {
   'EL EULMA': { id: '7418406000000093098', label: 'العلمة' },
 };
 
-// قيم «البنك الساحب» كما هي في القائمة المنسدلة في زوهو
-export const BANKS = [
-  'AGB', 'BNA', 'BEA', 'BADR', 'BDL', 'CPA', 'CNEP', 'CNMA', 'Al Baraka', 'Al Salam', 'Trust Bank',
-  'Société Générale', 'BNP Paribas', 'Natixis', 'Housing Bank', 'ABC', 'Fransabank', 'CCP', 'أخرى',
-] as const;
 
 // الوجهات، وأولها الافتراضية
 export const DESTINATIONS = ['ELONAC', 'ROSTOMIA', 'Autre Fournisseur'] as const;

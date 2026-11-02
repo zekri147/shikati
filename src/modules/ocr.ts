@@ -1,9 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env';
 import { HttpError } from '../http';
-import { BANKS } from './constants';
 
-// قراءة صورة الشيك بواجهة كلود، كما كان يفعل بوت تيليجرام.
+// قراءة صورة الشيك بواجهة كلود، كما كان يفعل بوت تيليجرام: المبلغ والرقم فقط.
+// العميل لا يُقرأ آلياً بطلب ZEKRI، بل يختاره الموظف بالبحث.
 // النتيجة اقتراح فقط: الموظف يراجعها ويصححها قبل أي كتابة في زوهو.
 
 const MODEL = 'claude-opus-5-5';
@@ -14,8 +14,6 @@ type ImageType = (typeof IMAGE_TYPES)[number];
 export interface ChequeReading {
   amount: number | null;
   cheque_number: string | null;
-  bank: string | null;
-  drawer: string | null;
   // ملاحظة قصيرة من القارئ إن كانت الصورة غير واضحة أو فيها تعارض
   note: string | null;
 }
@@ -24,12 +22,10 @@ export interface ChequeReading {
 const SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['amount', 'cheque_number', 'bank', 'drawer', 'note'],
+  required: ['amount', 'cheque_number', 'note'],
   properties: {
     amount: { type: 'number', description: 'المبلغ بالدينار الجزائري، مثل 366600.39. صفر إن لم يُقرأ' },
     cheque_number: { type: 'string', description: 'رقم الشيك أرقاماً فقط، أو نص فارغ' },
-    bank: { type: 'string', enum: [...BANKS, ''], description: 'البنك الساحب من القائمة، أو نص فارغ' },
-    drawer: { type: 'string', description: 'اسم صاحب الحساب الساحب، أو نص فارغ' },
     note: { type: 'string', description: 'ملاحظة قصيرة بالعربية إن كان شيء غير واضح، أو نص فارغ' },
   },
 };
@@ -38,8 +34,6 @@ const PROMPT = `هذه صورة شيك بنكي جزائري استلمته شر
 استخرج منها:
 - amount: المبلغ بالأرقام. إن اختلف المبلغ بالأرقام عن المبلغ بالحروف، خذ المبلغ بالحروف واذكر ذلك في note.
 - cheque_number: رقم الشيك المطبوع (عادة 7 أرقام). أرقام فقط، دون مسافات.
-- bank: البنك الساحب، واختر قيمة واحدة من القائمة المسموحة. إن لم يكن فيها فاختر «أخرى».
-- drawer: اسم صاحب الحساب (الشخص أو الشركة) كما هو مطبوع على الشيك.
 - note: اكتب ملاحظة قصيرة فقط إن كان جزء غير مقروء أو مشكوك فيه، وإلا نصاً فارغاً.
 الصورة قد تكون مقلوبة أو مائلة، فاقرأها في أي اتجاه.
 أي حقل لا تستطيع قراءته بثقة: اكتب 0 للمبلغ ونصاً فارغاً لغيره، بدل التخمين.`;
@@ -111,6 +105,5 @@ export async function readCheque(env: Env, image: { type: ImageType; data: strin
   const amount = typeof out.amount === 'number' && Number.isFinite(out.amount) && out.amount > 0
     ? Math.round(out.amount * 100) / 100 : null;
   const num = clean(out.cheque_number)?.replace(/\D/g, '') || null;
-  const bank = typeof out.bank === 'string' && (BANKS as readonly string[]).includes(out.bank) ? out.bank : null;
-  return { amount, cheque_number: num, bank, drawer: clean(out.drawer), note: clean(out.note) };
+  return { amount, cheque_number: num, note: clean(out.note) };
 }

@@ -1,4 +1,4 @@
-// تسجيل شيك جديد: صورة الشيك ← قراءة آلية بكلود ← مراجعة الموظف ← دفعة في زوهو.
+// تسجيل شيك جديد: صورة الشيك ← قراءة المبلغ والرقم بكلود ← اختيار العميل بالبحث ← دفعة في زوهو.
 // القراءة اقتراح فقط، ولا يُكتب شيء في زوهو قبل ضغط «تسجيل الشيك» في بطاقة التأكيد.
 (function () {
   const { api, toast, el, ltr, fmtAmount, fmtDate } = window.Shikati;
@@ -72,7 +72,6 @@
           row('العميل', el('span', { text: form.customer.name })),
           row('المبلغ', ltr(fmtAmount(form.amount), 'num strong')),
           row('رقم الشيك', ltr(form.cheque_number, 'num')),
-          row('البنك الساحب', el('span', { text: form.bank })),
           row('الوجهة', el('span', { text: DEST_LABELS[form.destination] })),
           row('الموقع', el('span', { text: form.locationLabel }))),
         el('h3', { class: 'reg-sub', text: 'التوزيع على الفواتير' }),
@@ -94,7 +93,7 @@
         try {
           const res = await api('/api/m/cheques/register', { method: 'POST', body: {
             request_id: form.requestId, customer_id: form.customer.id, customer: form.customer.name,
-            amount: form.amount, cheque_number: form.cheque_number, bank: form.bank,
+            amount: form.amount, cheque_number: form.cheque_number,
             destination: form.destination, location: form.location, image: form.image || undefined,
           } });
           busy = false;
@@ -137,7 +136,7 @@
     let storedLoc = '';
     try { storedLoc = localStorage.getItem(LOC_KEY) || ''; } catch { /* التخزين غير متاح */ }
     const form = {
-      requestId: newRequestId(), image: '', customer: null, amount: null, cheque_number: '', bank: '',
+      requestId: newRequestId(), image: '', customer: null, amount: null, cheque_number: '',
       destination: 'ELONAC', location: LOC_FROM_LABEL[storedLoc] || '', locationLabel: '', locked: false,
     };
 
@@ -182,10 +181,8 @@
     const customerSearch = el('input', { type: 'search', placeholder: 'اكتب جزءاً من اسم العميل', autocomplete: 'off', enterkeyhint: 'search' });
     const customerResults = el('ul', { class: 'pick-list' });
     const customerChosen = el('div', { class: 'chosen hidden' });
-    const drawerHint = el('div', { class: 'muted small hidden' });
     const amountInput = el('input', { type: 'text', inputmode: 'decimal', dir: 'ltr', placeholder: '0.00', autocomplete: 'off' });
     const numberInput = el('input', { type: 'text', inputmode: 'numeric', dir: 'ltr', maxlength: '7', placeholder: '7 أرقام', autocomplete: 'off' });
-    const bankSelect = el('select', {}, el('option', { value: '', text: 'اختر البنك' }), opts.banks.map((b) => el('option', { value: b, text: b })));
     const locLabels = Object.fromEntries(opts.locations.map((l) => [l.key, l.label]));
     form.locationLabel = locLabels[form.location] || '';
 
@@ -231,15 +228,6 @@
       const filled = [];
       if (r.amount) { amountInput.value = String(r.amount); filled.push('المبلغ'); }
       if (r.cheque_number) { numberInput.value = r.cheque_number; filled.push('الرقم'); }
-      if (r.bank) { bankSelect.value = r.bank; filled.push('البنك'); }
-      if (r.drawer) {
-        drawerHint.textContent = 'الساحب على الشيك: ' + r.drawer;
-        drawerHint.classList.remove('hidden');
-        if (!form.customer) {
-          customerSearch.value = r.drawer;
-          searchCustomers(r.drawer);
-        }
-      }
       readStatus.className = r.note ? 'note warn' : 'note ok';
       readStatus.textContent = (filled.length ? 'قُرئ: ' + filled.join('، ') + '. راجعها مع الصورة.' : 'لم تُقرأ أي بيانات بثقة. اكتبها بيدك.')
         + (r.note ? ' ملاحظة: ' + r.note : '');
@@ -255,12 +243,10 @@
       errorBox.textContent = '';
       form.amount = parseAmount(amountInput.value);
       form.cheque_number = numberInput.value.replace(/\D/g, '');
-      form.bank = bankSelect.value;
       const problems = [];
       if (!form.customer) problems.push('اختر العميل');
       if (!form.amount) problems.push('اكتب المبلغ');
       if (!/^\d{7}$/.test(form.cheque_number) || form.cheque_number === '0000000') problems.push('رقم الشيك 7 أرقام');
-      if (!form.bank) problems.push('اختر البنك الساحب');
       if (!form.location) problems.push('اختر الموقع');
       if (problems.length) {
         errorBox.className = 'form-error';
@@ -294,10 +280,9 @@
     box.replaceChildren(el('div', { class: 'register' },
       el('section', { class: 'd-block' }, el('h2', { text: 'صورة الشيك' }), fileInput, photoBox, shootBtn, readStatus),
       el('section', { class: 'd-block' }, el('h2', { text: 'البيانات' }),
-        field('العميل', el('div', {}, customerSearch, customerChosen), el('div', {}, drawerHint, customerResults)),
+        field('العميل', el('div', {}, customerSearch, customerChosen), customerResults),
         field('المبلغ (دج)', amountInput),
         field('رقم الشيك', numberInput),
-        field('البنك الساحب', bankSelect),
         el('div', { class: 'field' }, el('span', { class: 'label', text: 'الوجهة' }), destChips),
         el('div', { class: 'field' }, el('span', { class: 'label', text: 'الموقع' }), locChips)),
       errorBox,
