@@ -25,6 +25,8 @@
 //
 // تسجيل شيك جديد (POST /customerpayments) حسب آخر رقم في رقم الشيك:
 //   4 ينقطع الرد بعد الإرسال    7 زوهو يرفض التسجيل    غير ذلك: نجاح
+// ودفعة المورد عند التظهير (POST /vendorpayments) حسب آخر رقم في رقم الشيك:
+//   8 زوهو يرفض دفعة المورد     6 ينقطع الرد بعد الإرسال
 // ويقلّد أيضاً واجهة كلود (POST /v1/messages) فيعيد قراءة ثابتة لصورة الشيك.
 
 import http from 'node:http';
@@ -109,8 +111,9 @@ payments['7418400000000003'].custom_field_hash.cf_5d7197 = 'محصّل';
 const CONTACTS = [
   ...CUSTOMERS.map((name, i) => ({ contact_id: `74184000001000${String(i + 1).padStart(2, '0')}`, contact_name: name, contact_type: 'customer' })),
   { contact_id: '7418400000100090', contact_name: 'SARL NOUVEAU CLIENT', contact_type: 'customer' },
-  // مورد يحمل اسم عميل: يجب ألا يظهر في بحث التسجيل
+  // مورد يحمل اسم عميل: يجب ألا يظهر في بحث العملاء
   { contact_id: '7418400000100091', contact_name: 'SARL COMINOX', contact_type: 'vendor' },
+  { contact_id: '7418400000100092', contact_name: 'SARL ACIER FOURNISSEUR', contact_type: 'vendor' },
 ];
 // فواتير غير مدفوعة لكل عميل، الأقدم أولاً
 const INVOICES = {};
@@ -121,6 +124,15 @@ for (const c of CONTACTS.filter((x) => x.contact_type === 'customer')) {
   ];
 }
 let newSeq = 100;
+// فواتير غير مدفوعة لكل مورد
+const BILLS = {};
+for (const c of CONTACTS.filter((x) => x.contact_type === 'vendor')) {
+  BILLS[c.contact_id] = [
+    { bill_id: `${c.contact_id}7`, bill_number: `FA-${c.contact_id.slice(-2)}01`, date: day(-50), balance: 200000, vendor_id: c.contact_id },
+    { bill_id: `${c.contact_id}8`, bill_number: `FA-${c.contact_id.slice(-2)}02`, date: day(-25), balance: 500000, vendor_id: c.contact_id },
+  ];
+}
+const vendorPayments = {};
 
 const log = [];
 const txns = {};
@@ -169,6 +181,19 @@ http.createServer((req, res) => {
       const contacts = CONTACTS.filter((c) => words.some((w) => c.contact_name.toLowerCase().includes(w)));
       return send({ code: 0, contacts });
     }
+    if (path === '/books/v3/bills' && req.method === 'GET') {
+      return send({ code: 0, bills: BILLS[url.searchParams.get('vendor_id')] || [] });
+    }
+    if (path === '/books/v3/vendorpayments' && req.method === 'POST') {
+      const j = JSON.parse(body);
+      log.push(`VENDORPAY ${body}`);
+      const chq = String(j.reference_number || '');
+      if (chq.endsWith('8')) return send({ code: 9, message: 'Vendor payment rejected (mock)' }, 400);
+      const id = `74184000009${String(++newSeq).padStart(5, '0')}`;
+      vendorPayments[id] = j;
+      if (chq.endsWith('6')) { req.socket.destroy(); return; }
+      return send({ code: 0, vendorpayment: { payment_id: id } });
+    }
     if (path === '/books/v3/invoices' && req.method === 'GET') {
       return send({ code: 0, invoices: INVOICES[url.searchParams.get('customer_id')] || [] });
     }
@@ -192,7 +217,7 @@ http.createServer((req, res) => {
           return { invoice_id: i.invoice_id, invoice_number: inv.invoice_number, date: inv.date, amount_applied: i.amount_applied, total: inv.balance, balance: (inv.balance || 0) - i.amount_applied };
         }),
         deposit_details: [], has_attachment: false, documents: [], last_modified_time: new Date().toISOString(),
-        custom_field_hash: { ...cf, cf_023de7: '✔ كاملة' },
+        custom_field_hash: { ...cf, cf_023de7: '✔ كاملة', cf_a1dfce: `CHQ-${chq}`, cf_a1dfce_unformatted: `74184000008${String(newSeq).padStart(5, '0')}` },
       };
       if (chq.endsWith('4')) { req.socket.destroy(); return; }
       return send({ code: 0, payment: { payment_id: id } });

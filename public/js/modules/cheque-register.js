@@ -1,4 +1,5 @@
-// تسجيل شيك جديد: صورة الشيك ← قراءة المبلغ والرقم بكلود ← اختيار العميل بالبحث ← دفعة في زوهو.
+// تسجيل شيك جديد: صورة الشيك ← قراءة المبلغ والرقم بكلود ← اختيار العميل بالبحث ← دفعة في زوهو،
+// ومع وجهة «مورد آخر» دفعة مورد من حساب الشيكات المظهّرة.
 // القراءة اقتراح فقط، ولا يُكتب شيء في زوهو قبل ضغط «تسجيل الشيك» في بطاقة التأكيد.
 (function () {
   const { api, toast, el, ltr, fmtAmount, fmtDate } = window.Shikati;
@@ -51,19 +52,74 @@
     return row;
   }
 
+  // بحث واختيار جهة اتصال: عميل أو مورد. البحث في الخادم يستبعد النوع الآخر.
+  function partyPicker(kind, onChange) {
+    const isVendor = kind === 'vendor';
+    const input = el('input', { type: 'search', placeholder: isVendor ? 'اكتب جزءاً من اسم المورد' : 'اكتب جزءاً من اسم العميل', autocomplete: 'off', enterkeyhint: 'search' });
+    const results = el('ul', { class: 'pick-list' });
+    const chosen = el('div', { class: 'chosen hidden' });
+    let value = null;
+    let timer = 0;
+    let seq = 0;
+    async function search(q) {
+      const my = ++seq;
+      if (q.trim().length < 2) { results.replaceChildren(); return; }
+      try {
+        const data = await api(`/api/m/cheques/register/${isVendor ? 'vendors' : 'customers'}?q=` + encodeURIComponent(q.trim()));
+        const list = isVendor ? data.vendors : data.customers;
+        if (my !== seq) return;
+        results.replaceChildren(...(list.length
+          ? list.map((c) => {
+            const b = el('button', { type: 'button', text: c.name });
+            b.addEventListener('click', () => choose(c));
+            return el('li', {}, b);
+          })
+          : [el('li', { class: 'muted small', text: isVendor ? 'لا مورد بهذا الاسم.' : 'لا عميل بهذا الاسم.' })]));
+      } catch (e) {
+        if (my === seq) results.replaceChildren(el('li', { class: 'form-error', text: e.message }));
+      }
+    }
+    input.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => search(input.value), 300);
+    });
+    function choose(c) {
+      value = c;
+      results.replaceChildren();
+      input.classList.add('hidden');
+      const change = el('button', { type: 'button', class: 'btn-plain', text: 'تغيير' });
+      change.addEventListener('click', () => {
+        value = null;
+        chosen.classList.add('hidden');
+        input.classList.remove('hidden');
+        input.focus();
+        if (onChange) onChange(null);
+      });
+      chosen.replaceChildren(el('span', { class: 'strong', text: c.name }), change);
+      chosen.classList.remove('hidden');
+      if (onChange) onChange(c);
+    }
+    return { box: el('div', {}, input, chosen, results), get: () => value };
+  }
+
+  // قائمة توزيع المبلغ على فواتير العميل أو المورد
+  function allocList(lines, emptyText) {
+    if (!lines.length) return el('p', { class: 'muted small', text: emptyText });
+    return el('ul', { class: 'd-list' }, lines.map((l) => el('li', {},
+      el('div', { class: 'd-line' }, ltr(l.number, 'num strong'), ltr(fmtAmount(l.applied), 'num strong')),
+      el('div', { class: 'd-line muted small' },
+        el('span', {}, 'بتاريخ ', ltr(fmtDate(l.date), 'num')),
+        l.applied < l.balance ? el('span', {}, 'يبقى منها ', ltr(fmtAmount(Math.round((l.balance - l.applied) * 100) / 100), 'num')) : el('span', { text: 'تُسدَّد كاملة' })))));
+  }
+
   function confirmDialog(form, preview) {
     return new Promise((resolve) => {
       const message = el('div', { role: 'alert' });
       const okBtn = el('button', { type: 'button', class: 'btn-primary', text: 'تسجيل الشيك' });
       const cancelBtn = el('button', { type: 'button', class: 'btn-plain', text: 'رجوع للتعديل' });
       const row = (k, v) => el('div', { class: 'kv' }, el('dt', { text: k }), el('dd', {}, v));
-      const alloc = preview.lines.length
-        ? el('ul', { class: 'd-list' }, preview.lines.map((l) => el('li', {},
-          el('div', { class: 'd-line' }, ltr(l.number, 'num strong'), ltr(fmtAmount(l.applied), 'num strong')),
-          el('div', { class: 'd-line muted small' },
-            el('span', {}, 'بتاريخ ', ltr(fmtDate(l.date), 'num')),
-            l.applied < l.balance ? el('span', {}, 'يبقى منها ', ltr(fmtAmount(Math.round((l.balance - l.applied) * 100) / 100), 'num')) : el('span', { text: 'تُسدَّد كاملة' })))))
-        : el('p', { class: 'muted small', text: 'لا فواتير غير مدفوعة لهذا العميل.' });
+      const alloc = allocList(preview.lines, 'لا فواتير غير مدفوعة لهذا العميل.');
+      const endorsed = form.destination === 'Autre Fournisseur';
 
       const dlg = el('dialog', { class: 'confirm', 'aria-labelledby': 'reg-title' },
         el('h2', { id: 'reg-title', text: 'تأكيد تسجيل الشيك' }),
@@ -73,10 +129,14 @@
           row('المبلغ', ltr(fmtAmount(form.amount), 'num strong')),
           row('رقم الشيك', ltr(form.cheque_number, 'num')),
           row('الوجهة', el('span', { text: DEST_LABELS[form.destination] })),
+          endorsed ? row('المورد', el('span', { text: form.vendor.name })) : null,
           row('الموقع', el('span', { text: form.locationLabel }))),
-        el('h3', { class: 'reg-sub', text: 'التوزيع على الفواتير' }),
+        el('h3', { class: 'reg-sub', text: endorsed ? 'التوزيع على فواتير العميل' : 'التوزيع على الفواتير' }),
         alloc,
         preview.unused > 0 ? el('p', { class: 'note warn' }, 'يبقى ', ltr(fmtAmount(preview.unused), 'num strong'), ' رصيداً مسبقاً للعميل.') : null,
+        endorsed ? el('h3', { class: 'reg-sub', text: 'التوزيع على فواتير المورد' }) : null,
+        endorsed ? allocList(preview.vendor.lines, 'لا فواتير غير مدفوعة لهذا المورد.') : null,
+        endorsed && preview.vendor.unused > 0 ? el('p', { class: 'note warn' }, 'يبقى ', ltr(fmtAmount(preview.vendor.unused), 'num strong'), ' رصيداً مسبقاً عند المورد.') : null,
         el('p', { class: 'muted small', text: 'تأكد أن البيانات تطابق الشيك. سيُسجَّل في زوهو باسمك.' }),
         message,
         el('div', { class: 'dlg-actions' }, okBtn, cancelBtn));
@@ -95,6 +155,7 @@
             request_id: form.requestId, customer_id: form.customer.id, customer: form.customer.name,
             amount: form.amount, cheque_number: form.cheque_number,
             destination: form.destination, location: form.location, image: form.image || undefined,
+            vendor_id: endorsed ? form.vendor.id : undefined, vendor: endorsed ? form.vendor.name : undefined,
           } });
           busy = false;
           close(res);
@@ -136,7 +197,7 @@
     let storedLoc = '';
     try { storedLoc = localStorage.getItem(LOC_KEY) || ''; } catch { /* التخزين غير متاح */ }
     const form = {
-      requestId: newRequestId(), image: '', customer: null, amount: null, cheque_number: '',
+      requestId: newRequestId(), image: '', customer: null, vendor: null, amount: null, cheque_number: '',
       destination: 'ELONAC', location: LOC_FROM_LABEL[storedLoc] || '', locationLabel: '', locked: false,
     };
 
@@ -178,51 +239,14 @@
     });
 
     // ——— البيانات ———
-    const customerSearch = el('input', { type: 'search', placeholder: 'اكتب جزءاً من اسم العميل', autocomplete: 'off', enterkeyhint: 'search' });
-    const customerResults = el('ul', { class: 'pick-list' });
-    const customerChosen = el('div', { class: 'chosen hidden' });
+    const customerPicker = partyPicker('customer', (c) => { form.customer = c; });
+    const vendorPicker = partyPicker('vendor', (v) => { form.vendor = v; });
+    const vendorField = field('المورد الذي سُلّم له الشيك', vendorPicker.box);
+    vendorField.classList.toggle('hidden', form.destination !== 'Autre Fournisseur');
     const amountInput = el('input', { type: 'text', inputmode: 'decimal', dir: 'ltr', placeholder: '0.00', autocomplete: 'off' });
     const numberInput = el('input', { type: 'text', inputmode: 'numeric', dir: 'ltr', maxlength: '7', placeholder: '7 أرقام', autocomplete: 'off' });
     const locLabels = Object.fromEntries(opts.locations.map((l) => [l.key, l.label]));
     form.locationLabel = locLabels[form.location] || '';
-
-    let searchTimer = 0;
-    let searchSeq = 0;
-    async function searchCustomers(q) {
-      const seq = ++searchSeq;
-      if (q.trim().length < 2) { customerResults.replaceChildren(); return; }
-      try {
-        const { customers } = await api('/api/m/cheques/register/customers?q=' + encodeURIComponent(q.trim()));
-        if (seq !== searchSeq) return;
-        customerResults.replaceChildren(...(customers.length
-          ? customers.map((c) => {
-            const b = el('button', { type: 'button', text: c.name });
-            b.addEventListener('click', () => chooseCustomer(c));
-            return el('li', {}, b);
-          })
-          : [el('li', { class: 'muted small', text: 'لا عميل بهذا الاسم.' })]));
-      } catch (e) {
-        if (seq === searchSeq) customerResults.replaceChildren(el('li', { class: 'form-error', text: e.message }));
-      }
-    }
-    customerSearch.addEventListener('input', () => {
-      clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => searchCustomers(customerSearch.value), 300);
-    });
-    function chooseCustomer(c) {
-      form.customer = c;
-      customerResults.replaceChildren();
-      customerSearch.classList.add('hidden');
-      const change = el('button', { type: 'button', class: 'btn-plain', text: 'تغيير' });
-      change.addEventListener('click', () => {
-        form.customer = null;
-        customerChosen.classList.add('hidden');
-        customerSearch.classList.remove('hidden');
-        customerSearch.focus();
-      });
-      customerChosen.replaceChildren(el('span', { class: 'strong', text: c.name }), change);
-      customerChosen.classList.remove('hidden');
-    }
 
     function applyReading(r) {
       const filled = [];
@@ -233,7 +257,10 @@
         + (r.note ? ' ملاحظة: ' + r.note : '');
     }
 
-    const destChips = chipGroup('الوجهة', opts.destinations.map((d) => [d, DEST_LABELS[d] || d]), form.destination, (v) => { form.destination = v; });
+    const destChips = chipGroup('الوجهة', opts.destinations.map((d) => [d, DEST_LABELS[d] || d]), form.destination, (v) => {
+      form.destination = v;
+      vendorField.classList.toggle('hidden', v !== 'Autre Fournisseur');
+    });
     const locChips = chipGroup('الموقع', opts.locations.map((l) => [l.key, l.label]), form.location, (v) => { form.location = v; form.locationLabel = locLabels[v]; });
 
     const errorBox = el('div', { role: 'alert' });
@@ -245,6 +272,7 @@
       form.cheque_number = numberInput.value.replace(/\D/g, '');
       const problems = [];
       if (!form.customer) problems.push('اختر العميل');
+      if (form.destination === 'Autre Fournisseur' && !form.vendor) problems.push('اختر المورد');
       if (!form.amount) problems.push('اكتب المبلغ');
       if (!/^\d{7}$/.test(form.cheque_number) || form.cheque_number === '0000000') problems.push('رقم الشيك 7 أرقام');
       if (!form.location) problems.push('اختر الموقع');
@@ -262,7 +290,10 @@
       submitBtn.textContent = 'جارٍ حساب التوزيع…';
       let preview;
       try {
-        preview = await api('/api/m/cheques/register/preview', { method: 'POST', body: { customer_id: form.customer.id, amount: form.amount } });
+        preview = await api('/api/m/cheques/register/preview', { method: 'POST', body: {
+          customer_id: form.customer.id, amount: form.amount,
+          vendor_id: form.destination === 'Autre Fournisseur' ? form.vendor.id : undefined,
+        } });
       } catch (e) {
         errorBox.className = 'form-error';
         errorBox.textContent = e.message;
@@ -280,14 +311,15 @@
     box.replaceChildren(el('div', { class: 'register' },
       el('section', { class: 'd-block' }, el('h2', { text: 'صورة الشيك' }), fileInput, photoBox, shootBtn, readStatus),
       el('section', { class: 'd-block' }, el('h2', { text: 'البيانات' }),
-        field('العميل', el('div', {}, customerSearch, customerChosen), customerResults),
+        field('العميل', customerPicker.box),
         field('المبلغ (دج)', amountInput),
         field('رقم الشيك', numberInput),
         el('div', { class: 'field' }, el('span', { class: 'label', text: 'الوجهة' }), destChips),
+        vendorField,
         el('div', { class: 'field' }, el('span', { class: 'label', text: 'الموقع' }), locChips)),
       errorBox,
       submitBtn));
   }
 
-  window.ShikatiChequeRegister = { render };
+  window.ShikatiChequeRegister = { render, partyPicker, allocList };
 })();

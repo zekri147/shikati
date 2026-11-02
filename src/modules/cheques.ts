@@ -6,7 +6,8 @@ import { canDeposit, handleDeposit, lockStates, reconcileDoneLocks } from './dep
 import { handleChequeImage } from './image';
 import { handleChequeDetail } from './detail';
 import { canRegister, handlePreview, handleRead, handleRegister, registerOptions, searchCustomers } from './register';
-import { ACCOUNT_CHEQUES_IN_HAND, CACHE_KEY, DEST, STATUS, todayAlgiers } from './constants';
+import { ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, CACHE_KEY, DEST, STATUS, todayAlgiers } from './constants';
+import { handleBillsPreview, handleEndorse, searchVendors } from './endorse';
 import { chequeNumber, wrongAccountText } from './fields';
 
 export { ACCOUNT_CHEQUES_IN_HAND, DEST, STATUS, todayAlgiers };
@@ -70,7 +71,7 @@ interface Section {
 }
 
 // التنبيهات تعوّض ما كان يصل عبر تيليجرام. كل تنبيه يشير إلى شيك في قائمة all.
-export type AlertKind = 'rejected' | 'late' | 'wrong_account' | 'unknown_lock' | 'box' | 'fiscal';
+export type AlertKind = 'rejected' | 'late' | 'endorse_incomplete' | 'wrong_account' | 'unknown_lock' | 'box' | 'fiscal';
 export interface ChequeAlert {
   kind: AlertKind;
   id: string;
@@ -170,6 +171,10 @@ export function buildView(payments: ZohoPayment[], today: string): ChequesView {
     if (c.status === STATUS.IN_HAND && c.days > LATE_DAYS) alerts.push({ kind: 'late', id: c.id });
     const wrong = wrongAccountText(p.account_id, c.account, c.destination);
     if (wrong) alerts.push({ kind: 'wrong_account', id: c.id, text: wrong });
+    // مسجّل لمورد في حساب الشيكات المظهّرة، ولم تُنشأ دفعة المورد بعد
+    if (c.status === STATUS.IN_HAND && p.account_id === ACCOUNT_ENDORSED && c.destination === 'Autre Fournisseur') {
+      alerts.push({ kind: 'endorse_incomplete', id: c.id });
+    }
     const box = (p.cf_51a7f5 || '').trim();
     if (box) alerts.push({ kind: 'box', id: c.id, text: box });
     const fiscal = (p.cf_023de7 || '').trim();
@@ -235,6 +240,11 @@ export const chequesModule: AppModule = {
     if (req.method === 'POST' && subpath === '/deposit') return handleDeposit(req, env, user);
     // تسجيل شيك جديد
     if (req.method === 'GET' && subpath === '/register/options') return registerOptions(env, user);
+    if (req.method === 'GET' && subpath === '/register/vendors') {
+      return searchVendors(env, user, new URL(req.url).searchParams.get('q') || '');
+    }
+    if (req.method === 'POST' && subpath === '/endorse') return handleEndorse(req, env, user);
+    if (req.method === 'POST' && subpath === '/endorse/preview') return handleBillsPreview(req, env, user);
     if (req.method === 'GET' && subpath === '/register/customers') {
       return searchCustomers(env, user, new URL(req.url).searchParams.get('q') || '');
     }

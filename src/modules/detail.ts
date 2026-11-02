@@ -2,6 +2,8 @@ import type { Env, User } from '../env';
 import { HttpError, json } from '../http';
 import { zohoRequest, ZohoTimeout } from '../zoho';
 import { chequeNumber, isoDate, wrongAccountText } from './fields';
+import { endorseBlocker } from './endorse';
+import { canRegister } from './register';
 
 // صفحة تفاصيل الشيك: قراءة فقط. تُقرأ الدفعة من زوهو مباشرة في كل مرة،
 // ثم يُضاف إليها ما سجّله التطبيق نفسه (قفل الإيداع وسجل العمليات).
@@ -60,6 +62,12 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
   ).bind(`-${STALE_PENDING_SEC} seconds`, pid).first<{
     state: string; display_name: string | null; message: string | null; started_at: string; finished_at: string | null; stale: number;
   }>();
+  const endorsement = await env.DB.prepare(
+    "SELECT state, vendor, display_name, vendor_payment_id, message, started_at FROM endorsements WHERE payment_id = ?",
+  ).bind(pid).first<{ state: string; vendor: string | null; display_name: string | null; vendor_payment_id: string | null; message: string | null; started_at: string }>();
+  // إتمام التظهير: الشيك في حساب الشيكات المظهّرة ووجهته «مورد آخر» وحالته «في الحوزة»، ولا تظهير معلّق
+  const canEndorse = canRegister(env, user) && !endorseBlocker(p)
+    && !(endorsement && ['pending', 'done', 'unknown'].includes(endorsement.state));
   const { results: history } = await env.DB.prepare(
     "SELECT at, username, action, result, details FROM audit_log WHERE target = ? OR target LIKE ? ORDER BY id DESC LIMIT 20",
   ).bind(pid, `${pid} /%`).all<{ at: string; username: string | null; action: string; result: string; details: string | null }>();
@@ -103,6 +111,8 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
     app: {
       lock: lock ? { state: lock.stale ? 'unknown' : lock.state, by: lock.display_name, message: lock.message, started_at: lock.started_at, finished_at: lock.finished_at } : null,
       history: isAdmin ? history : [],
+      endorsement: endorsement || null,
     },
+    can_endorse: canEndorse,
   });
 }

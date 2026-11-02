@@ -15,6 +15,7 @@
   const ALERTS = [
     { kind: 'unknown_lock', title: 'بانتظار التحقق', cls: 'alert', note: 'انقطع الرد بعد محاولة الإيداع. تحقق في زوهو، ثم حرّر القفل من صفحة الإدارة.' },
     { kind: 'rejected', title: 'شيكات مرفوضة', cls: 'alert', note: 'تحتاج متابعة مع العميل.' },
+    { kind: 'endorse_incomplete', title: 'تظهير غير مكتمل', cls: 'alert', note: 'مسجّل لمورد في حساب الشيكات المظهّرة دون دفعة مورد. افتح الشيك وأتمّ التظهير.' },
     { kind: 'late', title: 'في الحوزة منذ أكثر من 7 أيام', cls: 'warn', note: 'أعطها الأولوية في الإيداع.' },
     { kind: 'wrong_account', title: 'حساب غير صحيح في زوهو', cls: 'warn', withText: true },
     { kind: 'box', title: 'صندوق غير مطابق', cls: 'warn', withText: true },

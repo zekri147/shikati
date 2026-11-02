@@ -6,6 +6,7 @@ import {
   ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, CACHE_KEY, DESTINATIONS, LOCATIONS, STATUS, todayAlgiers,
 } from './constants';
 import { parseImage, readCheque, readerConfigured } from './ocr';
+import { allocateBills, endorseCheque } from './endorse';
 
 // تسجيل شيك جديد من التطبيق: دفعة عميل بطريقة «شيك»، موزّعة على أقدم فواتير العميل.
 // هذا ثاني مكان يكتب في زوهو بعد الإيداع، بموافقة ZEKRI (الإنشاء مباشرة دون اعتماد).
@@ -23,7 +24,7 @@ export function registerRoles(env: Env): Role[] {
 }
 export const canRegister = (env: Env, user: User) => registerRoles(env).includes(user.role);
 
-function requireRegister(env: Env, user: User) {
+export function requireRegister(env: Env, user: User) {
   if (!canRegister(env, user)) throw new HttpError(403, 'ليست لديك صلاحية تسجيل الشيكات.');
 }
 
@@ -40,19 +41,21 @@ export function registerOptions(env: Env, user: User): Response {
 
 interface Contact { contact_id: string; contact_name: string; contact_type?: string; status?: string }
 
+// زوهو يتجاهل نوع جهة الاتصال حين يجتمع مع البحث بالاسم، فيعيد العملاء والموردين معاً. نصفّي هنا.
+export async function searchContacts(env: Env, type: 'customer' | 'vendor', q: string): Promise<{ id: string; name: string }[]> {
+  const term = q.trim().slice(0, 60);
+  if (term.length < 2) return [];
+  const data = await zohoGet<{ contacts?: Contact[] }>(env, '/contacts', {
+    contact_type: type, filter_by: 'Status.Active', search_text: term, per_page: 30,
+  });
+  return (data.contacts || [])
+    .filter((c) => c.contact_type === type)
+    .map((c) => ({ id: c.contact_id, name: c.contact_name }));
+}
+
 export async function searchCustomers(env: Env, user: User, q: string): Promise<Response> {
   requireRegister(env, user);
-  const term = q.trim().slice(0, 60);
-  if (term.length < 2) return json({ customers: [] });
-  const data = await zohoGet<{ contacts?: Contact[] }>(env, '/contacts', {
-    contact_type: 'customer', filter_by: 'Status.Active', search_text: term, per_page: 20,
-  });
-  // زوهو يتجاهل نوع جهة الاتصال حين يجتمع مع البحث بالاسم، فيعيد الموردين أيضاً. نصفّيهم هنا.
-  return json({
-    customers: (data.contacts || [])
-      .filter((c) => c.contact_type === 'customer')
-      .map((c) => ({ id: c.contact_id, name: c.contact_name })),
-  });
+  return json({ customers: await searchContacts(env, 'customer', q) });
 }
 
 export async function handleRead(req: Request, env: Env, user: User): Promise<Response> {
@@ -86,12 +89,16 @@ async function allocate(env: Env, customerId: string, amount: number): Promise<{
 
 export async function handlePreview(req: Request, env: Env, user: User): Promise<Response> {
   requireRegister(env, user);
-  const b = await readJson<{ customer_id?: string; amount?: number }>(req);
+  const b = await readJson<{ customer_id?: string; amount?: number; vendor_id?: string }>(req);
   const customerId = String(b.customer_id || '');
   const amount = Number(b.amount);
   if (!ID_RE.test(customerId)) throw new HttpError(400, 'اختر العميل.');
   if (!Number.isFinite(amount) || amount <= 0) throw new HttpError(400, 'المبلغ غير صالح.');
-  return json(await allocate(env, customerId, amount));
+  const customer = await allocate(env, customerId, amount);
+  // الشيك المظهّر لمورد: توزيعه أيضاً على أقدم فواتير المورد
+  const vendorId = String(b.vendor_id || '');
+  const vendor = ID_RE.test(vendorId) ? await allocateBills(env, vendorId, amount) : null;
+  return json({ ...customer, vendor });
 }
 
 // ——— الكتابة: إنشاء الدفعة ———
@@ -105,6 +112,8 @@ interface RegisterBody {
   destination?: string;
   location?: string;
   image?: string;
+  vendor_id?: string;
+  vendor?: string;
 }
 
 const LOCK_MESSAGES: Record<string, string> = {
@@ -138,6 +147,10 @@ export async function handleRegister(req: Request, env: Env, user: User): Promis
   if (!CHEQUE_RE.test(chq) || chq === '0000000') throw new HttpError(400, 'رقم الشيك يجب أن يكون 7 أرقام.');
   if (!(DESTINATIONS as readonly string[]).includes(dest)) throw new HttpError(400, 'اختر وجهة الشيك.');
   if (!loc) throw new HttpError(400, 'اختر الموقع.');
+  const endorsed = dest === 'Autre Fournisseur';
+  const vendorId = String(b.vendor_id || '');
+  const vendorName = String(b.vendor || '').trim().slice(0, 200);
+  if (endorsed && (!ID_RE.test(vendorId) || !vendorName)) throw new HttpError(400, 'اختر المورد الذي سُلّم له الشيك.');
   const image = b.image ? parseImage(b.image) : null;
 
   // 2. القفل: إدخال ذرّي. يرفض الطلب نفسه مرتين، والشيك نفسه لنفس العميل ما دام تسجيله السابق لم يفشل.
@@ -253,5 +266,19 @@ export async function handleRegister(req: Request, env: Env, user: User): Promis
   }
 
   await finish('done', warning || 'تم التسجيل', pid);
-  return json({ ok: true, payment_id: pid, warning, allocated: lines.length });
+
+  // 6. الشيك المظهّر لمورد: دفعة المورد مباشرة بعد دفعة العميل. فشلها لا يلغي التسجيل،
+  // والشيك يبقى «في الحوزة» في حساب الشيكات المظهّرة حتى يُتمّ تظهيره من صفحته.
+  let endorse: { state: string; message: string; vendor_payment_id?: string } | null = null;
+  if (endorsed) {
+    const r = await endorseCheque(env, user, pid, vendorId, vendorName);
+    endorse = { state: r.state, message: r.state === 'done' ? (r.warning || r.message) : r.message, vendor_payment_id: r.vendor_payment_id };
+    if (r.state !== 'done') {
+      const tail = r.state === 'unknown' ? r.message : `${r.message} أتمّ التظهير من صفحة الشيك.`;
+      warning = `سُجّل الشيك، لكن لم يكتمل تظهيره للمورد: ${tail}`;
+    } else if (r.warning) {
+      warning = r.warning;
+    }
+  }
+  return json({ ok: true, payment_id: pid, warning, allocated: lines.length, endorse });
 }

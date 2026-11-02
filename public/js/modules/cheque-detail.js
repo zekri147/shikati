@@ -1,6 +1,6 @@
 // صفحة تفاصيل الشيك: كل ما في زوهو عن الشيك، دون الحاجة إلى فتح زوهو. قراءة فقط.
 (function () {
-  const { api, el, ltr, fmtAmount, fmtDate, fmtDateTime } = window.Shikati;
+  const { api, toast, el, ltr, fmtAmount, fmtDate, fmtDateTime } = window.Shikati;
   const { statusBadge, chequeImage } = window.ShikatiChequesUI;
   const LOCK_TEXT = {
     pending: 'الإيداع قيد التنفيذ الآن',
@@ -8,7 +8,7 @@
     unknown: 'بانتظار التحقق: انقطع الرد بعد محاولة الإيداع',
     failed: 'محاولة إيداع لم تتم',
   };
-  const ACTION_TEXT = { deposit: 'إيداع', 'deposit.release': 'تحرير القفل', 'deposit.reverted': 'إلغاء الإيداع في زوهو', register: 'تسجيل الشيك', 'register.read': 'قراءة الصورة' };
+  const ACTION_TEXT = { deposit: 'إيداع', 'deposit.release': 'تحرير القفل', 'deposit.reverted': 'إلغاء الإيداع في زوهو', register: 'تسجيل الشيك', endorse: 'التظهير لمورد', 'register.read': 'قراءة الصورة' };
 
   // صف «عنوان: قيمة». القيمة الفارغة تظهر بشرطة.
   function row(label, value, opts = {}) {
@@ -23,7 +23,61 @@
     return el('section', { class: 'd-block' }, el('h2', { text: title }), ...children);
   }
 
-  function view(d) {
+  const ENDORSE_TEXT = {
+    pending: 'التظهير قيد التنفيذ الآن',
+    done: 'ظُهّر من التطبيق للمورد',
+    unknown: 'بانتظار التحقق: انقطع الرد بعد إرسال دفعة المورد',
+    failed: 'محاولة تظهير لم تتم',
+  };
+
+  // إتمام التظهير: اختيار المورد ← معاينة التوزيع على فواتيره ← دفعة المورد
+  function endorsePanel(d, reload) {
+    const { partyPicker, allocList } = window.ShikatiChequeRegister;
+    const status = el('div', { role: 'alert' });
+    const previewBox = el('div');
+    const goBtn = el('button', { type: 'button', class: 'btn-primary wide hidden', text: 'إتمام التظهير' });
+    let vendor = null;
+    const picker = partyPicker('vendor', async (v) => {
+      vendor = v;
+      previewBox.replaceChildren();
+      goBtn.classList.add('hidden');
+      status.className = '';
+      status.textContent = '';
+      if (!v) return;
+      previewBox.replaceChildren(el('p', { class: 'muted small', text: 'جارٍ حساب التوزيع…' }));
+      try {
+        const p = await api('/api/m/cheques/endorse/preview', { method: 'POST', body: { vendor_id: v.id, amount: d.amount } });
+        previewBox.replaceChildren(el('div', {},
+          el('h3', { class: 'reg-sub', text: 'التوزيع على فواتير المورد' }),
+          allocList(p.lines, 'لا فواتير غير مدفوعة لهذا المورد.'),
+          p.unused > 0 ? el('p', { class: 'note warn' }, 'يبقى ', ltr(fmtAmount(p.unused), 'num strong'), ' رصيداً مسبقاً عند المورد.') : null));
+        goBtn.classList.remove('hidden');
+      } catch (e) {
+        previewBox.replaceChildren(el('div', { class: 'form-error', text: e.message }));
+      }
+    });
+    goBtn.addEventListener('click', async () => {
+      if (!vendor) return;
+      goBtn.disabled = true;
+      goBtn.textContent = 'جارٍ إنشاء دفعة المورد…';
+      try {
+        const res = await api('/api/m/cheques/endorse', { method: 'POST', body: { payment_id: d.id, vendor_id: vendor.id, vendor: vendor.name } });
+        toast(res.warning || 'تم التظهير للمورد', res.warning ? 'warn' : 'ok');
+        reload();
+      } catch (e) {
+        status.className = 'form-error';
+        status.textContent = e.message;
+        goBtn.textContent = 'إتمام التظهير';
+        // انقطاع الرد: لا إعادة
+        if (e.status === 504 || e.status === 0) goBtn.remove(); else goBtn.disabled = false;
+      }
+    });
+    return el('section', { class: 'd-block' }, el('h2', { text: 'إتمام التظهير لمورد' }),
+      el('p', { class: 'muted small', text: 'الشيك مسجّل في حساب الشيكات المظهّرة، ولم تُنشأ دفعة المورد بعد. اختر المورد الذي سُلّم له الشيك.' }),
+      picker.box, previewBox, status, goBtn);
+  }
+
+  function view(d, reload) {
     const parts = [];
 
     parts.push(el('div', { class: 'd-head' },
@@ -83,8 +137,18 @@
         ? el('ol', { class: 'd-log' }, d.log.map((l) => el('li', { text: l })))
         : el('p', { class: 'muted small', text: 'لا توجد عمليات مسجّلة بعد.' })));
 
-    if (d.app.lock || d.app.history.length) {
+    if (d.can_endorse) parts.splice(1, 0, endorsePanel(d, reload));
+
+    const en = d.app.endorsement;
+    if (en && en.state === 'unknown') {
+      parts.splice(1, 0, el('div', { class: 'note alert', text: 'بانتظار التحقق: انقطع الرد بعد إرسال دفعة المورد لهذا الشيك. تحقق في زوهو قبل أي محاولة جديدة.' }));
+    }
+    if (d.app.lock || d.app.history.length || en) {
       parts.push(block('في التطبيق',
+        en ? el('p', {},
+          el('span', { class: 'strong', text: ENDORSE_TEXT[en.state] || en.state }),
+          en.vendor ? el('span', { class: 'muted', text: ' · ' + en.vendor }) : null,
+          en.display_name ? el('span', { class: 'muted', text: ' · ' + en.display_name }) : null) : null,
         d.app.lock ? el('p', {},
           el('span', { class: 'strong', text: LOCK_TEXT[d.app.lock.state] || d.app.lock.state }),
           d.app.lock.by ? el('span', { class: 'muted', text: ' · ' + d.app.lock.by }) : null,
@@ -104,7 +168,7 @@
     try {
       const d = await api('/api/m/cheques/detail/' + encodeURIComponent(id));
       if (!box.isConnected) return;
-      body.replaceChildren(...view(d));
+      body.replaceChildren(...view(d, () => render(box, id, ctx)));
       document.title = 'شيك ' + d.customer;
     } catch (e) {
       body.replaceChildren(el('div', { class: 'error-box', text: e.message }));
