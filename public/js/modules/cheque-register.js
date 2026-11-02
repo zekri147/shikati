@@ -321,5 +321,5 @@
       submitBtn));
   }
 
-  window.ShikatiChequeRegister = { render, partyPicker, allocList };
+  window.ShikatiChequeRegister = { render, partyPicker, allocList, chipGroup, field, shrink, parseAmount, DEST_LABELS };
 })();

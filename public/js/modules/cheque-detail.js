@@ -8,7 +8,7 @@
     unknown: 'بانتظار التحقق: انقطع الرد بعد محاولة الإيداع',
     failed: 'محاولة إيداع لم تتم',
   };
-  const ACTION_TEXT = { deposit: 'إيداع', 'deposit.release': 'تحرير القفل', 'deposit.reverted': 'إلغاء الإيداع في زوهو', register: 'تسجيل الشيك', endorse: 'التظهير لمورد', 'undo.deposit': 'تراجع عن الإيداع', 'undo.endorse': 'تراجع عن التظهير', 'undo.register': 'حذف التسجيل', 'register.read': 'قراءة الصورة' };
+  const ACTION_TEXT = { deposit: 'إيداع', 'deposit.release': 'تحرير القفل', 'deposit.reverted': 'إلغاء الإيداع في زوهو', register: 'تسجيل الشيك', endorse: 'التظهير لمورد', 'undo.deposit': 'تراجع عن الإيداع', 'undo.endorse': 'تراجع عن التظهير', 'undo.register': 'حذف التسجيل', edit: 'تعديل الشيك', 'register.read': 'قراءة الصورة' };
 
   // صف «عنوان: قيمة». القيمة الفارغة تظهر بشرطة.
   function row(label, value, opts = {}) {
@@ -149,7 +149,7 @@
     }
 
     const img = d.has_image
-      ? chequeImage({ id: d.id, has_image: true }, 'img-big')
+      ? chequeImage({ id: d.id, has_image: true, v: d.edit ? d.edit.version : '' }, 'img-big')
       : d.drive_url
         ? el('a', { class: 'img-empty img-big', href: d.drive_url, target: '_blank', rel: 'noopener noreferrer', text: 'الصورة في غوغل درايف: اضغط لفتحها' })
         : el('div', { class: 'img-empty img-big', text: 'لا توجد صورة لهذا الشيك' });
@@ -198,6 +198,7 @@
     if (en && en.state === 'unknown') {
       parts.splice(1, 0, el('div', { class: 'note alert', text: 'بانتظار التحقق: انقطع الرد بعد إرسال دفعة المورد لهذا الشيك. تحقق في زوهو قبل أي محاولة جديدة.' }));
     }
+    if (d.edit) parts.splice(1, 0, window.ShikatiChequeEdit.panel(d, reload));
     if (d.undo) parts.push(undoPanel(d, reload, onGone));
 
     if (d.app.lock || d.app.history.length || en) {

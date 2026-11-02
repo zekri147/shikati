@@ -9,6 +9,7 @@ import { canRegister, handlePreview, handleRead, handleRegister, registerOptions
 import { ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, CACHE_KEY, DEST, STATUS, todayAlgiers } from './constants';
 import { handleBillsPreview, handleEndorse, searchVendors } from './endorse';
 import { handleUndo } from './undo';
+import { handleEdit, handleEditPreview } from './edit';
 import { chequeNumber, wrongAccountText } from './fields';
 
 export { ACCOUNT_CHEQUES_IN_HAND, DEST, STATUS, todayAlgiers };
@@ -246,6 +247,8 @@ export const chequesModule: AppModule = {
     }
     if (req.method === 'POST' && subpath === '/endorse') return handleEndorse(req, env, user);
     if (req.method === 'POST' && subpath === '/undo') return handleUndo(req, env, user);
+    if (req.method === 'POST' && subpath === '/edit/preview') return handleEditPreview(req, env, user);
+    if (req.method === 'POST' && subpath === '/edit') return handleEdit(req, env, user);
     if (req.method === 'POST' && subpath === '/endorse/preview') return handleBillsPreview(req, env, user);
     if (req.method === 'GET' && subpath === '/register/customers') {
       return searchCustomers(env, user, new URL(req.url).searchParams.get('q') || '');

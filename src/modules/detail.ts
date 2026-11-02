@@ -5,6 +5,7 @@ import { chequeNumber, isoDate, wrongAccountText } from './fields';
 import { endorseBlocker } from './endorse';
 import { canRegister } from './register';
 import { undoForDetail } from './undo';
+import { editForDetail } from './edit';
 
 // صفحة تفاصيل الشيك: قراءة فقط. تُقرأ الدفعة من زوهو مباشرة في كل مرة،
 // ثم يُضاف إليها ما سجّله التطبيق نفسه (قفل الإيداع وسجل العمليات).
@@ -75,6 +76,7 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
 
   const isAdmin = user.role === 'admin';
   const undo = await undoForDetail(env, user, p as Parameters<typeof undoForDetail>[2]);
+  const edit = await editForDetail(env, user, p as Parameters<typeof editForDetail>[2]);
   return json({
     id: p.payment_id,
     number: str(p.payment_number),
@@ -88,6 +90,7 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
     account: str(p.account_name),
     wrong_account: wrongAccountText(str(p.account_id), str(p.account_name), str(cf.cf_d_pos_vers)),
     location: LOCATIONS[str(p.location_name).toUpperCase()] || str(p.location_name),
+    location_key: str(p.location_name).toUpperCase(),
     created_by: str(p.created_by_name || p.created_by),
     captured_at: str(cf.cf_3e4e94_unformatted || cf.cf_3e4e94),
     description: str(p.description),
@@ -117,5 +120,6 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
     },
     can_endorse: canEndorse,
     undo,
+    edit,
   });
 }

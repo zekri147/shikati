@@ -67,9 +67,9 @@ export async function handleRead(req: Request, env: Env, user: User): Promise<Re
 }
 
 interface Invoice { invoice_id: string; invoice_number: string; date: string; balance: number; customer_id?: string }
-interface Allocation { invoice_id: string; number: string; date: string; balance: number; applied: number }
+export interface Allocation { invoice_id: string; number: string; date: string; balance: number; applied: number }
 
-async function allocate(env: Env, customerId: string, amount: number): Promise<{ lines: Allocation[]; unused: number }> {
+export async function allocate(env: Env, customerId: string, amount: number): Promise<{ lines: Allocation[]; unused: number }> {
   const data = await zohoGet<{ invoices?: Invoice[] }>(env, '/invoices', {
     customer_id: customerId, filter_by: UNPAID_FILTER, sort_column: 'date', sort_order: 'A', per_page: 200,
   });
@@ -122,7 +122,7 @@ const LOCK_MESSAGES: Record<string, string> = {
   unknown: 'محاولة سابقة لتسجيل هذا الشيك لم تُعرف نتيجتها. تحقق في «كل الشيكات» قبل أي محاولة، وأخبر المدير.',
 };
 
-function decodeBase64(data: string): Uint8Array {
+export function decodeBase64(data: string): Uint8Array {
   const bin = atob(data);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);

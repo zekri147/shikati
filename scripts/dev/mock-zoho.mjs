@@ -246,7 +246,7 @@ http.createServer((req, res) => {
       if (!p) return send({ code: 1002, message: 'not found' }, 404);
       log.push(`ATTACH ${m[1]} ${body.length} bytes`);
       p.has_attachment = true;
-      p.documents = [{ document_id: `D${m[1]}`, file_type: 'jpg', file_name: 'cheque.jpg' }];
+      p.documents = [...(p.documents || []), { document_id: `D${m[1]}`, file_type: 'jpg', file_name: 'cheque.jpg', attachment_order: (p.documents || []).length + 1 }];
       return send({ code: 0, message: 'The document has been attached.' });
     }
 
@@ -275,6 +275,19 @@ http.createServer((req, res) => {
         log.push(`PUT ${m[1]} ${body}`);
         if (m[1].endsWith('6')) return send({ code: 9, message: 'fail' }, 400);
         for (const f of JSON.parse(body).custom_fields) p.custom_field_hash[f.api_name] = f.value;
+        // تعديل الشيك: الحقول الأساسية والفواتير
+        const j = JSON.parse(body);
+        if (j.amount !== undefined) {
+          if (!/^\d{7}$/.test(String(p.custom_field_hash.cf_n_cheque))) return send({ code: 9, message: 'رقم الشيك إجباري (7 أرقام)' }, 400);
+          Object.assign(p, { amount: j.amount, date: j.date, account_id: j.account_id, location_id: j.location_id, description: j.description ?? p.description,
+            account_name: j.account_id === CIH ? 'Cheques in Hand' : 'Endorsed Cheques',
+            location_name: j.location_id === '7418406000000093289' ? 'ALGER' : 'EL EULMA' });
+          p.invoices = j.invoices.map((i) => {
+            const inv = (INVOICES[p.customer_id] || []).find((x) => x.invoice_id === i.invoice_id) || (p.invoices || []).find((x) => x.invoice_id === i.invoice_id) || {};
+            return { invoice_id: i.invoice_id, invoice_number: inv.invoice_number, date: inv.date, amount_applied: i.amount_applied, total: inv.total || inv.balance, balance: 0 };
+          });
+          log.push(`EDIT ${m[1]} amount=${j.amount} invoices=${j.invoices.length}`);
+        }
         p.last_modified_time = new Date().toISOString();
         return send({ code: 0 });
       }

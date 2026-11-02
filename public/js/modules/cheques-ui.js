@@ -125,7 +125,7 @@
 
   function chequeImage(c, cls) {
     if (!c.has_image) return el('div', { class: 'img-empty ' + cls, text: 'لا صورة' });
-    const src = `/api/m/cheques/image/${encodeURIComponent(c.id)}`;
+    const src = `/api/m/cheques/image/${encodeURIComponent(c.id)}` + (c.v ? `?v=${encodeURIComponent(c.v)}` : '');
     const img = el('img', { class: 'cheque-img', alt: 'صورة الشيك', src, loading: 'lazy', decoding: 'async' });
     const link = el('a', { href: src, target: '_blank', rel: 'noopener', class: 'img-link ' + cls, title: 'فتح الصورة بحجمها الكامل' }, img);
     img.addEventListener('error', () => link.replaceWith(el('div', { class: 'img-empty warn ' + cls, text: 'تعذّر تحميل الصورة' })));

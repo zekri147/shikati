@@ -9,7 +9,7 @@ const IMAGE_TYPES: Record<string, string> = {
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', heic: 'image/heic',
 };
 
-interface Doc { document_id?: string; file_type?: string; file_name?: string }
+interface Doc { document_id?: string; file_type?: string; file_name?: string; attachment_order?: number }
 
 // طرق تحميل المرفق المعروفة في زوهو بوكس. نجرّبها بالترتيب ونحفظ أول طريق ينجح.
 const ROUTES: { id: string; path: (pid: string, doc: string) => string; params?: Record<string, string> }[] = [
@@ -23,8 +23,9 @@ async function firstImageDoc(env: Env, pid: string): Promise<{ doc: Doc; type: s
   const r = await zohoRequest<{ payment?: { documents?: Doc[] } }>(env, 'GET', `/customerpayments/${pid}`, { timeoutMs: 15_000 });
   if (!r.data || r.data.code !== 0 || !r.data.payment) throw new HttpError(502, 'تعذّرت قراءة الدفعة من زوهو.');
   const docs = (r.data.payment.documents || []).filter((d) => d.document_id && IMAGE_TYPES[String(d.file_type || '').toLowerCase()]);
-  // نفضّل الصيغ التي تعرضها كل المتصفحات على صيغة آيفون (HEIC)
-  docs.sort((a, b) => Number(String(a.file_type).toLowerCase() === 'heic') - Number(String(b.file_type).toLowerCase() === 'heic'));
+  // نفضّل الصيغ التي تعرضها كل المتصفحات على صيغة آيفون (HEIC)، ثم أحدث صورة (بعد تعديل الشيك)
+  docs.sort((a, b) => Number(String(a.file_type).toLowerCase() === 'heic') - Number(String(b.file_type).toLowerCase() === 'heic')
+    || (Number(b.attachment_order) || 0) - (Number(a.attachment_order) || 0));
   const doc = docs[0];
   return doc ? { doc, type: IMAGE_TYPES[String(doc.file_type).toLowerCase()] } : null;
 }
