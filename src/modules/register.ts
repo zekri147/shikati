@@ -121,6 +121,8 @@ interface RegisterBody {
   image?: string;
   vendor_id?: string;
   vendor?: string;
+  // تاريخ الاستلام: اليوم افتراضياً، ويُغيَّر إن استُلم الشيك في يوم سابق
+  date?: string;
 }
 
 const LOCK_MESSAGES: Record<string, string> = {
@@ -159,6 +161,9 @@ export async function handleRegister(req: Request, env: Env, user: User): Promis
   const vendorName = String(b.vendor || '').trim().slice(0, 200);
   if (endorsed && (!ID_RE.test(vendorId) || !vendorName)) throw new HttpError(400, 'اختر المورد الذي سُلّم له الشيك.');
   const image = b.image ? parseImage(b.image) : null;
+  const today = todayAlgiers();
+  const date = String(b.date || today).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today) throw new HttpError(400, 'تاريخ الاستلام غير صالح: لا يكون بعد اليوم.');
 
   // 2. القفل: إدخال ذرّي. يرفض الطلب نفسه مرتين، والشيك نفسه لنفس العميل ما دام تسجيله السابق لم يفشل.
   try {
@@ -210,13 +215,13 @@ export async function handleRegister(req: Request, env: Env, user: User): Promis
   }
 
   // 4. إنشاء الدفعة. بعد هذا الطلب لا إعادة تلقائية أبداً.
-  const today = todayAlgiers();
-  const logLine = `${today} — تسجيل الشيك من تطبيق شيكاتي (${user.display_name})`;
+  // تاريخ الدفعة هو تاريخ الاستلام، فيصير تاريخ ترحيلها وتطبيقها على الفواتير أيضاً
+  const logLine = `${today} — تسجيل الشيك${date !== today ? ` (استُلم ${date})` : ''} من تطبيق شيكاتي (${user.display_name})`;
   const payment = {
     customer_id: customerId,
     payment_mode: 'Check',
     amount,
-    date: today,
+    date,
     reference_number: chq,
     account_id: dest === 'Autre Fournisseur' ? ACCOUNT_ENDORSED : ACCOUNT_CHEQUES_IN_HAND,
     location_id: loc.id,
