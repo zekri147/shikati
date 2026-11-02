@@ -4,6 +4,7 @@ import { zohoRequest, ZohoTimeout } from '../zoho';
 import { chequeNumber, isoDate, wrongAccountText } from './fields';
 import { endorseBlocker } from './endorse';
 import { canRegister } from './register';
+import { undoForDetail } from './undo';
 
 // صفحة تفاصيل الشيك: قراءة فقط. تُقرأ الدفعة من زوهو مباشرة في كل مرة،
 // ثم يُضاف إليها ما سجّله التطبيق نفسه (قفل الإيداع وسجل العمليات).
@@ -73,6 +74,7 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
   ).bind(pid, `${pid} /%`).all<{ at: string; username: string | null; action: string; result: string; details: string | null }>();
 
   const isAdmin = user.role === 'admin';
+  const undo = await undoForDetail(env, user, p as Parameters<typeof undoForDetail>[2]);
   return json({
     id: p.payment_id,
     number: str(p.payment_number),
@@ -114,5 +116,6 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
       endorsement: endorsement || null,
     },
     can_endorse: canEndorse,
+    undo,
   });
 }

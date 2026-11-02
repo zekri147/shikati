@@ -8,7 +8,7 @@
     unknown: 'بانتظار التحقق: انقطع الرد بعد محاولة الإيداع',
     failed: 'محاولة إيداع لم تتم',
   };
-  const ACTION_TEXT = { deposit: 'إيداع', 'deposit.release': 'تحرير القفل', 'deposit.reverted': 'إلغاء الإيداع في زوهو', register: 'تسجيل الشيك', endorse: 'التظهير لمورد', 'register.read': 'قراءة الصورة' };
+  const ACTION_TEXT = { deposit: 'إيداع', 'deposit.release': 'تحرير القفل', 'deposit.reverted': 'إلغاء الإيداع في زوهو', register: 'تسجيل الشيك', endorse: 'التظهير لمورد', 'undo.deposit': 'تراجع عن الإيداع', 'undo.endorse': 'تراجع عن التظهير', 'undo.register': 'حذف التسجيل', 'register.read': 'قراءة الصورة' };
 
   // صف «عنوان: قيمة». القيمة الفارغة تظهر بشرطة.
   function row(label, value, opts = {}) {
@@ -77,7 +77,62 @@
       picker.box, previewBox, status, goBtn);
   }
 
-  function view(d, reload) {
+  // التراجع عن آخر عملية: نافذة تأكيد تشرح ما سيُحذف، ثم طلب واحد دون إعادة
+  function undoPanel(d, reload, onGone) {
+    const u = d.undo;
+    const btn = el('button', { type: 'button', class: 'btn-plain wide', text: u.title });
+    if (!u.allowed) btn.disabled = true;
+    btn.addEventListener('click', () => {
+      const message = el('div', { role: 'alert' });
+      const okBtn = el('button', { type: 'button', class: 'btn-primary', text: 'تأكيد ' + u.title });
+      const cancelBtn = el('button', { type: 'button', class: 'btn-plain', text: 'إلغاء' });
+      const dlg = el('dialog', { class: 'confirm', 'aria-labelledby': 'undo-title' },
+        el('h2', { id: 'undo-title', text: u.title }),
+        el('dl', { class: 'kvs' },
+          row('العميل', d.customer),
+          row('المبلغ', fmtAmount(d.amount), { ltr: true }),
+          row('رقم الشيك', d.cheque_number, { ltr: true })),
+        el('p', { class: 'note warn', text: u.effect }),
+        el('p', { class: 'muted small', text: 'الحذف في زوهو نهائي، ويُسجَّل باسمك في سجل العمليات.' }),
+        message,
+        el('div', { class: 'dlg-actions' }, okBtn, cancelBtn));
+      let busy = false;
+      let after = null;
+      const close = () => { if (busy) return; dlg.close(); dlg.remove(); if (after) after(); };
+      cancelBtn.addEventListener('click', close);
+      dlg.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
+      okBtn.addEventListener('click', async () => {
+        busy = true;
+        okBtn.disabled = true;
+        cancelBtn.disabled = true;
+        okBtn.textContent = 'جارٍ الحذف…';
+        try {
+          const res = await api('/api/m/cheques/undo', { method: 'POST', body: { payment_id: d.id, kind: u.kind } });
+          toast(res.warning || res.message, res.warning ? 'warn' : 'ok');
+          after = u.kind === 'register' ? onGone : reload;
+          busy = false;
+          close();
+          return;
+        } catch (e) {
+          message.className = 'form-error';
+          message.textContent = e.message;
+          okBtn.remove();
+          after = reload;
+        }
+        busy = false;
+        cancelBtn.disabled = false;
+        cancelBtn.textContent = 'إغلاق';
+      });
+      document.body.append(dlg);
+      dlg.showModal();
+      cancelBtn.focus();
+    });
+    return el('section', { class: 'd-block' }, el('h2', { text: 'تراجع' }),
+      el('p', { class: 'muted small', text: u.allowed ? u.effect : u.blocker }),
+      btn);
+  }
+
+  function view(d, reload, onGone) {
     const parts = [];
 
     parts.push(el('div', { class: 'd-head' },
@@ -143,6 +198,8 @@
     if (en && en.state === 'unknown') {
       parts.splice(1, 0, el('div', { class: 'note alert', text: 'بانتظار التحقق: انقطع الرد بعد إرسال دفعة المورد لهذا الشيك. تحقق في زوهو قبل أي محاولة جديدة.' }));
     }
+    if (d.undo) parts.push(undoPanel(d, reload, onGone));
+
     if (d.app.lock || d.app.history.length || en) {
       parts.push(block('في التطبيق',
         en ? el('p', {},
@@ -168,7 +225,7 @@
     try {
       const d = await api('/api/m/cheques/detail/' + encodeURIComponent(id));
       if (!box.isConnected) return;
-      body.replaceChildren(...view(d, () => render(box, id, ctx)));
+      body.replaceChildren(...view(d, () => render(box, id, ctx), () => { location.hash = '#cheques'; }));
       document.title = 'شيك ' + d.customer;
     } catch (e) {
       body.replaceChildren(el('div', { class: 'error-box', text: e.message }));

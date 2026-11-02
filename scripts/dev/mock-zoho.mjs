@@ -21,6 +21,7 @@
 //
 // أدوات إضافية:
 //   GET /__log             سجل طلبات الكتابة والصور
+//   التراجع: DELETE للإيداع ودفعة المورد ودفعة العميل، و GET /vendorpayments?amount=
 //   GET /__revert/<id>     حذف الإيداع وإرجاع الحالة «في الحوزة» (كأن المدير ألغاه في زوهو)
 //
 // تسجيل شيك جديد (POST /customerpayments) حسب آخر رقم في رقم الشيك:
@@ -83,11 +84,11 @@ const extra = (id, n, over, cf) => {
 extra('7418400000000010', 10, { customer: 'SARL ROSTOM BATI', amount: 410000, date: day(-3) },
   { cf_5d7197: 'في الحوزة', cf_d_pos_vers: 'ROSTOMIA', cf_n_cheque: '5512010' });
 extra('7418400000000019', 19, { customer: 'EURL METAL PRO', amount: 225000, date: day(-9), location: 'EL EULMA',
-  deposit_details: [{ deposit_id: 'TX19', date: day(-5), account_name: 'Bank – AGB', amount: 225000 }] },
+  deposit_details: [{ deposit_id: '7418400000077019', date: day(-5), account_name: 'Bank – AGB', amount: 225000 }] },
   { cf_5d7197: 'مودع في البنك', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512019',
     cf_fffaad: `${day(-5)} — إيداع في AGB من تطبيق شيكاتي (أمين)` });
 extra('7418400000000020', 20, { customer: 'SARL COMINOX', amount: 180000, date: day(-25),
-  deposit_details: [{ deposit_id: 'TX20', date: day(-20), account_name: 'Bank – AGB', amount: 180000 }] },
+  deposit_details: [{ deposit_id: '7418400000077020', date: day(-20), account_name: 'Bank – AGB', amount: 180000 }] },
   { cf_5d7197: 'محصّل', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512020',
     cf_fffaad: `${day(-20)} — إيداع في AGB من تطبيق شيكاتي (أمين)\n${day(-17)} — تحصيل آلي عبر رسالة AGB` });
 extra('7418400000000029', 29, { customer: 'EURL HOUSE FIX', amount: 835400, date: day(-4), location: 'EL EULMA',
@@ -136,6 +137,13 @@ const vendorPayments = {};
 
 const log = [];
 const txns = {};
+// إيداعات سابقة، ودفعة مورد قديمة للشيك المظهّر ..29 (لتجربة التراجع عما أُنشئ قبل التطبيق)
+txns['7418400000077019'] = { line_items: [{ transaction_id: '7418400000000019' }], imported_transactions: [] };
+txns['7418400000077020'] = { line_items: [{ transaction_id: '7418400000000020' }], imported_transactions: [] };
+vendorPayments['7418400000990029'] = {
+  payment_id: '7418400000990029', payment_number: '278', vendor_name: 'BADR', amount: 835400,
+  paid_through_account_id: '7418406000009849106', reference_number: 'cheque house fix', cf_n_cheque: '499308',
+};
 let txnSeq = 0;
 
 http.createServer((req, res) => {
@@ -190,9 +198,20 @@ http.createServer((req, res) => {
       const chq = String(j.reference_number || '');
       if (chq.endsWith('8')) return send({ code: 9, message: 'Vendor payment rejected (mock)' }, 400);
       const id = `74184000009${String(++newSeq).padStart(5, '0')}`;
-      vendorPayments[id] = j;
+      vendorPayments[id] = { ...j, payment_id: id, payment_number: `VP${newSeq}`, vendor_name: (CONTACTS.find((c) => c.contact_id === j.vendor_id) || {}).contact_name,
+        paid_through_account_id: j.paid_through_account_id, ...Object.fromEntries(j.custom_fields.map((f) => [`${f.api_name}_unformatted`, f.value])), cf_n_cheque: String(j.custom_fields.find((f) => f.api_name === 'cf_n_cheque')?.value ?? '') };
       if (chq.endsWith('6')) { req.socket.destroy(); return; }
       return send({ code: 0, vendorpayment: { payment_id: id } });
+    }
+    if (path === '/books/v3/vendorpayments' && req.method === 'GET') {
+      const amt = Number(url.searchParams.get('amount'));
+      return send({ code: 0, vendorpayments: Object.values(vendorPayments).filter((v) => !amt || Number(v.amount) === amt) });
+    }
+    if ((m = path.match(/^\/books\/v3\/vendorpayments\/(\d+)$/)) && req.method === 'DELETE') {
+      if (!vendorPayments[m[1]]) return send({ code: 1002, message: 'not found' }, 404);
+      log.push(`DELETE VENDORPAY ${m[1]}`);
+      delete vendorPayments[m[1]];
+      return send({ code: 0, message: 'The payment has been deleted.' });
     }
     if (path === '/books/v3/invoices' && req.method === 'GET') {
       return send({ code: 0, invoices: INVOICES[url.searchParams.get('customer_id')] || [] });
@@ -247,6 +266,11 @@ http.createServer((req, res) => {
       const p = payments[m[1]];
       if (!p) return send({ code: 1002, message: 'not found' }, 404);
       if (req.method === 'GET') return send({ code: 0, payment: p });
+      if (req.method === 'DELETE') {
+        log.push(`DELETE PAYMENT ${m[1]}`);
+        delete payments[m[1]];
+        return send({ code: 0, message: 'The payment has been deleted.' });
+      }
       if (req.method === 'PUT') {
         log.push(`PUT ${m[1]} ${body}`);
         if (m[1].endsWith('6')) return send({ code: 9, message: 'fail' }, 400);
@@ -262,7 +286,7 @@ http.createServer((req, res) => {
       if (pid.endsWith('4')) { req.socket.destroy(); return; }
       if (pid.endsWith('7')) return send({ code: 1001, message: 'Validation error' }, 400);
       const create = () => {
-        const id = `T${++txnSeq}`;
+        const id = `74184000000770${String(++txnSeq + 50).padStart(2, '0')}`;
         txns[id] = { line_items: pid.endsWith('5') ? [{ transaction_id: 'other' }] : j.line_items };
         payments[pid].deposit_details = [{ deposit_id: id }];
         send({ code: 0, banktransaction: { transaction_id: id } });
@@ -270,7 +294,8 @@ http.createServer((req, res) => {
       if (pid.endsWith('8')) { setTimeout(create, 1500); return; }
       return create();
     }
-    if ((m = path.match(/^\/books\/v3\/banktransactions\/(T\d+)$/))) {
+    if ((m = path.match(/^\/books\/v3\/banktransactions\/(\d+)$/))) {
+      if (!txns[m[1]]) return send({ code: 1002, message: 'not found' }, 404);
       if (req.method === 'GET') return send({ code: 0, banktransaction: txns[m[1]] });
       if (req.method === 'DELETE') {
         log.push(`DELETE ${m[1]}`);

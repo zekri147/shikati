@@ -128,10 +128,10 @@ https://shikati.zekri3047.workers.dev/api/admin/diag?refresh=1
 تسجيل شيك جديد يحتاج إنشاء دفعات العملاء وقراءة الفواتير والعملاء. كرر الخطوة «3 مكرر» بهذه الصلاحيات معاً:
 
 ```
-ZohoBooks.customerpayments.READ,ZohoBooks.customerpayments.CREATE,ZohoBooks.customerpayments.UPDATE,ZohoBooks.banking.CREATE,ZohoBooks.banking.READ,ZohoBooks.banking.DELETE,ZohoBooks.invoices.READ,ZohoBooks.contacts.READ,ZohoBooks.vendorpayments.CREATE,ZohoBooks.bills.READ
+ZohoBooks.customerpayments.READ,ZohoBooks.customerpayments.CREATE,ZohoBooks.customerpayments.UPDATE,ZohoBooks.banking.CREATE,ZohoBooks.banking.READ,ZohoBooks.banking.DELETE,ZohoBooks.invoices.READ,ZohoBooks.contacts.READ,ZohoBooks.vendorpayments.CREATE,ZohoBooks.bills.READ,ZohoBooks.vendorpayments.READ,ZohoBooks.vendorpayments.DELETE,ZohoBooks.customerpayments.DELETE
 ```
 
-آخر صلاحيتين للتظهير لمورد: إنشاء دفعة المورد وقراءة فواتيره.
+صلاحيتا إنشاء دفعة المورد وقراءة فواتيره للتظهير لمورد، والثلاث الأخيرة للتراجع.
 
 ## صلاحيات المرحلة الثانية
 
