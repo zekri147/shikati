@@ -16,6 +16,21 @@
     return `منذ ${n} يوماً`;
   }
 
+  // مدة بالأيام دون «منذ»: يوم واحد، يومان، 9 أيام، 17 يوماً
+  function daysCount(n) {
+    if (n === 1) return 'يوم واحد';
+    if (n === 2) return 'يومان';
+    if (n <= 10) return `${n} أيام`;
+    return `${n} يوماً`;
+  }
+
+  // تاريخ مختصر في البطاقة: دون السنة إن كانت السنة الحالية
+  function shortDate(iso) {
+    if (!iso) return '—';
+    const full = fmtDate(iso);
+    return iso.slice(0, 4) === String(new Date().getFullYear()) ? full.slice(0, 5) : full;
+  }
+
   function relTime(ts) {
     const m = Math.floor((Date.now() - ts) / 60_000);
     if (m < 1) return 'الآن';
@@ -49,37 +64,46 @@
     const late = c.days > LATE_DAYS && !noAge;
     const selectable = opts.selectable && !c.lock;
     const selected = selectable && opts.selected.has(c.id);
-    const tag = (k, v) => el('span', { class: 'tag' }, el('span', { class: 'k', text: k }), v);
 
-    const detailBtn = opts.selectable
-      ? el('a', { class: 'detail-link', href: detailHash(c.id), text: 'التفاصيل', onclick: (e) => e.stopPropagation() })
-      : null;
+    // السطر الثاني: رقم الشيك والتاريخ والموقع نصاً واحداً، ثم شارة الحالة أو التأخير
+    const facts = [
+      c.cheque_number ? el('span', {}, 'شيك ', ltr(c.cheque_number, 'num')) : el('span', { text: 'رقم غير مسجّل' }),
+      c.deposit_date && c.status !== 'في الحوزة'
+        ? el('span', {}, 'إيداع ', ltr(shortDate(c.deposit_date), 'num'))
+        : el('span', {}, ltr(shortDate(c.date), 'num')),
+      c.location ? el('span', { text: c.location }) : null,
+    ].filter(Boolean);
+    const factsLine = el('div', { class: 'facts' }, facts.flatMap((f, i) => (i ? [el('span', { class: 'dot', 'aria-hidden': 'true', text: '·' }), f] : [f])));
+
+    let age = null;
+    if (c.status === 'مودع في البنك' && c.deposit_days !== undefined) {
+      // التحصيل المتأخر لبنك AGB وحده: الرستمية لا تتحوّل إلى «محصّل» في زوهو
+      const slow = c.destination === 'ELONAC' && c.deposit_days > LATE_DAYS;
+      age = el('span', { class: 'age' + (slow ? ' late' : ''), text: slow ? 'تحصيل متأخر ' + daysCount(c.deposit_days) : 'في البنك ' + daysText(c.deposit_days) });
+    } else if (!noAge) {
+      age = el('span', { class: 'age' + (late ? ' late' : ''), text: late ? 'متأخر ' + daysCount(c.days) : daysText(c.days) });
+    }
+    const marks = el('div', { class: 'marks' },
+      opts.selectable && c.lock ? el('span', { class: 'badge lock-' + c.lock, text: LOCK_LABELS[c.lock] || c.lock }) : null,
+      opts.showStatus ? statusBadge(c.status) : null,
+      age);
+
+    // في شاشة الإيداع: لمس البطاقة يحددها، والسهم وحده يفتح التفاصيل
+    const chevron = opts.selectable
+      ? el('a', { class: 'go', href: detailHash(c.id), 'aria-label': `تفاصيل شيك ${c.customer}`, onclick: (e) => e.stopPropagation() },
+        el('span', { class: 'ico ico-chevron', 'aria-hidden': 'true' }))
+      : opts.link ? el('span', { class: 'go', 'aria-hidden': 'true' }, el('span', { class: 'ico ico-chevron' })) : null;
+
     const li = el('li', { class: 'item' + (selectable ? ' selectable' : '') + (selected ? ' selected' : '') + (opts.link ? ' linkable' : '') },
-      el('div', { class: 'item-main' },
-        el('div', { class: 'customer' },
-          selectable ? el('span', { class: 'check', 'aria-hidden': 'true' }) : null,
-          el('span', { text: c.customer })),
-        el('div', { class: 'amount' }, ltr(fmtAmount(c.amount), 'num'))),
-      el('div', { class: 'item-sub' },
-        el('div', { class: 'tags' },
-          tag('شيك', c.cheque_number ? ltr(c.cheque_number, 'num') : el('span', { text: 'غير مسجّل' })),
-          tag('استلام', ltr(fmtDate(c.date), 'num')),
-          c.deposit_date && c.status !== 'في الحوزة' ? tag('إيداع', ltr(fmtDate(c.deposit_date), 'num')) : null,
-          c.location ? el('span', { class: 'tag', text: c.location }) : null,
-          opts.showStatus ? statusBadge(c.status) : null),
-        c.status === 'مودع في البنك' && c.deposit_days !== undefined
-          ? (() => {
-            // التحصيل المتأخر لبنك AGB وحده: الرستمية لا تتحوّل إلى «محصّل» في زوهو
-            const slow = c.destination === 'ELONAC' && c.deposit_days > LATE_DAYS;
-            return el('span', { class: 'age' + (slow ? ' late' : ''), text: 'في البنك ' + daysText(c.deposit_days) + (slow ? ' · تحصيل متأخر' : '') });
-          })()
-          : noAge ? null : el('span', { class: 'age' + (late ? ' late' : ''), text: daysText(c.days) + (late ? ' · متأخر' : '') })),
-      opts.note ? el('div', { class: 'item-note', text: opts.note }) : null,
-      opts.selectable
-        ? el('div', { class: 'item-action' },
-          c.lock ? el('span', { class: 'badge lock-' + c.lock, text: LOCK_LABELS[c.lock] || c.lock }) : el('span'),
-          detailBtn)
-        : null,
+      el('div', { class: 'item-body' },
+        el('div', { class: 'item-main' },
+          el('div', { class: 'customer' },
+            selectable ? el('span', { class: 'check', 'aria-hidden': 'true' }) : null,
+            el('span', { text: c.customer })),
+          el('div', { class: 'amount' }, ltr(fmtAmount(c.amount), 'num'))),
+        el('div', { class: 'item-sub' }, factsLine, marks),
+        opts.note ? el('div', { class: 'item-note', text: opts.note }) : null),
+      chevron,
     );
 
     if (selectable || opts.link) {
