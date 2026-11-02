@@ -458,3 +458,7 @@ main > section.block > form, main > section.block > .btn-plain { margin-top: 6px
 .help .block-head { border-bottom: 1px solid var(--line); padding-top: 10px; }
 .help ol, .help ul { padding-inline-start: 22px; margin: 6px 0; }
 .help li { margin: 5px 0; }
+/* أزرار الصورة في التعديل: الكاميرا والمعرض جنباً إلى جنب */
+.photo-btns { display: flex; gap: 8px; }
+.photo-btns .btn-plain { flex: 1; padding: 10px; }
+.register .btn-plain.wide + [role], .register .btn-primary.wide + .btn-plain.wide { margin-top: 8px; }

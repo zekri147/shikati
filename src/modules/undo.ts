@@ -2,6 +2,7 @@ import type { Env, User } from '../env';
 import { HttpError, json, readJson } from '../http';
 import { zohoRequest, ZohoTimeout } from '../zoho';
 import { audit } from '../audit';
+import { DEPOSIT_DATE_FIELD } from './depositdate';
 import { ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, CACHE_KEY, STATUS, todayAlgiers } from './constants';
 
 // التراجع عن آخر عملية على الشيك، بموافقة ZEKRI يوم 2/11/2026:
@@ -182,17 +183,25 @@ function logLine(user: User, text: string): string {
   return `${todayAlgiers()} — ${text} من تطبيق شيكاتي (${user.display_name})`;
 }
 
-async function setStatus(env: Env, p: Payment, user: User, text: string): Promise<boolean> {
+async function setStatus(env: Env, p: Payment, user: User, text: string, clearDepositDate = false): Promise<boolean> {
   const old = str(p.custom_field_hash?.cf_fffaad);
   const line = logLine(user, text);
+  const put = (clear: boolean) => zohoRequest(env, 'PUT', `/customerpayments/${p.payment_id}`, {
+    body: { custom_fields: [
+      { api_name: 'cf_5d7197', value: STATUS.IN_HAND },
+      { api_name: 'cf_fffaad', value: old ? `${old}\n${line}` : line },
+      ...(clear ? [{ api_name: DEPOSIT_DATE_FIELD, value: '' }] : []),
+    ] },
+  });
   try {
-    const up = await zohoRequest(env, 'PUT', `/customerpayments/${p.payment_id}`, {
-      body: { custom_fields: [
-        { api_name: 'cf_5d7197', value: STATUS.IN_HAND },
-        { api_name: 'cf_fffaad', value: old ? `${old}\n${line}` : line },
-      ] },
-    });
-    return !!up.data && up.data.code === 0;
+    const up = await put(clearDepositDate);
+    if (up.data && up.data.code === 0) return true;
+    // رفض صريح (لم يُنفَّذ شيء): إن كان السبب تفريغ تاريخ الإيداع، نعيد الحالة دونه
+    if (clearDepositDate && up.data && up.data.code !== 0) {
+      const again = await put(false);
+      return !!again.data && again.data.code === 0;
+    }
+    return false;
   } catch {
     return false;
   }
@@ -252,7 +261,8 @@ export async function handleUndo(req: Request, env: Env, user: User): Promise<Re
     await env.DB.prepare(
       "UPDATE deposits SET state = 'failed', message = ?, finished_at = datetime('now') WHERE payment_id = ?",
     ).bind(`تراجع عن الإيداع (${user.display_name})`, pid).run();
-    const ok = await setStatus(env, p, user, 'تراجع عن الإيداع');
+    const ok = await setStatus(env, p, user, 'تراجع عن الإيداع', true);
+    await env.DB.prepare('DELETE FROM deposit_dates WHERE payment_id = ?').bind(pid).run();
     return done('حُذف الإيداع، وعاد الشيك «في الحوزة».',
       ok ? undefined : 'حُذف الإيداع، لكن تعذّر إرجاع حالة الشيك إلى «في الحوزة». حدّثها في زوهو.');
   }

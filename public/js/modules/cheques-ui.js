@@ -64,9 +64,12 @@
         el('div', { class: 'tags' },
           tag('شيك', c.cheque_number ? ltr(c.cheque_number, 'num') : el('span', { text: 'غير مسجّل' })),
           tag('استلام', ltr(fmtDate(c.date), 'num')),
+          c.deposit_date && c.status !== 'في الحوزة' ? tag('إيداع', ltr(fmtDate(c.deposit_date), 'num')) : null,
           c.location ? el('span', { class: 'tag', text: c.location }) : null,
           opts.showStatus ? statusBadge(c.status) : null),
-        noAge ? null : el('span', { class: 'age' + (late ? ' late' : ''), text: daysText(c.days) + (late ? ' · متأخر' : '') })),
+        c.status === 'مودع في البنك' && c.deposit_days !== undefined
+          ? el('span', { class: 'age' + (c.deposit_days > LATE_DAYS ? ' late' : ''), text: 'في البنك ' + daysText(c.deposit_days) + (c.deposit_days > LATE_DAYS ? ' · تحصيل متأخر' : '') })
+          : noAge ? null : el('span', { class: 'age' + (late ? ' late' : ''), text: daysText(c.days) + (late ? ' · متأخر' : '') })),
       opts.note ? el('div', { class: 'item-note', text: opts.note }) : null,
       opts.selectable
         ? el('div', { class: 'item-action' },

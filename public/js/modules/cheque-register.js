@@ -202,14 +202,18 @@
     };
 
     // ——— الصورة ———
+    // التصوير بالكاميرا، أو اختيار صورة محفوظة من المعرض
     const fileInput = el('input', { type: 'file', accept: 'image/*', capture: 'environment', class: 'hidden' });
+    const galleryInput = el('input', { type: 'file', accept: 'image/*', class: 'hidden' });
     const shootBtn = el('button', { type: 'button', class: 'btn-primary wide', text: 'تصوير الشيك' });
+    const galleryBtn = el('button', { type: 'button', class: 'btn-plain wide', text: 'اختيار صورة من المعرض' });
+    galleryBtn.addEventListener('click', () => galleryInput.click());
     const photoBox = el('div', { class: 'reg-photo' });
     const readStatus = el('div', { 'aria-live': 'polite' });
     shootBtn.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', async () => {
-      const file = fileInput.files && fileInput.files[0];
-      fileInput.value = '';
+    const onPick = async (input) => {
+      const file = input.files && input.files[0];
+      input.value = '';
       if (!file) return;
       try {
         form.image = await shrink(file);
@@ -227,6 +231,7 @@
       readStatus.className = 'note';
       readStatus.textContent = 'جارٍ قراءة الشيك…';
       shootBtn.disabled = true;
+      galleryBtn.disabled = true;
       try {
         const shot = form.image;
         const { reading } = await api('/api/m/cheques/register/read', { method: 'POST', body: { image: shot } });
@@ -241,8 +246,11 @@
         readStatus.textContent = e.message;
       } finally {
         shootBtn.disabled = false;
+        galleryBtn.disabled = false;
       }
-    });
+    };
+    fileInput.addEventListener('change', () => onPick(fileInput));
+    galleryInput.addEventListener('change', () => onPick(galleryInput));
 
     // ——— البيانات ———
     const customerPicker = partyPicker('customer', (c) => { form.customer = c; });
@@ -315,7 +323,7 @@
     });
 
     box.replaceChildren(el('div', { class: 'register' },
-      el('section', { class: 'd-block' }, el('h2', { text: 'صورة الشيك' }), fileInput, photoBox, shootBtn, readStatus),
+      el('section', { class: 'd-block' }, el('h2', { text: 'صورة الشيك' }), fileInput, galleryInput, photoBox, shootBtn, galleryBtn, readStatus),
       el('section', { class: 'd-block' }, el('h2', { text: 'البيانات' }),
         field('العميل', customerPicker.box),
         field('المبلغ (دج)', amountInput),

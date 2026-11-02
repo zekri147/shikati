@@ -11,6 +11,7 @@ import { handleBillsPreview, handleEndorse, searchVendors } from './endorse';
 import { handleUndo } from './undo';
 import { handleEdit, handleEditPreview } from './edit';
 import { chequeNumber, wrongAccountText } from './fields';
+import { COLLECT_LATE_DAYS, fieldDate, fillDepositDates } from './depositdate';
 
 export { ACCOUNT_CHEQUES_IN_HAND, DEST, STATUS, todayAlgiers };
 
@@ -39,6 +40,8 @@ interface ZohoPayment {
   cf_n_cheque?: string;
   cf_023de7?: string;
   cf_51a7f5?: string;
+  cf_46404d?: string;
+  cf_46404d_unformatted?: string;
   check_details?: { check_number?: string };
 }
 
@@ -64,6 +67,10 @@ export interface Cheque {
   has_image?: boolean;
   // حالة قفل الإيداع في التطبيق، إن وُجد
   lock?: string;
+  // تاريخ الإيداع في البنك، للشيكات المودعة
+  deposit_date?: string;
+  // أيام منذ الإيداع دون تحصيل
+  deposit_days?: number;
 }
 
 interface Section {
@@ -73,7 +80,7 @@ interface Section {
 }
 
 // التنبيهات تعوّض ما كان يصل عبر تيليجرام. كل تنبيه يشير إلى شيك في قائمة all.
-export type AlertKind = 'rejected' | 'late' | 'endorse_incomplete' | 'wrong_account' | 'unknown_lock' | 'box' | 'fiscal';
+export type AlertKind = 'rejected' | 'late' | 'collect_late' | 'endorse_incomplete' | 'wrong_account' | 'unknown_lock' | 'box' | 'fiscal';
 export interface ChequeAlert {
   kind: AlertKind;
   id: string;
@@ -141,6 +148,7 @@ export function buildView(payments: ZohoPayment[], today: string): ChequesView {
     account: (p.account_name || '').trim(),
     invoices: (p.invoice_numbers || '').trim(),
     has_image: !!p.has_attachment,
+    deposit_date: fieldDate(p as unknown as Record<string, unknown>) || undefined,
   });
 
   const rejected: Cheque[] = [];
@@ -211,7 +219,22 @@ async function getView(env: Env, refresh: boolean): Promise<ChequesView> {
     const cached = await cacheGet(env, CACHE_KEY);
     if (cached) return JSON.parse(cached) as ChequesView;
   }
-  const view = buildView(await fetchAllChequePayments(env), todayAlgiers());
+  const today = todayAlgiers();
+  const view = buildView(await fetchAllChequePayments(env), today);
+  // تحصيل متأخر: مودع منذ أكثر من 7 أيام ولم يُحصَّل
+  const deposited = view.all.filter((c) => c.status === STATUS.DEPOSITED);
+  await fillDepositDates(env, deposited);
+  for (const c of deposited) {
+    if (!c.deposit_date) continue;
+    c.deposit_days = Math.max(0, daysBetween(c.deposit_date, today));
+    if (c.deposit_days > COLLECT_LATE_DAYS) view.alerts.push({ kind: 'collect_late', id: c.id });
+  }
+  // الأقسام نسخ من all بعد التخزين، فنكمّل تاريخ الإيداع فيها أيضاً
+  const byId = new Map(view.all.map((c) => [c.id, c]));
+  for (const c of view.agb_pending_collection.items.concat(view.agb_recent.items)) {
+    const same = byId.get(c.id);
+    if (same) { c.deposit_date = same.deposit_date; c.deposit_days = same.deposit_days; }
+  }
   await cachePut(env, CACHE_KEY, JSON.stringify(view), CACHE_TTL);
   return view;
 }

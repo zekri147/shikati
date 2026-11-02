@@ -22,13 +22,17 @@
     const dateInput = el('input', { type: 'date', dir: 'ltr', value: form.date, max: new Date().toISOString().slice(0, 10) });
     const locChips = R.chipGroup('الموقع', [['ALGER', 'الجزائر'], ['EL EULMA', 'العلمة']], form.location, (v) => { form.location = v; });
     const destChips = R.chipGroup('الوجهة', Object.entries(R.DEST_LABELS), form.destination, (v) => { form.destination = v; });
+    // صورة جديدة بالكاميرا، أو من المعرض
     const fileInput = el('input', { type: 'file', accept: 'image/*', capture: 'environment', class: 'hidden' });
-    const photoBtn = el('button', { type: 'button', class: 'btn-plain', text: 'تصوير صورة جديدة' });
+    const galleryInput = el('input', { type: 'file', accept: 'image/*', class: 'hidden' });
+    const photoBtn = el('button', { type: 'button', class: 'btn-plain', text: 'الكاميرا' });
+    const galleryBtn = el('button', { type: 'button', class: 'btn-plain', text: 'من المعرض' });
     const photoBox = el('div', { class: 'reg-photo' });
     photoBtn.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', async () => {
-      const file = fileInput.files && fileInput.files[0];
-      fileInput.value = '';
+    galleryBtn.addEventListener('click', () => galleryInput.click());
+    const onPick = async (input) => {
+      const file = input.files && input.files[0];
+      input.value = '';
       if (!file) return;
       try {
         form.image = await R.shrink(file);
@@ -37,7 +41,6 @@
         return;
       }
       photoBox.replaceChildren(el('img', { class: 'cheque-img reg-preview', src: form.image, alt: 'الصورة الجديدة' }));
-      photoBtn.textContent = 'إعادة التصوير';
       // كلود يحدد اتجاه الصورة، فتُدار قبل رفعها
       const shot = form.image;
       try {
@@ -47,7 +50,9 @@
           photoBox.replaceChildren(el('img', { class: 'cheque-img reg-preview', src: form.image, alt: 'الصورة الجديدة' }));
         }
       } catch { /* تُرفع كما هي */ }
-    });
+    };
+    fileInput.addEventListener('change', () => onPick(fileInput));
+    galleryInput.addEventListener('change', () => onPick(galleryInput));
     const error = el('div', { role: 'alert' });
     const reviewBtn = el('button', { type: 'button', class: 'btn-primary wide', text: 'مراجعة التعديل' });
     const cancelBtn = el('button', { type: 'button', class: 'btn-plain wide', text: 'إلغاء' });
@@ -58,7 +63,8 @@
       R.field('تاريخ الاستلام', dateInput),
       el('div', { class: 'field' }, el('span', { class: 'label', text: 'الموقع' }), locChips),
       el('div', { class: 'field' }, el('span', { class: 'label', text: 'الوجهة' }), destChips),
-      el('div', { class: 'field' }, el('span', { class: 'label', text: 'الصورة' }), photoBtn, fileInput, photoBox),
+      el('div', { class: 'field' }, el('span', { class: 'label', text: 'الصورة' }),
+        el('div', { class: 'photo-btns' }, photoBtn, galleryBtn), fileInput, galleryInput, photoBox),
       error, reviewBtn, cancelBtn);
 
     openBtn.addEventListener('click', () => { box.classList.remove('hidden'); openBtn.classList.add('hidden'); numberInput.focus(); });

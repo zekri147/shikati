@@ -139,8 +139,8 @@ const vendorPayments = {};
 const log = [];
 const txns = {};
 // إيداعات سابقة، ودفعة مورد قديمة للشيك المظهّر ..29 (لتجربة التراجع عما أُنشئ قبل التطبيق)
-txns['7418400000077019'] = { line_items: [{ transaction_id: '7418400000000019' }], imported_transactions: [] };
-txns['7418400000077020'] = { line_items: [{ transaction_id: '7418400000000020' }], imported_transactions: [] };
+txns['7418400000077019'] = { date: day(-9), line_items: [{ transaction_id: '7418400000000019' }], imported_transactions: [] };
+txns['7418400000077020'] = { date: day(-20), line_items: [{ transaction_id: '7418400000000020' }], imported_transactions: [] };
 vendorPayments['7418400000990029'] = {
   payment_id: '7418400000990029', payment_number: '278', vendor_name: 'BADR', amount: 835400,
   paid_through_account_id: '7418406000009849106', reference_number: 'cheque house fix', cf_n_cheque: '499308',
@@ -307,7 +307,7 @@ http.createServer((req, res) => {
       if (pid.endsWith('7')) return send({ code: 1001, message: 'Validation error' }, 400);
       const create = () => {
         const id = `74184000000770${String(++txnSeq + 50).padStart(2, '0')}`;
-        txns[id] = { line_items: pid.endsWith('5') ? [{ transaction_id: 'other' }] : j.line_items };
+        txns[id] = { date: j.date, line_items: pid.endsWith('5') ? [{ transaction_id: 'other' }] : j.line_items };
         payments[pid].deposit_details = [{ deposit_id: id }];
         send({ code: 0, banktransaction: { transaction_id: id } });
       };

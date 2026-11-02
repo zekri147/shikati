@@ -2,6 +2,7 @@ import type { Env, Role, User } from '../env';
 import { HttpError, json, readJson } from '../http';
 import { zohoRequest, ZohoTimeout } from '../zoho';
 import { audit } from '../audit';
+import { DEPOSIT_DATE_FIELD } from './depositdate';
 import { ACCOUNT_CHEQUES_IN_HAND, CACHE_KEY, DEST, STATUS, todayAlgiers } from './constants';
 
 // تسجيل إيداع شيك في بنك AGB، بنفس طريقة دالة deposer_agb في زوهو.
@@ -242,6 +243,7 @@ export async function handleDeposit(req: Request, env: Env, user: User): Promise
       body: {
         custom_fields: [
           { api_name: 'cf_5d7197', value: STATUS.DEPOSITED },
+          { api_name: DEPOSIT_DATE_FIELD, value: today },
           { api_name: 'cf_fffaad', value: logOld ? `${logOld}\n${logLine}` : logLine },
         ],
       },

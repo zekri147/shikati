@@ -158,6 +158,7 @@
     parts.push(block('بيانات الشيك', el('dl', { class: 'kvs' },
       row('رقم الشيك', d.cheque_number, { ltr: true }),
       row('تاريخ الاستلام', fmtDate(d.date), { ltr: true }),
+      d.deposit_date ? row('تاريخ الإيداع', fmtDate(d.deposit_date), { ltr: true }) : null,
       row('الموقع', d.location),
       row('سجّله', d.created_by),
       d.captured_at ? row('وقت التصوير', d.captured_at, { ltr: true }) : null,

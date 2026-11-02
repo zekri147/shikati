@@ -6,6 +6,7 @@ import { endorseBlocker } from './endorse';
 import { canRegister } from './register';
 import { undoForDetail } from './undo';
 import { editForDetail } from './edit';
+import { depositDateFor } from './depositdate';
 
 // صفحة تفاصيل الشيك: قراءة فقط. تُقرأ الدفعة من زوهو مباشرة في كل مرة،
 // ثم يُضاف إليها ما سجّله التطبيق نفسه (قفل الإيداع وسجل العمليات).
@@ -75,6 +76,10 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
   ).bind(pid, `${pid} /%`).all<{ at: string; username: string | null; action: string; result: string; details: string | null }>();
 
   const isAdmin = user.role === 'admin';
+  const deposits = p.deposit_details || [];
+  const depositDate = deposits.length
+    ? await depositDateFor(env, pid, cf as Record<string, unknown>, str(deposits[0].deposit_id))
+    : '';
   const undo = await undoForDetail(env, user, p as Parameters<typeof undoForDetail>[2]);
   const edit = await editForDetail(env, user, p as Parameters<typeof editForDetail>[2]);
   return json({
@@ -90,6 +95,7 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
     account: str(p.account_name),
     wrong_account: wrongAccountText(str(p.account_id), str(p.account_name), str(cf.cf_d_pos_vers)),
     location: LOCATIONS[str(p.location_name).toUpperCase()] || str(p.location_name),
+    deposit_date: depositDate,
     location_key: str(p.location_name).toUpperCase(),
     created_by: str(p.created_by_name || p.created_by),
     captured_at: str(cf.cf_3e4e94_unformatted || cf.cf_3e4e94),
