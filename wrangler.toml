@@ -33,3 +33,5 @@ DEPOSIT_ROLES = "admin,depositor"
 #   npx wrangler secret put ZOHO_CLIENT_SECRET
 #   npx wrangler secret put ZOHO_REFRESH_TOKEN
 #   npx wrangler secret put SETUP_TOKEN   (مؤقت، لصفحة /setup فقط)
+#   npx wrangler secret put ANTHROPIC_API_KEY   (قراءة صورة الشيك بكلود)
+# من يستطيع تسجيل شيك جديد: REGISTER_ROLES، والافتراضي في الشيفرة "admin,depositor"

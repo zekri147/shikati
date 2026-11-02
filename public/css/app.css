@@ -318,6 +318,31 @@ details.fold .item .tag { background: var(--surface); }
 .d-log { margin: 0; padding-inline-start: 20px; font-size: 14px; }
 .d-log li { padding: 3px 0; overflow-wrap: anywhere; }
 
+/* ———————————————— تسجيل شيك ———————————————— */
+
+.register { display: flex; flex-direction: column; gap: 12px; }
+.btn-primary.wide, .btn-plain.wide { width: 100%; padding: 13px; font-size: 16px; margin-top: 8px; }
+.reg-photo:empty { display: none; }
+.reg-preview { max-height: 260px; margin-top: 4px; }
+.field { padding: 8px 0; }
+.field > label, .field > .label { display: block; font-size: 14px; font-weight: 600; margin: 0 0 6px; }
+.field > label > input, .field > label > select, .field > label > div > input { margin-top: 6px; }
+.field .chips { margin-top: 2px; }
+select { appearance: none; -webkit-appearance: none; }
+.pick-list { list-style: none; margin: 4px 0 0; padding: 0; border: 1px solid var(--line); }
+.pick-list:empty { display: none; }
+.pick-list li { border-bottom: 1px solid var(--line); }
+.pick-list li:last-child { border-bottom: 0; }
+.pick-list li.muted, .pick-list li.form-error { padding: 10px 12px; margin: 0; }
+.pick-list button { width: 100%; text-align: start; background: var(--surface); color: var(--ink); border: 0; padding: 11px 12px; font-weight: 400; font-size: 15px; }
+.pick-list button:active { background: var(--surface-alt); }
+.chosen { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; padding: 8px 10px; background: var(--brand-tint); border-inline-start: 3px solid var(--brand); }
+.chosen .btn-plain { padding: 5px 12px; }
+.note.ok { border-color: var(--success); }
+.reg-sub { font-size: 15px; margin: 14px 0 4px; }
+dialog.confirm .kvs { margin-top: 8px; }
+dialog.confirm > .reg-preview { margin-top: 12px; width: calc(100% - 36px); }
+
 /* ———————————————— شريط الإيداع أسفل الشاشة ———————————————— */
 
 .actionbar {

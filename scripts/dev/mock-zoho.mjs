@@ -1,7 +1,7 @@
 // خادم زوهو وهمي للتجربة المحلية فقط. لا يتصل بزوهو الحقيقي ولا يحتوي بيانات حقيقية.
 //
 // يقلّد: وسيط الرموز في غوغل، وقائمة الدفعات، وقراءة دفعة، والإيداع، والتحقق منه،
-// وحذفه، وتحديث الحقول المخصصة، وصورة الشيك.
+// وحذفه، وتحديث الحقول المخصصة، وصورة الشيك، والعملاء، والفواتير، وتسجيل الشيك.
 //
 // التشغيل:
 //   node scripts/dev/mock-zoho.mjs          (يستمع على المنفذ 8788)
@@ -22,6 +22,10 @@
 // أدوات إضافية:
 //   GET /__log             سجل طلبات الكتابة والصور
 //   GET /__revert/<id>     حذف الإيداع وإرجاع الحالة «في الحوزة» (كأن المدير ألغاه في زوهو)
+//
+// تسجيل شيك جديد (POST /customerpayments) حسب آخر رقم في رقم الشيك:
+//   4 ينقطع الرد بعد الإرسال    7 زوهو يرفض التسجيل    غير ذلك: نجاح
+// ويقلّد أيضاً واجهة كلود (POST /v1/messages) فيعيد قراءة ثابتة لصورة الشيك.
 
 import http from 'node:http';
 import fs from 'node:fs';
@@ -43,7 +47,7 @@ const payments = {};
 for (let n = 1; n <= 8; n++) {
   const id = `74184000000000${String(n).padStart(2, '0')}`;
   payments[id] = {
-    payment_id: id, payment_number: `P${n}`, customer_id: `c${n}`, customer_name: CUSTOMERS[n - 1],
+    payment_id: id, payment_number: `P${n}`, customer_id: `74184000001000${String(n).padStart(2, '0')}`, customer_name: CUSTOMERS[n - 1],
     amount: AMOUNTS[n - 1], date: DATES[n - 1], account_id: CIH, payment_mode: 'Check',
     location_name: n % 2 ? 'ALGER' : 'EL EULMA', location_id: 'LOC1', currency_id: 'DZD1',
     account_name: 'Cheques in Hand', created_by: 'AMINE', invoice_numbers: `BL-26/10${n}0`,
@@ -64,7 +68,7 @@ for (let n = 1; n <= 8; n++) {
 // شيكات بحالات أخرى
 const extra = (id, n, over, cf) => {
   payments[id] = {
-    payment_id: id, payment_number: `P${n}`, customer_id: `c${n}`, customer_name: over.customer, amount: over.amount,
+    payment_id: id, payment_number: `P${n}`, customer_id: `74184000001000${String(n).padStart(2, '0')}`, customer_name: over.customer, amount: over.amount,
     date: over.date, account_id: over.account_id || CIH, account_name: over.account_name || 'Cheques in Hand',
     payment_mode: 'Check', location_name: over.location || 'ALGER', location_id: 'LOC1', currency_id: 'DZD1',
     created_by: 'ZEKRI', invoice_numbers: `BL-26/2${n}`,
@@ -103,6 +107,20 @@ extra('7418400000000049', 49, { customer: 'SARL ECHU AGB', amount: 133000, date:
 payments['7418400000000002'].deposit_details = [{ deposit_id: 'x' }];
 payments['7418400000000003'].custom_field_hash.cf_5d7197 = 'محصّل';
 
+const CONTACTS = [
+  ...CUSTOMERS.map((name, i) => ({ contact_id: `74184000001000${String(i + 1).padStart(2, '0')}`, contact_name: name })),
+  { contact_id: '7418400000100090', contact_name: 'SARL NOUVEAU CLIENT' },
+];
+// فواتير غير مدفوعة لكل عميل، الأقدم أولاً
+const INVOICES = {};
+for (const c of CONTACTS) {
+  INVOICES[c.contact_id] = [
+    { invoice_id: `${c.contact_id}1`, invoice_number: `BL-26/${c.contact_id.slice(-2)}01`, date: day(-40), balance: 120000, customer_id: c.contact_id },
+    { invoice_id: `${c.contact_id}2`, invoice_number: `BL-26/${c.contact_id.slice(-2)}02`, date: day(-20), balance: 300000, customer_id: c.contact_id },
+  ];
+}
+let newSeq = 100;
+
 const log = [];
 const txns = {};
 let txnSeq = 0;
@@ -122,6 +140,19 @@ http.createServer((req, res) => {
       return send(j.key === RELAY_KEY ? { access_token: TOKEN, expires_in: 3600 } : { error: 'forbidden' });
     }
     if (path === '/__log') return send(log);
+
+    // واجهة كلود الوهمية: قراءة ثابتة للشيك
+    if (path.startsWith('/v1/messages') && req.method === 'POST') {
+      const key = req.headers['x-api-key'] || String(req.headers.authorization || '').replace(/^Bearer /, '');
+      if (key !== 'mock-key') return send({ type: 'error', error: { type: 'authentication_error', message: 'bad key' } }, 401);
+      const reading = { amount: 250000, cheque_number: '6309259', bank: 'BNA', drawer: 'SARL COMINOX', note: null };
+      log.push('CLAUDE read');
+      return setTimeout(() => send({
+        id: 'msg_mock', type: 'message', role: 'assistant', model: 'claude-opus-5-5',
+        content: [{ type: 'text', text: JSON.stringify(reading) }],
+        stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 },
+      }), 800);
+    }
     if ((m = path.match(/^\/__revert\/(\d+)$/))) {
       const p = payments[m[1]];
       if (!p) return send({ error: 'nf' }, 404);
@@ -131,8 +162,52 @@ http.createServer((req, res) => {
     }
     if (req.headers.authorization !== `Zoho-oauthtoken ${TOKEN}`) return send({ code: 57, message: 'not authorized' }, 401);
 
+    if (path === '/books/v3/contacts' && req.method === 'GET') {
+      const q = (url.searchParams.get('search_text') || '').toLowerCase();
+      const words = q.split(/\s+/).filter((w) => w.length > 1 && !['sarl', 'eurl', 'spa'].includes(w));
+      const contacts = CONTACTS.filter((c) => words.some((w) => c.contact_name.toLowerCase().includes(w)));
+      return send({ code: 0, contacts });
+    }
+    if (path === '/books/v3/invoices' && req.method === 'GET') {
+      return send({ code: 0, invoices: INVOICES[url.searchParams.get('customer_id')] || [] });
+    }
+    if (path === '/books/v3/customerpayments' && req.method === 'POST') {
+      const j = JSON.parse(body);
+      const cf = Object.fromEntries(j.custom_fields.map((f) => [f.api_name, f.value]));
+      log.push(`CREATE ${body}`);
+      const chq = String(cf.cf_n_cheque || '');
+      if (!/^\d{7}$/.test(chq)) return send({ code: 9, message: 'Payment Mode: رقم الشيك إجباري: اكتب رقم الشيك (7 أرقام) قبل حفظ الدفعة' }, 400);
+      if (chq.endsWith('7')) return send({ code: 9, message: 'Payment Mode: الدفعة بشيك: يجب اختيار وجهة الشيك في حقل Déposé vers' }, 400);
+      const id = `74184000000${String(++newSeq).padStart(5, '0')}`;
+      const contact = CONTACTS.find((c) => c.contact_id === j.customer_id);
+      payments[id] = {
+        payment_id: id, payment_number: `N${newSeq}`, customer_id: j.customer_id, customer_name: contact ? contact.contact_name : '?',
+        amount: j.amount, date: j.date, account_id: j.account_id, account_name: j.account_id === CIH ? 'Cheques in Hand' : 'Endorsed Cheques',
+        payment_mode: 'Check', location_name: j.location_id === '7418406000000093289' ? 'ALGER' : 'EL EULMA', location_id: j.location_id,
+        currency_id: 'DZD1', created_by: 'ZEKRI', description: j.description,
+        invoice_numbers: j.invoices.map((i) => i.invoice_id).join(','),
+        invoices: j.invoices.map((i) => {
+          const inv = (INVOICES[j.customer_id] || []).find((x) => x.invoice_id === i.invoice_id) || {};
+          return { invoice_id: i.invoice_id, invoice_number: inv.invoice_number, date: inv.date, amount_applied: i.amount_applied, total: inv.balance, balance: (inv.balance || 0) - i.amount_applied };
+        }),
+        deposit_details: [], has_attachment: false, documents: [], last_modified_time: new Date().toISOString(),
+        custom_field_hash: { ...cf, cf_023de7: '✔ كاملة' },
+      };
+      if (chq.endsWith('4')) { req.socket.destroy(); return; }
+      return send({ code: 0, payment: { payment_id: id } });
+    }
+    if ((m = path.match(/^\/books\/v3\/customerpayments\/(\d+)\/attachment$/)) && req.method === 'POST') {
+      const p = payments[m[1]];
+      if (!p) return send({ code: 1002, message: 'not found' }, 404);
+      log.push(`ATTACH ${m[1]} ${body.length} bytes`);
+      p.has_attachment = true;
+      p.documents = [{ document_id: `D${m[1]}`, file_type: 'jpg', file_name: 'cheque.jpg' }];
+      return send({ code: 0, message: 'The document has been attached.' });
+    }
+
     if (path === '/books/v3/customerpayments' && req.method === 'GET') {
-      const list = Object.values(payments).map((p) => ({ ...p, ...p.custom_field_hash }));
+      const cust = url.searchParams.get('customer_id');
+      const list = Object.values(payments).filter((p) => !cust || p.customer_id === cust).map((p) => ({ ...p, ...p.custom_field_hash }));
       return send({ code: 0, customerpayments: list, page_context: { has_more_page: false } });
     }
     if ((m = path.match(/^\/books\/v3\/documents\/(D\d+)$/))) {

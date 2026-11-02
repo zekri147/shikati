@@ -8,7 +8,7 @@
     unknown: 'بانتظار التحقق: انقطع الرد بعد محاولة الإيداع',
     failed: 'محاولة إيداع لم تتم',
   };
-  const ACTION_TEXT = { deposit: 'إيداع', 'deposit.release': 'تحرير القفل', 'deposit.reverted': 'إلغاء الإيداع في زوهو' };
+  const ACTION_TEXT = { deposit: 'إيداع', 'deposit.release': 'تحرير القفل', 'deposit.reverted': 'إلغاء الإيداع في زوهو', register: 'تسجيل الشيك', 'register.read': 'قراءة الصورة' };
 
   // صف «عنوان: قيمة». القيمة الفارغة تظهر بشرطة.
   function row(label, value, opts = {}) {

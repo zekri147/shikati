@@ -5,6 +5,7 @@ import { cacheGet, cachePut, zohoGet } from '../zoho';
 import { canDeposit, handleDeposit, lockStates, reconcileDoneLocks } from './deposit';
 import { handleChequeImage } from './image';
 import { handleChequeDetail } from './detail';
+import { canRegister, handlePreview, handleRead, handleRegister, registerOptions, searchCustomers } from './register';
 import { ACCOUNT_CHEQUES_IN_HAND, CACHE_KEY, DEST, STATUS, todayAlgiers } from './constants';
 import { chequeNumber, wrongAccountText } from './fields';
 
@@ -232,9 +233,17 @@ export const chequesModule: AppModule = {
         if (state === 'unknown' && byId.has(id)) view.alerts.push({ kind: 'unknown_lock', id });
       }
       const alerts = user.role === 'admin' ? view.alerts : view.alerts.filter((a) => !ADMIN_ONLY.includes(a.kind));
-      return json({ ...view, alerts, role: user.role, can_deposit: canDeposit(env, user) });
+      return json({ ...view, alerts, role: user.role, can_deposit: canDeposit(env, user), can_register: canRegister(env, user) });
     }
     if (req.method === 'POST' && subpath === '/deposit') return handleDeposit(req, env, user);
+    // تسجيل شيك جديد
+    if (req.method === 'GET' && subpath === '/register/options') return registerOptions(env, user);
+    if (req.method === 'GET' && subpath === '/register/customers') {
+      return searchCustomers(env, user, new URL(req.url).searchParams.get('q') || '');
+    }
+    if (req.method === 'POST' && subpath === '/register/read') return handleRead(req, env, user);
+    if (req.method === 'POST' && subpath === '/register/preview') return handlePreview(req, env, user);
+    if (req.method === 'POST' && subpath === '/register') return handleRegister(req, env, user);
     const img = subpath.match(/^\/image\/(\d{10,25})$/);
     if (req.method === 'GET' && img) return handleChequeImage(env, img[1]);
     const det = subpath.match(/^\/detail\/(\d{10,25})$/);

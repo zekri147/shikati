@@ -34,6 +34,7 @@
     if (m) return { view: 'detail', id: m[1] };
     if (h === 'cheques/all') return { view: 'all' };
     if (h === 'cheques/alerts') return { view: 'alerts' };
+    if (h === 'cheques/new') return { view: 'new' };
     return { view: 'deposit' };
   }
 
@@ -154,7 +155,7 @@
     };
 
     // الأشرطة العلوية: تنقّل بين الشاشات
-    const tabDefs = [['deposit', 'الإيداع', '#cheques'], ['all', 'كل الشيكات', '#cheques/all'], ['alerts', 'التنبيهات', '#cheques/alerts']];
+    const tabDefs = [['deposit', 'الإيداع', '#cheques'], ['all', 'كل الشيكات', '#cheques/all'], ['alerts', 'التنبيهات', '#cheques/alerts'], ['new', 'تسجيل', '#cheques/new']];
     const alertCount = el('span', { class: 'count hidden' });
     const tabs = el('nav', { class: 'tabs', 'aria-label': 'شاشات الشيكات' }, tabDefs.map(([id, label, href]) =>
       el('a', { class: 'tab', href, 'data-view': id }, el('span', { text: label }), id === 'alerts' ? alertCount : null)));
@@ -322,7 +323,7 @@
     function draw() {
       const v = st.route.view;
       updateTabs();
-      const isList = v !== 'detail';
+      const isList = v !== 'detail' && v !== 'new';
       [kpiBox, toolbar, filters, listBox].forEach((x) => x.classList.toggle('hidden', !isList));
       detailBox.classList.toggle('hidden', isList);
       statusChips.classList.toggle('hidden', v !== 'all');
@@ -339,7 +340,7 @@
     function route() {
       const prev = st.route;
       const next = parseRoute();
-      if (prev.view !== 'detail') st.scroll[prev.view] = window.scrollY;
+      if (prev.view !== 'detail' && prev.view !== 'new') st.scroll[prev.view] = window.scrollY;
       st.fromList = next.view === 'detail' && prev.view !== 'detail' ? true : (next.view === 'detail' ? st.fromList : false);
       st.route = next;
       document.title = 'شيكاتي';
@@ -348,6 +349,12 @@
         window.scrollTo(0, 0);
         window.ShikatiChequeDetail.render(detailBox, next.id, {
           onBack: () => { if (st.fromList) history.back(); else location.hash = '#cheques'; },
+        });
+      } else if (next.view === 'new') {
+        window.scrollTo(0, 0);
+        window.ShikatiChequeRegister.render(detailBox, {
+          // بعد التسجيل: تحديث القوائم ثم فتح صفحة الشيك الجديد
+          onDone: (pid) => { load(true); location.hash = '#cheques/c/' + pid; },
         });
       } else {
         detailBox.replaceChildren();

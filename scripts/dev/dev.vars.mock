@@ -3,3 +3,5 @@ ZOHO_API_BASE=http://127.0.0.1:8788/books/v3
 ZOHO_RELAY_URL=http://127.0.0.1:8788/relay
 ZOHO_RELAY_KEY=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk
 DEPOSIT_ROLES=admin,depositor
+ANTHROPIC_API_KEY="mock-key"
+ANTHROPIC_BASE_URL="http://127.0.0.1:8788"

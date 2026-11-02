@@ -7,6 +7,8 @@ export interface Env {
   SESSION_HOURS: string;
   // الأدوار المسموح لها بتسجيل الإيداع، مفصولة بفاصلة: admin أو admin,depositor
   DEPOSIT_ROLES?: string;
+  // الأدوار المسموح لها بتسجيل شيك جديد، بنفس الصيغة. الافتراضي: admin,depositor
+  REGISTER_ROLES?: string;
   // أسرار تُضاف بـ wrangler secret put، لا تُكتب في الشيفرة
   ZOHO_CLIENT_ID?: string;
   ZOHO_CLIENT_SECRET?: string;
@@ -14,6 +16,10 @@ export interface Env {
   // بديل: وسيط تجديد الرمز في غوغل (relay/zoho-token-relay.gs)
   ZOHO_RELAY_URL?: string;
   ZOHO_RELAY_KEY?: string;
+  // مفتاح واجهة كلود لقراءة صورة الشيك. سر يُضاف بـ wrangler secret put
+  ANTHROPIC_API_KEY?: string;
+  // للتجربة المحلية فقط: عنوان خادم كلود الوهمي
+  ANTHROPIC_BASE_URL?: string;
   // اختياري: لإنشاء أول حساب مدير من صفحة /setup، ويُحذف بعد الاستعمال
   SETUP_TOKEN?: string;
 }

@@ -22,3 +22,18 @@ export function todayAlgiers(now = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Algiers' }).format(now);
 }
 
+
+// المواقع (الفروع) في زوهو
+export const LOCATIONS: Record<string, { id: string; label: string }> = {
+  ALGER: { id: '7418406000000093289', label: 'الجزائر' },
+  'EL EULMA': { id: '7418406000000093098', label: 'العلمة' },
+};
+
+// قيم «البنك الساحب» كما هي في القائمة المنسدلة في زوهو
+export const BANKS = [
+  'AGB', 'BNA', 'BEA', 'BADR', 'BDL', 'CPA', 'CNEP', 'CNMA', 'Al Baraka', 'Al Salam', 'Trust Bank',
+  'Société Générale', 'BNP Paribas', 'Natixis', 'Housing Bank', 'ABC', 'Fransabank', 'CCP', 'أخرى',
+] as const;
+
+// الوجهات، وأولها الافتراضية
+export const DESTINATIONS = ['ELONAC', 'ROSTOMIA', 'Autre Fournisseur'] as const;

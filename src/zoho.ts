@@ -1,7 +1,7 @@
 import type { Env } from './env';
 import { HttpError, nowSec } from './http';
 
-// طلبات زوهو بوكس. طلبات الكتابة لا تُستعمل إلا من وحدة الإيداع (modules/deposit.ts).
+// طلبات زوهو بوكس. طلبات الكتابة لا تُستعمل إلا من وحدتي الإيداع والتسجيل (modules/deposit.ts وmodules/register.ts).
 
 const TOKEN_HINTS: Record<string, string> = {
   invalid_client: 'معرّف العميل أو سرّه غير صحيح، أو التطبيق في مركز بيانات آخر.',
@@ -195,4 +195,37 @@ export async function zohoGet<T>(env: Env, path: string, params: Record<string, 
     throw new HttpError(502, 'تعذّر جلب البيانات من زوهو.');
   }
   return r.data;
+}
+
+// رفع ملف إلى زوهو (صورة الشيك مرفقاً على الدفعة). عند 401 يُعاد مرة واحدة لأن زوهو لم ينفّذ الطلب.
+export async function zohoUpload(
+  env: Env,
+  path: string,
+  field: string,
+  file: { name: string; type: string; bytes: Uint8Array },
+): Promise<{ status: number; data: ZohoResult | null }> {
+  const url = new URL(env.ZOHO_API_BASE + path);
+  url.searchParams.set('organization_id', env.ZOHO_ORG_ID);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const token = await accessToken(env, attempt > 0);
+    const form = new FormData();
+    form.append(field, new File([file.bytes], file.name, { type: file.type }));
+    let res: Response;
+    try {
+      res = await fetch(url.toString(), {
+        method: 'POST',
+        headers: { Authorization: `Zoho-oauthtoken ${token}` },
+        body: form,
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch (e) {
+      throw new ZohoTimeout(String(e));
+    }
+    if (res.status === 401 && attempt === 0) {
+      memToken = null;
+      continue;
+    }
+    return { status: res.status, data: (await res.json().catch(() => null)) as ZohoResult | null };
+  }
+  return { status: 401, data: null };
 }

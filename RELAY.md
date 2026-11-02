@@ -123,6 +123,14 @@ https://shikati.zekri3047.workers.dev/api/admin/diag?refresh=1
 | ‏`invalid_code` | رمز التجديد في خصائص السكربت غير صحيح |
 | ‏`not_json` | الرابط غير صحيح، أو خيار «Who has access» ليس «Anyone» |
 
+## صلاحيات تسجيل الشيك
+
+تسجيل شيك جديد يحتاج إنشاء دفعات العملاء وقراءة الفواتير والعملاء. كرر الخطوة «3 مكرر» بهذه الصلاحيات معاً:
+
+```
+ZohoBooks.customerpayments.READ,ZohoBooks.customerpayments.CREATE,ZohoBooks.customerpayments.UPDATE,ZohoBooks.banking.CREATE,ZohoBooks.banking.READ,ZohoBooks.banking.DELETE,ZohoBooks.invoices.READ,ZohoBooks.contacts.READ
+```
+
 ## صلاحيات المرحلة الثانية
 
 تسجيل الإيداع يحتاج رمز تجديد بصلاحيات الكتابة. كرر الخطوة «3 مكرر» بهذه الصلاحيات معاً، مفصولة بفاصلة دون مسافات:
