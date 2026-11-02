@@ -1,10 +1,9 @@
 // الهيكل العام: يقرأ المستخدم والأقسام المتاحة له، ويعرض القسم المطلوب.
 // كل قسم يسجّل نفسه في window.ShikatiModules بنفس معرّفه في الخادم.
 (function () {
-  const { api, el, logout } = window.Shikati;
+  const { api, el } = window.Shikati;
 
   async function start() {
-    document.getElementById('logout').addEventListener('click', logout);
     const view = document.getElementById('view');
     let me;
     try {

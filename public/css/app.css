@@ -541,8 +541,6 @@ table { border-collapse: collapse; width: 100%; font-size: 14px; }
 th { background: var(--brand); color: var(--white); font-weight: 600; text-align: start; padding: 7px 10px; white-space: nowrap; }
 td { padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
 tbody tr:nth-child(even) td { background: var(--surface-alt); }
-.row-actions { display: flex; gap: 6px; flex-wrap: nowrap; }
-.row-actions button { padding: 4px 10px; font-size: 13px; white-space: nowrap; }
 .grid-form { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 @media (max-width: 520px) { .grid-form { grid-template-columns: 1fr; } }
 main > section.block > form, main > section.block > .btn-plain { margin-top: 6px; }
@@ -552,8 +550,19 @@ main > section.block > form, main > section.block > .btn-plain { margin-top: 6px
 
 .help h1 { font-size: 22px; margin: 8px 0 4px; }
 .help h3 { font-size: 15px; margin: 14px 0 4px; }
-.help section.block { background: var(--surface); padding: 4px 16px 12px; }
-.help .block-head { border-bottom: 1px solid var(--line); padding-top: 10px; }
+/* صفحتا الإدارة والمساعدة: كل قسم في بطاقة */
+.page section.block { background: var(--surface); border: 1px solid var(--line); padding: 4px 16px 16px; }
+.page .block-head { border-bottom: 1px solid var(--line); padding-top: 10px; margin-bottom: 12px; }
+.page .table-wrap { margin-inline: -16px; }
+.page form .btn-primary.wide, .page .btn-plain.wide { margin-top: 12px; }
+.empty-cell { text-align: center; padding: 16px 10px; }
+tbody tr:nth-child(even) td.empty-cell { background: transparent; }
+
+/* بطاقة المستخدم في الإدارة */
+.item.user { align-items: stretch; }
+.item.user.off .customer { color: var(--ink-muted); }
+.user-actions { display: flex; gap: 8px; margin-top: 6px; }
+.user-actions button { flex: 1; padding: 9px 10px; }
 .help ol, .help ul { padding-inline-start: 22px; margin: 6px 0; }
 .help li { margin: 5px 0; }
 /* أزرار الصورة في التعديل: الكاميرا والمعرض جنباً إلى جنب */

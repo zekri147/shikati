@@ -1,5 +1,5 @@
 (function () {
-  const { api, el, ltr, logout, fmtDateTime, fmtAmount } = window.Shikati;
+  const { api, el, ltr, toast, fmtDateTime, fmtAmount } = window.Shikati;
   const ROLE = { admin: 'مدير', depositor: 'مودِع' };
   const ACTION = {
     login: 'دخول', 'user.create': 'إنشاء مستخدم', 'user.disable': 'إيقاف مستخدم',
@@ -8,35 +8,72 @@
   };
   const RESULT = { ok: 'تمّ', denied: 'مرفوض', error: 'خطأ' };
 
+  // بطاقة تأكيد بشكل التطبيق بدل نوافذ المتصفح. مع password يطلب رمزاً سرياً في حقل مخفي.
+  // run تنفّذ العملية، وخطؤها يظهر داخل البطاقة دون إغلاقها.
+  function ask({ title, text, okText, danger, password, run }) {
+    const input = password ? el('input', { type: 'password', dir: 'ltr', autocomplete: 'new-password', minlength: '8' }) : null;
+    const message = el('div', { role: 'alert' });
+    const okBtn = el('button', { type: 'button', class: danger ? 'btn-danger' : 'btn-primary', text: okText });
+    const cancelBtn = el('button', { type: 'button', class: 'btn-plain', text: 'إلغاء' });
+    const dlg = el('dialog', { class: 'confirm', 'aria-labelledby': 'ask-title' },
+      el('h2', { id: 'ask-title', text: title }),
+      el('p', { text }),
+      input ? el('div', { class: 'field' }, el('label', {}, el('span', { text: 'الرمز السري الجديد (8 أحرف على الأقل)' }), input)) : null,
+      message,
+      el('div', { class: 'dlg-actions' }, okBtn, cancelBtn));
+    let busy = false;
+    const close = () => { if (busy) return; dlg.close(); dlg.remove(); };
+    cancelBtn.addEventListener('click', close);
+    dlg.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
+    okBtn.addEventListener('click', async () => {
+      if (input && input.value.length < 8) { message.className = 'form-error'; message.textContent = 'الرمز السري 8 أحرف على الأقل.'; return; }
+      busy = true; okBtn.disabled = true; cancelBtn.disabled = true;
+      try {
+        await run(input ? input.value : undefined);
+        busy = false; close();
+      } catch (e) {
+        busy = false; okBtn.disabled = false; cancelBtn.disabled = false;
+        message.className = 'form-error'; message.textContent = e.message;
+      }
+    });
+    document.body.append(dlg);
+    dlg.showModal();
+    (input || cancelBtn).focus();
+  }
+
+  // المستخدمون في بطاقات: الاسم والدور، ثم اسم الدخول والحالة، ثم الأزرار
   async function loadUsers() {
     const { users } = await api('/api/admin/users');
-    const tbody = document.getElementById('users');
-    tbody.replaceChildren(...users.map((u) => {
-      const act = async (path, body, confirmText) => {
-        if (confirmText && !confirm(confirmText)) return;
-        try { await api(`/api/admin/users/${u.id}/${path}`, { method: 'POST', body: body || {} }); await refresh(); }
-        catch (e) { alert(e.message); }
-      };
-      return el('tr', {},
-        el('td', { text: u.display_name }),
-        el('td', {}, ltr(u.username)),
-        el('td', { text: ROLE[u.role] || u.role }),
-        el('td', { text: u.active ? 'نشط' : 'موقوف' }),
-        el('td', {}, el('div', { class: 'row-actions' },
-          u.active
-            ? el('button', { type: 'button', class: 'btn-plain', text: 'إيقاف', onclick: () => act('disable', null, `إيقاف ${u.display_name} الآن؟ سيُخرج من التطبيق فوراً.`) })
-            : el('button', { type: 'button', class: 'btn-plain', text: 'تفعيل', onclick: () => act('enable') }),
-          el('button', { type: 'button', class: 'btn-plain', text: 'رمز جديد', onclick: () => {
-            const pw = prompt(`الرمز السري الجديد لـ ${u.display_name} (8 أحرف على الأقل):`);
-            if (pw) act('password', { password: pw });
-          } }),
-        )),
-      );
+    const list = document.getElementById('users');
+    list.replaceChildren(...users.map((u) => {
+      const post = (path, body) => api(`/api/admin/users/${u.id}/${path}`, { method: 'POST', body: body || {} });
+      const toggle = u.active
+        ? el('button', { type: 'button', class: 'btn-danger', text: 'إيقاف', onclick: () => ask({
+          title: 'إيقاف ' + u.display_name, text: 'سيُخرج من التطبيق فوراً، ولن يستطيع الدخول حتى تعيد تفعيله.',
+          okText: 'إيقاف', danger: true, run: async () => { await post('disable'); toast('أُوقف ' + u.display_name); await refresh(); },
+        }) })
+        : el('button', { type: 'button', class: 'btn-plain', text: 'تفعيل', onclick: async () => {
+          try { await post('enable'); toast('فُعّل ' + u.display_name); await refresh(); } catch (e) { toast(e.message, 'err'); }
+        } });
+      const pw = el('button', { type: 'button', class: 'btn-plain', text: 'رمز سري جديد', onclick: () => ask({
+        title: 'رمز سري جديد لـ ' + u.display_name, text: 'أعطه الرمز الجديد بنفسك، لا في رسالة مكتوبة.',
+        okText: 'حفظ الرمز', password: true, run: async (p) => { await post('password', { password: p }); toast('حُفظ الرمز السري الجديد'); await refresh(); },
+      }) });
+      return el('li', { class: 'item user' + (u.active ? '' : ' off') },
+        el('div', { class: 'item-body' },
+          el('div', { class: 'item-main' }, el('div', { class: 'customer', text: u.display_name }), el('span', { class: 'badge', text: ROLE[u.role] || u.role })),
+          el('div', { class: 'item-sub' },
+            el('div', { class: 'facts' }, ltr(u.username), el('span', { class: 'dot', 'aria-hidden': 'true', text: '·' }), el('span', { text: u.active ? 'نشط' : 'موقوف' }))),
+          el('div', { class: 'user-actions' }, toggle, pw)));
     }));
   }
 
+  // صف فارغ بجملة واضحة بدل جدول بلا صفوف
+  const emptyRow = (cols, text) => el('tr', {}, el('td', { colspan: String(cols), class: 'muted empty-cell', text }));
+
   async function loadAudit() {
     const { entries } = await api('/api/admin/audit');
+    if (!entries.length) { document.getElementById('audit').replaceChildren(emptyRow(5, 'لا عمليات مسجّلة بعد.')); return; }
     document.getElementById('audit').replaceChildren(...entries.map((a) => el('tr', {},
       el('td', { class: 'nowrap' }, ltr(fmtDateTime(a.at), 'num')),
       el('td', {}, a.username ? ltr(a.username) : el('span', { class: 'muted', text: '—' })),
@@ -51,6 +88,11 @@
   async function loadDeposits() {
     const { deposits } = await api('/api/admin/deposits');
     let attention = false;
+    if (!deposits.length) {
+      document.getElementById('deposits').replaceChildren(emptyRow(8, 'لا محاولات إيداع بعد.'));
+      document.getElementById('dep-attention').hidden = true;
+      return;
+    }
     document.getElementById('deposits').replaceChildren(...deposits.map((d) => {
       const state = d.stale ? 'unknown' : d.state;
       if (state === 'unknown') attention = true;
@@ -63,11 +105,11 @@
         el('td', { class: 'nowrap', text: DEP_STATE[state] || state }),
         el('td', { text: d.message || '' }),
         el('td', {}, state === 'unknown'
-          ? el('button', { type: 'button', class: 'btn-plain', text: 'تحرير', onclick: async () => {
-              if (!confirm('هل تحققت في زوهو؟ التحرير يسمح بمحاولة إيداع جديدة لهذا الشيك.')) return;
-              try { await api(`/api/admin/deposits/${d.payment_id}/release`, { method: 'POST', body: {} }); await refresh(); }
-              catch (e) { alert(e.message); }
-            } })
+          ? el('button', { type: 'button', class: 'btn-danger', text: 'تحرير', onclick: () => ask({
+              title: 'تحرير قفل الإيداع', text: 'هل تحققت في زوهو أن الإيداع لم يُنشأ، أو صحّحته يدوياً؟ التحرير يسمح بمحاولة إيداع جديدة لهذا الشيك.',
+              okText: 'تحرير القفل', danger: true,
+              run: async () => { await api(`/api/admin/deposits/${d.payment_id}/release`, { method: 'POST', body: {} }); toast('حُرّر القفل'); await refresh(); },
+            }) })
           : ''),
       );
     }));
@@ -76,7 +118,7 @@
 
   async function refresh() {
     try { await Promise.all([loadUsers(), loadDeposits(), loadAudit()]); }
-    catch (e) { alert(e.message); }
+    catch (e) { toast(e.message, 'err'); }
   }
 
   async function runReconcile() {
@@ -124,7 +166,6 @@
   }
 
   document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('logout').addEventListener('click', logout);
     document.getElementById('rec-run').addEventListener('click', runReconcile);
     const form = document.getElementById('new-user');
     const err = document.getElementById('nu-error');
@@ -139,6 +180,7 @@
           password: form.password.value,
         } });
         form.reset();
+        toast('أُضيف المستخدم');
         await refresh();
       } catch (ex) { err.textContent = ex.message; }
     });

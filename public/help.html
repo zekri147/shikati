@@ -14,12 +14,18 @@
 <body>
 <header class="topbar">
   <img class="logo" src="/img/logo-white.svg" alt="إيلوناك">
-  <div class="actions">
-    <a class="btn btn-ghost" href="/">الشيكات</a>
-    <button type="button" class="btn-ghost" data-theme-toggle>فاتح</button>
+  <button type="button" class="btn-ghost menu-btn" id="menu-btn" aria-haspopup="true" aria-expanded="false" aria-controls="menu">
+    <span class="ico ico-menu" aria-hidden="true"></span><span>القائمة</span>
+  </button>
+  <div class="menu hidden" id="menu" role="menu" aria-label="القائمة" data-me>
+    <div class="menu-who" id="who"></div>
+    <a class="menu-item" href="/" role="menuitem">الشيكات</a>
+    <a class="menu-item hidden" id="admin-link" href="/admin" role="menuitem">الإدارة</a>
+    <button type="button" class="menu-item" data-theme-toggle="long" role="menuitem">الوضع الفاتح</button>
+    <button type="button" class="menu-item danger" id="logout" role="menuitem">خروج</button>
   </div>
 </header>
-<main class="help">
+<main class="help page">
   <h1>طريقة استعمال شيكاتي</h1>
   <p class="muted">دليل قصير للمودِع. اقرأه مرة واحدة قبل أول إيداع.</p>
 
