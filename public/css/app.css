@@ -264,12 +264,13 @@ details.fold > summary {
 details.fold > summary::-webkit-details-marker { display: none; }
 details.fold > summary:active { background: var(--surface-alt); }
 details.fold > summary h2 { font-size: 15px; font-weight: 600; }
+/* سهم القسم المطوي: يشير إلى اليسار مطوياً، وإلى الأسفل مفتوحاً */
 details.fold > summary h2::before {
-  content: ""; width: 7px; height: 7px; flex: none;
-  border-inline-start: 2px solid var(--ink-muted); border-bottom: 2px solid var(--ink-muted);
-  transform: rotate(45deg); transition: transform .15s;
+  content: ""; width: 18px; height: 18px; flex: none; background: var(--ink-muted);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 6l-6 6 6 6'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 6l-6 6 6 6'/%3E%3C/svg%3E") center / contain no-repeat;
+  transition: transform .15s;
 }
-details.fold[open] > summary h2::before { transform: rotate(-45deg); margin-top: -4px; }
+details.fold[open] > summary h2::before { transform: rotate(-90deg); }
 details.fold[open] > summary { border-bottom: 1px solid var(--line); }
 details.fold > .note, details.fold > .list, details.fold > .empty { margin: 10px 12px; }
 details.fold > .list { margin-bottom: 12px; }
@@ -323,10 +324,9 @@ a.go:active { background: var(--surface-alt); }
 .item.linkable:active { background: var(--surface-alt); }
 .item-note { font-size: 13px; color: var(--ink); background: var(--warning-tint); border-inline-start: 3px solid var(--warning); padding: 4px 10px; overflow-wrap: anywhere; }
 
-/* ألوان الحالات: من ألوان الهوية فقط */
-.badge.st-hand { background: transparent; border-color: var(--brand); color: var(--accent-text); }
-.badge.st-bank { background: var(--black); border-color: var(--black); color: var(--white); }
-:root[data-theme="dark"] .badge.st-bank { background: var(--white); border-color: var(--white); color: var(--black); }
+/* ألوان الحالات: محايدة، والأحمر للمرفوض وحده لأنه عاجل. الكلمة تميّز الحالة لا اللون */
+.badge.st-hand { background: transparent; border-color: var(--line-strong); color: var(--ink); }
+.badge.st-bank { background: var(--surface-alt); border-color: var(--ink-muted); color: var(--ink); }
 .badge.st-done { background: var(--surface-alt); color: var(--ink-muted); }
 .badge.st-end { background: var(--surface-alt); color: var(--ink); border-style: dashed; }
 .badge.st-rej { background: var(--brand); border-color: var(--brand); color: var(--white); }

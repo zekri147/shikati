@@ -58,6 +58,7 @@
   // ——— بطاقة الشيك ———
   // opts: selectable وselected وonToggle للتحديد، أو link لفتح التفاصيل بالضغط،
   // وshowStatus وnoAge وageInHandOnly وnote لنص تنبيه تحت البطاقة.
+  // lateOnly: لا يُعرض العمر إلا إن تأخر الشيك، فتبقى البطاقة في سطرين مع شارة الحالة.
   function chequeItem(c, opts) {
     // ageInHandOnly: عمر الشيك يهم ما دام في الحوزة فقط
     const noAge = opts.noAge || (opts.ageInHandOnly && c.status !== 'في الحوزة');
@@ -80,7 +81,7 @@
       // التحصيل المتأخر لبنك AGB وحده: الرستمية لا تتحوّل إلى «محصّل» في زوهو
       const slow = c.destination === 'ELONAC' && c.deposit_days > LATE_DAYS;
       age = el('span', { class: 'age' + (slow ? ' late' : ''), text: slow ? 'تحصيل متأخر ' + daysCount(c.deposit_days) : 'في البنك ' + daysText(c.deposit_days) });
-    } else if (!noAge) {
+    } else if (!noAge && (late || !opts.lateOnly)) {
       age = el('span', { class: 'age' + (late ? ' late' : ''), text: late ? 'متأخر ' + daysCount(c.days) : daysText(c.days) });
     }
     const marks = el('div', { class: 'marks' },
@@ -142,7 +143,8 @@
     const list = items.length
       ? el('ul', { class: 'list' }, items.map((c) => chequeItem(c, { ...opts, note: opts.noteFor ? opts.noteFor(c) : null })))
       : el('div', { class: 'empty', text: opts.emptyText || 'لا توجد شيكات هنا.' });
-    const note = opts.note ? el('div', { class: 'note ' + (opts.noteClass || ''), text: opts.note }) : null;
+    // في القسم المطوي يكفي الشريط الملوّن على طرفه، فتبقى الملاحظة داخله بلا لون
+    const note = opts.note ? el('div', { class: 'note ' + (opts.collapsible ? '' : (opts.noteClass || '')), text: opts.note }) : null;
     if (!opts.collapsible) {
       return el('section', { class: 'block primary' }, head('div', title, items, opts.hideTotal), note, list);
     }
