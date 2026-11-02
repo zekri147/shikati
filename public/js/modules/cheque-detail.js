@@ -78,13 +78,11 @@
   }
 
   // التراجع عن آخر عملية: نافذة تأكيد تشرح ما سيُحذف، ثم طلب واحد دون إعادة
-  function undoPanel(d, reload, onGone) {
+  function undoDialog(d, reload, onGone) {
     const u = d.undo;
-    const btn = el('button', { type: 'button', class: 'btn-plain wide', text: u.title });
-    if (!u.allowed) btn.disabled = true;
-    btn.addEventListener('click', () => {
+    {
       const message = el('div', { role: 'alert' });
-      const okBtn = el('button', { type: 'button', class: 'btn-primary', text: 'تأكيد ' + u.title });
+      const okBtn = el('button', { type: 'button', class: 'btn-danger', text: u.title });
       const cancelBtn = el('button', { type: 'button', class: 'btn-plain', text: 'إلغاء' });
       const dlg = el('dialog', { class: 'confirm', 'aria-labelledby': 'undo-title' },
         el('h2', { id: 'undo-title', text: u.title }),
@@ -126,10 +124,75 @@
       document.body.append(dlg);
       dlg.showModal();
       cancelBtn.focus();
+    }
+  }
+
+  // قائمة «المزيد» فوق الشريط السفلي: العمليات الخطيرة بعيداً عن الأزرار العادية.
+  // تُغلق بالضغط خارجها، أو بزر الرجوع في الهاتف.
+  function moreMenu(items) {
+    const btn = el('button', { type: 'button', class: 'btn-plain', 'aria-haspopup': 'true', 'aria-expanded': 'false' },
+      el('span', { text: 'المزيد' }), el('span', { class: 'ico ico-more', 'aria-hidden': 'true' }));
+    const menu = el('div', { class: 'menu up hidden', role: 'menu' }, items);
+    let open = false;
+    const set = (v) => { open = v; menu.classList.toggle('hidden', !v); btn.setAttribute('aria-expanded', String(v)); };
+    const onPop = () => { if (open) set(false); };
+    const close = () => { if (!open) return; if (history.state && history.state.more) history.back(); else set(false); };
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (open) { close(); return; }
+      set(true);
+      history.pushState({ more: true }, '');
+      const first = menu.querySelector('.menu-item');
+      if (first) first.focus();
     });
-    return el('section', { class: 'd-block' }, el('h2', { text: 'تراجع' }),
-      el('p', { class: 'muted small', text: u.allowed ? u.effect : u.blocker }),
-      btn);
+    window.addEventListener('popstate', onPop);
+    const onDoc = (e) => {
+      if (!btn.isConnected) { document.removeEventListener('click', onDoc); window.removeEventListener('popstate', onPop); return; }
+      if (open && !menu.contains(e.target)) close();
+    };
+    document.addEventListener('click', onDoc);
+    menu.addEventListener('click', (e) => { if (e.target.closest('.menu-item')) close(); });
+    return { btn, menu };
+  }
+
+  // شريط العمليات الثابت أسفل الصفحة: العمل الرئيسي، ثم «تعديل»، ثم «المزيد»
+  function actionBar(d, editPanel, endorseBox, reload, onGone) {
+    const buttons = [];
+    if (endorseBox) {
+      const go = el('button', { type: 'button', class: 'btn-primary', text: 'إتمام التظهير' });
+      go.addEventListener('click', () => {
+        endorseBox.scrollIntoView({ block: 'start' });
+        const input = endorseBox.querySelector('input');
+        if (input) input.focus({ preventScroll: true });
+      });
+      buttons.push(go);
+    }
+    let bar = null;
+    if (editPanel) {
+      const edit = el('button', { type: 'button', class: 'btn-plain' + (editPanel.allowed ? '' : ' is-blocked'), text: 'تعديل' });
+      edit.addEventListener('click', () => {
+        // التعديل غير المسموح يشرح سببه بدل زر معطّل بلا تفسير
+        if (!editPanel.allowed) { toast(editPanel.blocker || 'تعديل هذا الشيك غير متاح.', 'warn'); return; }
+        bar.classList.add('hidden');
+        editPanel.open();
+      });
+      buttons.push(edit);
+    }
+    if (d.undo) {
+      const u = d.undo;
+      const item = el('button', { type: 'button', class: 'menu-item danger' + (u.allowed ? '' : ' is-blocked'), role: 'menuitem' },
+        el('span', { class: 'mi-title', text: u.title }),
+        el('span', { class: 'mi-sub', text: u.allowed ? u.effect : u.blocker }));
+      item.addEventListener('click', () => {
+        if (!u.allowed) { toast(u.blocker, 'warn'); return; }
+        undoDialog(d, reload, onGone);
+      });
+      const more = moreMenu([item]);
+      buttons.push(el('div', { class: 'more-wrap' }, more.btn, more.menu));
+    }
+    if (!buttons.length) return null;
+    bar = el('div', { class: 'detailbar' }, buttons);
+    return bar;
   }
 
   function view(d, reload, onGone) {
@@ -193,14 +256,15 @@
         ? el('ol', { class: 'd-log' }, d.log.map((l) => el('li', { text: l })))
         : el('p', { class: 'muted small', text: 'لا توجد عمليات مسجّلة بعد.' })));
 
-    if (d.can_endorse) parts.splice(1, 0, endorsePanel(d, reload));
+    const endorseBox = d.can_endorse ? endorsePanel(d, reload) : null;
+    if (endorseBox) parts.splice(1, 0, endorseBox);
 
     const en = d.app.endorsement;
     if (en && en.state === 'unknown') {
       parts.splice(1, 0, el('div', { class: 'note alert', text: 'بانتظار التحقق: انقطع الرد بعد إرسال دفعة المورد لهذا الشيك. تحقق في زوهو قبل أي محاولة جديدة.' }));
     }
-    if (d.edit) parts.splice(1, 0, window.ShikatiChequeEdit.panel(d, reload));
-    if (d.undo) parts.push(undoPanel(d, reload, onGone));
+    const editPanel = d.edit ? window.ShikatiChequeEdit.panel(d, reload) : null;
+    if (editPanel) parts.splice(1, 0, editPanel);
 
     if (d.app.lock || d.app.history.length || en) {
       parts.push(block('في التطبيق',
@@ -216,14 +280,16 @@
           el('div', { class: 'd-line' }, el('span', { class: 'strong', text: ACTION_TEXT[h.action] || h.action }), ltr(fmtDateTime(h.at), 'num muted small')),
           el('div', { class: 'muted small', text: [h.username, h.details].filter(Boolean).join(' · ') })))) : null));
     }
+    const bar = actionBar(d, editPanel, endorseBox, reload, onGone);
+    if (bar) parts.push(bar);
     return parts;
   }
 
   async function render(box, id, ctx) {
-    const back = el('button', { type: 'button', class: 'btn-plain back', text: 'رجوع' });
+    const back = el('button', { type: 'button', class: 'btn-plain back' }, el('span', { class: 'ico ico-back', 'aria-hidden': 'true' }), el('span', { text: 'رجوع' }));
     back.addEventListener('click', ctx.onBack);
     const body = el('div', { class: 'detail', 'aria-live': 'polite' }, el('p', { class: 'muted', text: 'جارٍ التحميل…' }));
-    box.replaceChildren(el('div', { class: 'toolbar' }, back, el('span', { class: 'muted', text: 'تفاصيل الشيك' })), body);
+    box.replaceChildren(el('div', { class: 'd-top' }, back, el('h1', { class: 'd-title', text: 'تفاصيل الشيك' })), body);
     try {
       const d = await api('/api/m/cheques/detail/' + encodeURIComponent(id));
       if (!box.isConnected) return;

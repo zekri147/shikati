@@ -6,11 +6,12 @@
   function panel(d, reload) {
     const R = window.ShikatiChequeRegister;
     const e = d.edit;
-    const openBtn = el('button', { type: 'button', class: 'btn-plain wide', text: 'تعديل الشيك' });
-    const box = el('div', { class: 'hidden' });
-    const section = el('section', { class: 'd-block' }, el('h2', { text: 'تعديل' }),
-      e.allowed ? null : el('p', { class: 'muted small', text: e.blocker }),
-      e.allowed ? openBtn : null, box);
+    // النموذج مخفي حتى يُضغط «تعديل» في شريط الصفحة السفلي، فيُفتح في أعلى الصفحة
+    const box = el('div');
+    const section = el('section', { class: 'd-block hidden' }, el('h2', { text: 'تعديل الشيك' }), box);
+    section.allowed = !!e.allowed;
+    section.blocker = e.blocker || '';
+    section.open = () => {};
     if (!e.allowed) return section;
 
     const form = {
@@ -67,7 +68,11 @@
         el('div', { class: 'photo-btns' }, photoBtn, galleryBtn), fileInput, galleryInput, photoBox),
       error, reviewBtn, cancelBtn);
 
-    openBtn.addEventListener('click', () => { box.classList.remove('hidden'); openBtn.classList.add('hidden'); numberInput.focus(); });
+    section.open = () => {
+      section.classList.remove('hidden');
+      section.scrollIntoView({ block: 'start' });
+      numberInput.focus({ preventScroll: true });
+    };
     cancelBtn.addEventListener('click', () => reload());
 
     const body = () => ({
