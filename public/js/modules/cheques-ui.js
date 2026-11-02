@@ -154,13 +154,53 @@
     });
   }
 
+  // عارض الصورة داخل التطبيق: زر «إغلاق» وزر الرجوع في الهاتف يعيدانك إلى الصفحة،
+  // والضغط على الصورة يكبّرها أو يعيدها إلى حجم الشاشة.
+  function openViewer(src) {
+    const img = el('img', { class: 'viewer-img', src, alt: 'صورة الشيك' });
+    const wrap = el('div', { class: 'viewer-body' }, img);
+    const closeBtn = el('button', { type: 'button', class: 'btn-primary viewer-close', text: 'إغلاق' });
+    const zoomBtn = el('button', { type: 'button', class: 'btn-plain viewer-zoom', text: 'تكبير' });
+    const dlg = el('dialog', { class: 'viewer', 'aria-label': 'صورة الشيك' },
+      el('div', { class: 'viewer-bar' }, closeBtn, zoomBtn), wrap);
+    const toggle = () => {
+      const on = wrap.classList.toggle('zoomed');
+      zoomBtn.textContent = on ? 'تصغير' : 'تكبير';
+    };
+    img.addEventListener('click', toggle);
+    zoomBtn.addEventListener('click', toggle);
+    let closed = false;
+    const finish = () => {
+      if (closed) return;
+      closed = true;
+      window.removeEventListener('popstate', onPop);
+      dlg.close();
+      dlg.remove();
+    };
+    const onPop = () => finish();
+    // زر الرجوع في الهاتف يغلق العارض بدل مغادرة الصفحة
+    history.pushState({ viewer: true }, '');
+    window.addEventListener('popstate', onPop);
+    const close = () => { if (!closed) history.back(); };
+    closeBtn.addEventListener('click', close);
+    dlg.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
+    document.body.append(dlg);
+    dlg.showModal();
+    closeBtn.focus();
+  }
+
   // الصورة المرفقة بالدفعة، معتدلة دائماً: الخادم يعرف اتجاهها (يحدّده كلود مرة واحدة)
   function chequeImage(c, cls) {
     if (!c.has_image) return el('div', { class: 'img-empty ' + cls, text: 'لا صورة' });
     const base = `/api/m/cheques/image/${encodeURIComponent(c.id)}`;
     const src = base + (c.v ? `?v=${encodeURIComponent(c.v)}` : '');
     const img = el('img', { class: 'cheque-img', alt: 'صورة الشيك', src, decoding: 'async' });
-    const link = el('a', { href: src, target: '_blank', rel: 'noopener', class: 'img-link ' + cls, title: 'فتح الصورة بحجمها الكامل' }, img);
+    const link = el('a', { href: src, class: 'img-link ' + cls, title: 'تكبير الصورة' }, img);
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openViewer(img.src);
+    });
     let failed = false;
     img.addEventListener('error', () => {
       if (failed) return;

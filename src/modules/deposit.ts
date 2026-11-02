@@ -30,6 +30,7 @@ interface ZohoPayment {
   payment_number?: string;
   customer_id: string;
   customer_name: string;
+  date?: string;
   amount: number;
   account_id: string;
   payment_mode?: string;
@@ -94,9 +95,13 @@ const LOCKED_MESSAGES: Record<DepositState, string> = {
 export async function handleDeposit(req: Request, env: Env, user: User): Promise<Response> {
   if (!canDeposit(env, user)) throw new HttpError(403, 'ليست لديك صلاحية تسجيل الإيداع.');
 
-  const body = await readJson<{ payment_id?: string; amount?: number; cheque_number?: string }>(req);
+  const body = await readJson<{ payment_id?: string; amount?: number; cheque_number?: string; date?: string }>(req);
   const pid = String(body.payment_id || '');
   if (!PAYMENT_ID_RE.test(pid)) throw new HttpError(400, 'معرّف الدفعة غير صالح.');
+  // تاريخ الإيداع: اليوم افتراضياً، ويختاره الموظف إن أودع في يوم سابق
+  const today = todayAlgiers();
+  const depositDate = String(body.date || today).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(depositDate) || depositDate > today) throw new HttpError(400, 'تاريخ الإيداع غير صالح: لا يكون بعد اليوم.');
 
   // 1. القفل: إدخال ذرّي، لا ينجح إلا إن لم يوجد سطر، أو كان السطر السابق «فشل»
   const lock = await env.DB.prepare(
@@ -170,13 +175,16 @@ export async function handleDeposit(req: Request, env: Env, user: User): Promise
     return fail(409, 'بيانات الشيك تغيّرت في زوهو. حدّث الصفحة وتحقق منها قبل الإيداع.');
   }
 
+  if (depositDate < String(p.date || '').slice(0, 10)) {
+    return fail(400, 'تاريخ الإيداع قبل تاريخ استلام الشيك. صحّحه.');
+  }
+
   // 3. إنشاء الإيداع مرتبطاً بالدفعة
-  const today = todayAlgiers();
   const lineType = Array.isArray(p.invoices) && p.invoices.length > 0 ? 'invoice_payment' : 'customer_payment';
   const deposit: Record<string, unknown> = {
     transaction_type: 'deposit',
     to_account_id: ACCOUNT_AGB,
-    date: today,
+    date: depositDate,
     currency_id: p.currency_id,
     description: `إيداع شيك ${chq} في AGB — دفعة ${p.payment_number ?? ''} — من تطبيق شيكاتي (${user.display_name})`,
     line_items: [{
@@ -236,14 +244,14 @@ export async function handleDeposit(req: Request, env: Env, user: User): Promise
 
   // 5. تحديث حالة الشيك وإضافة سطر في سجل الدفعة باسم الموظف
   const logOld = String(cfh.cf_fffaad || '').trim();
-  const logLine = `${today} — إيداع في AGB من تطبيق شيكاتي (${user.display_name})`;
+  const logLine = `${today} — إيداع في AGB${depositDate !== today ? ` بتاريخ ${depositDate}` : ''} من تطبيق شيكاتي (${user.display_name})`;
   let updated = false;
   try {
     const up = await zohoRequest(env, 'PUT', `/customerpayments/${pid}`, {
       body: {
         custom_fields: [
           { api_name: 'cf_5d7197', value: STATUS.DEPOSITED },
-          { api_name: DEPOSIT_DATE_FIELD, value: today },
+          { api_name: DEPOSIT_DATE_FIELD, value: depositDate },
           { api_name: 'cf_fffaad', value: logOld ? `${logOld}\n${logLine}` : logLine },
         ],
       },

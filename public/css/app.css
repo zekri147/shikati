@@ -462,3 +462,20 @@ main > section.block > form, main > section.block > .btn-plain { margin-top: 6px
 .photo-btns { display: flex; gap: 8px; }
 .photo-btns .btn-plain { flex: 1; padding: 10px; }
 .register .btn-plain.wide + [role], .register .btn-primary.wide + .btn-plain.wide { margin-top: 8px; }
+
+/* ———————————————— عارض الصورة ———————————————— */
+dialog.viewer {
+  border: 0; padding: 0; margin: 0; width: 100vw; height: 100dvh; max-width: none; max-height: none;
+  background: #000; color: var(--white); display: flex; flex-direction: column;
+}
+dialog.viewer:not([open]) { display: none; }
+dialog.viewer::backdrop { background: #000; }
+.viewer-bar { display: flex; gap: 8px; padding: 10px 12px; padding-top: max(10px, env(safe-area-inset-top)); flex: none; }
+.viewer-bar .btn-primary, .viewer-bar .btn-plain { flex: 1; padding: 12px; font-size: 16px; }
+.viewer-bar .btn-plain { background: transparent; color: var(--white); border-color: rgba(255, 255, 255, .35); }
+.viewer-body { flex: 1; overflow: auto; display: flex; align-items: center; justify-content: center; touch-action: pan-x pan-y pinch-zoom; }
+.viewer-img { max-width: 100%; max-height: 100%; object-fit: contain; cursor: zoom-in; }
+.viewer-body.zoomed { display: block; }
+.viewer-body.zoomed .viewer-img { max-width: none; max-height: none; width: 220%; cursor: zoom-out; }
+.b-date { margin-top: 4px; }
+.b-date input { width: 100%; }

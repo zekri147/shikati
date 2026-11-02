@@ -58,6 +58,14 @@
         return { c, row, status };
       });
 
+      // تاريخ الإيداع: اليوم افتراضياً، ويُغيَّر إن أُودعت الشيكات في يوم سابق
+      const d0 = new Date();
+      const today = `${d0.getFullYear()}-${String(d0.getMonth() + 1).padStart(2, '0')}-${String(d0.getDate()).padStart(2, '0')}`;
+      const minDate = items.map((c) => String(c.date || '').slice(0, 10)).sort().pop() || '';
+      const dateInput = el('input', { type: 'date', dir: 'ltr', value: today, max: today, min: minDate, required: 'required' });
+      const dateField = el('div', { class: 'field b-date' }, el('label', {}, el('span', { text: 'تاريخ الإيداع' }), dateInput),
+        el('p', { class: 'muted small', text: 'غيّره إن لم يكن الإيداع اليوم.' }));
+
       const message = el('div', { role: 'alert' });
       const okBtn = el('button', { type: 'button', class: 'btn-primary', text: single ? 'تأكيد الإيداع' : `تأكيد إيداع ${chequeWord(items.length, true)}` });
       const cancelBtn = el('button', { type: 'button', class: 'btn-plain', text: 'إلغاء' });
@@ -65,6 +73,7 @@
         el('h2', { id: 'dlg-title', text: single ? 'تأكيد إيداع شيك في بنك AGB' : `تأكيد إيداع ${chequeWord(items.length, true)} في بنك AGB` }),
         el('ul', { class: 'b-list' + (single ? ' single' : '') }, rows.map((r) => r.row)),
         single ? null : el('div', { class: 'b-total' }, el('span', { text: 'المجموع' }), ltr(fmtAmount(total), 'num strong')),
+        dateField,
         el('p', { class: 'muted small', text: 'تأكد أن هذه الشيكات سُلِّمت فعلاً للبنك، وطابقها مع صورها. سيُسجَّل الإيداع في زوهو باسمك.' }),
         message,
         el('div', { class: 'dlg-actions' }, okBtn, cancelBtn),
@@ -77,6 +86,17 @@
       dlg.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
 
       okBtn.addEventListener('click', async () => {
+        const depositDate = dateInput.value;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(depositDate) || depositDate > today || (minDate && depositDate < minDate)) {
+          message.className = 'form-error';
+          message.textContent = minDate && depositDate < minDate
+            ? 'تاريخ الإيداع قبل تاريخ استلام الشيك. صحّحه.'
+            : 'اختر تاريخ إيداع صحيحاً، لا يكون بعد اليوم.';
+          return;
+        }
+        message.className = '';
+        message.textContent = '';
+        dateInput.disabled = true;
         busy = true;
         result.attempted = true;
         okBtn.disabled = true;
@@ -95,7 +115,7 @@
           r.status.textContent = 'جارٍ التسجيل…';
           try {
             const res = await api('/api/m/cheques/deposit', { method: 'POST', body: {
-              payment_id: r.c.id, amount: r.c.amount, cheque_number: r.c.cheque_number,
+              payment_id: r.c.id, amount: r.c.amount, cheque_number: r.c.cheque_number, date: depositDate,
             } });
             result.done.push(r.c);
             if (res.warning) {
