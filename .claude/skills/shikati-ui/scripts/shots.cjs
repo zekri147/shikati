@@ -44,7 +44,8 @@ const SCREENS = [
   const browser = await chromium.launch();
   for (const theme of ['dark', 'light']) {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
-    await ctx.addInitScript((t) => { try { localStorage.setItem('shikati-theme', t); } catch {} }, theme);
+    // بطاقة الترحيب تظهر مرة واحدة عند أول دخول، فتُعلَّم كأنها شوهدت حتى لا تغطي الشاشات
+    await ctx.addInitScript((t) => { try { localStorage.setItem('shikati-theme', t); localStorage.setItem('shikati-welcome-seen', '1'); } catch {} }, theme);
     const p = await ctx.newPage();
     await p.goto(BASE + '/login');
     if (!ONLY.length || ONLY.includes('login')) await p.screenshot({ path: `${OUT}/login-${theme}.png` });

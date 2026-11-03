@@ -195,7 +195,7 @@
     return bar;
   }
 
-  function view(d, reload, onGone) {
+  function view(d, reload, onGone, isAdmin) {
     const parts = [];
 
     parts.push(el('div', { class: 'd-head' },
@@ -227,7 +227,8 @@
       d.captured_at ? row('وقت التصوير', d.captured_at, { ltr: true }) : null,
     )));
 
-    parts.push(block('في زوهو', el('dl', { class: 'kvs' },
+    // بيانات المحاسبة في زوهو للمدير وحده: المودِع لا يحتاج رقم الدفعة ولا اسم الحساب
+    if (isAdmin) parts.push(block('في زوهو', el('dl', { class: 'kvs' },
       row('رقم الدفعة', d.number, { ltr: true }),
       row('الحساب', d.account, { ltr: true }),
       d.unused_amount ? row('مبلغ غير موزّع', fmtAmount(d.unused_amount), { ltr: true }) : null,
@@ -245,11 +246,11 @@
             i.balance > 0 ? el('span', {}, 'باقي الفاتورة ', ltr(fmtAmount(i.balance), 'num')) : el('span', { text: 'سُدّدت كاملة' })))))
         : el('p', { class: 'muted small', text: 'الدفعة غير موزّعة على أي فاتورة.' })));
 
-    parts.push(block('الإيداعات في زوهو',
+    parts.push(block('الإيداع في البنك',
       d.deposits.length
         ? el('ul', { class: 'd-list' }, d.deposits.map((x) => el('li', {},
           el('div', { class: 'd-line' }, el('span', { class: 'strong', text: x.account || 'حساب غير معروف' }), x.date ? ltr(fmtDate(x.date), 'num') : null))))
-        : el('p', { class: 'muted small', text: 'لا يوجد إيداع مسجّل لهذه الدفعة.' })));
+        : el('p', { class: 'muted small', text: 'لم يُودَع هذا الشيك بعد.' })));
 
     parts.push(block('سجل العمليات',
       d.log.length
@@ -293,7 +294,7 @@
     try {
       const d = await api('/api/m/cheques/detail/' + encodeURIComponent(id));
       if (!box.isConnected) return;
-      body.replaceChildren(...view(d, () => render(box, id, ctx), () => { location.hash = '#cheques'; }));
+      body.replaceChildren(...view(d, () => render(box, id, ctx), () => { location.hash = '#cheques'; }, ctx.isAdmin));
       document.title = 'شيك ' + d.customer;
     } catch (e) {
       body.replaceChildren(el('div', { class: 'error-box', text: e.message }));

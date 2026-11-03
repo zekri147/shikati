@@ -15,6 +15,11 @@ export const STATUS = {
 
 export const DEST = { AGB: 'ELONAC', ROSTOMIA: 'ROSTOMIA' } as const;
 
+// رسائل انقطاع الرد بعد طلب كتابة تبدأ كلها بهذه العبارة. نصها للمدير يذكر التحقق في زوهو،
+// والمودِع لا يفتح زوهو، فيصله بدلها نص واحد يقول له ماذا يفعل (index.ts).
+export const NO_RETRY_PREFIX = 'لم يصل رد واضح من زوهو بعد';
+export const NO_RETRY_DEPOSITOR = 'لم يصل رد واضح، فلا نعرف هل سُجّلت العملية. لا تعد المحاولة: أخبر المدير باسم العميل ورقم الشيك.';
+
 export const CACHE_KEY = 'cheques_v2';
 
 // تاريخ اليوم بتوقيت الجزائر بصيغة YYYY-MM-DD

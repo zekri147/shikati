@@ -552,6 +552,13 @@ main > section.block > form, main > section.block > .btn-plain { margin-top: 6px
 .help h3 { font-size: 15px; margin: 14px 0 4px; }
 /* صفحتا الإدارة والمساعدة: كل قسم في بطاقة */
 .page section.block { background: var(--surface); border: 1px solid var(--line); padding: 4px 16px 16px; }
+.page section.block.summary { border-top: 3px solid var(--brand); }
+
+/* بطاقة الترحيب عند أول دخول */
+dialog.welcome .welcome-steps { padding-inline-start: 22px; margin: 4px 18px 12px; }
+dialog.welcome .welcome-steps li { margin: 8px 0; }
+dialog.welcome .dlg-actions { margin-bottom: 18px; }
+dialog.welcome .dlg-actions .btn { flex: 1; text-align: center; padding: 13px; font-size: 15px; }
 .page .block-head { border-bottom: 1px solid var(--line); padding-top: 10px; margin-bottom: 12px; }
 .page .table-wrap { margin-inline: -16px; }
 .page form .btn-primary.wide, .page .btn-plain.wide { margin-top: 12px; }

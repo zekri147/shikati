@@ -1,4 +1,5 @@
 import type { Env } from './env';
+import { NO_RETRY_DEPOSITOR, NO_RETRY_PREFIX } from './modules/constants';
 import { assertSameOrigin, errorResponse, HttpError, json } from './http';
 import { currentUser, login, logout, requireUser } from './auth';
 import { handleAdmin } from './admin';
@@ -30,7 +31,15 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
     const mod = modules.find((x) => x.id === m[1]);
     if (!mod) throw new HttpError(404, 'غير موجود.');
     const user = await requireUser(req, env, mod.roles);
-    return mod.handle(req, env, user, m[2] || '');
+    try {
+      return await mod.handle(req, env, user, m[2] || '');
+    } catch (e) {
+      // انقطاع الرد بعد كتابة: النص المحفوظ في السجل يبقى للمدير، والمودِع يصله نص بلا زوهو
+      if (user.role !== 'admin' && e instanceof HttpError && e.status === 504 && e.publicMessage.startsWith(NO_RETRY_PREFIX)) {
+        throw new HttpError(504, NO_RETRY_DEPOSITOR);
+      }
+      throw e;
+    }
   }
 
   throw new HttpError(404, 'غير موجود.');
