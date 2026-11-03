@@ -24,6 +24,8 @@
 //   GET /__log             سجل طلبات الكتابة والصور
 //   التراجع: DELETE للإيداع ودفعة المورد ودفعة العميل، و GET /vendorpayments?amount=
 //   GET /__revert/<id>     حذف الإيداع وإرجاع الحالة «في الحوزة» (كأن المدير ألغاه في زوهو)
+//   GET /__collect/<id>    الحالة «محصّل» مع سطر رسالة البنك (كأن رسالة AGB وصلت)
+//   POST /push/<أي شيء>    خدمة إشعارات وهمية: تحفظ الطلب المشفّر، و GET /__push يعرضه
 //
 // تسجيل شيك جديد (POST /customerpayments) حسب آخر رقم في رقم الشيك:
 //   4 ينقطع الرد بعد الإرسال    7 زوهو يرفض التسجيل    غير ذلك: نجاح
@@ -146,6 +148,7 @@ for (const c of CONTACTS.filter((x) => x.contact_type === 'vendor')) {
 const vendorPayments = {};
 
 const log = [];
+const pushes = [];
 const txns = {};
 // إيداعات سابقة، ودفعة مورد قديمة للشيك المظهّر ..29 (لتجربة التراجع عما أُنشئ قبل التطبيق)
 txns['7418400000077019'] = { date: day(-9), line_items: [{ transaction_id: '7418400000000019' }], imported_transactions: [] };
@@ -159,8 +162,10 @@ let txnSeq = 0;
 http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   let body = '';
-  req.on('data', (c) => { body += c; });
+  const chunks = [];
+  req.on('data', (c) => { body += c; chunks.push(c); });
   req.on('end', () => {
+    const rawBody = Buffer.concat(chunks);
     res.setHeader('Content-Type', 'application/json');
     const send = (obj, status = 200) => { res.statusCode = status; res.end(JSON.stringify(obj)); };
     const path = url.pathname;
@@ -171,6 +176,19 @@ http.createServer((req, res) => {
       return send(j.key === RELAY_KEY ? { access_token: TOKEN, expires_in: 3600 } : { error: 'forbidden' });
     }
     if (path === '/__log') return send(log);
+    if (path === '/__push') return send(pushes);
+    if ((m = path.match(/^\/push\/(.+)$/)) && req.method === 'POST') {
+      pushes.push({ endpoint: m[1], headers: { authorization: req.headers.authorization, encoding: req.headers['content-encoding'], ttl: req.headers.ttl }, body: Buffer.from(rawBody).toString('base64') });
+      return send({}, 201);
+    }
+    if ((m = path.match(/^\/__collect\/(\d+)$/))) {
+      const p = payments[m[1]];
+      if (!p) return send({ error: 'not found' }, 404);
+      p.custom_field_hash.cf_5d7197 = 'محصّل';
+      p.custom_field_hash.cf_fffaad = `${p.custom_field_hash.cf_fffaad || ''}\n${day(0)} — تحصيل آلي عبر رسالة AGB`.trim();
+      p.last_modified_time = new Date().toISOString();
+      return send({ ok: true });
+    }
 
     // واجهة كلود الوهمية: قراءة ثابتة للشيك
     if (path.startsWith('/v1/messages') && req.method === 'POST') {
@@ -264,6 +282,7 @@ http.createServer((req, res) => {
     if (path === '/books/v3/customerpayments' && req.method === 'GET') {
       const cust = url.searchParams.get('customer_id');
       const list = Object.values(payments).filter((p) => !cust || p.customer_id === cust).map((p) => ({ ...p, ...p.custom_field_hash }));
+      if (url.searchParams.get('sort_column') === 'last_modified_time') list.sort((a, b) => (a.last_modified_time < b.last_modified_time ? 1 : -1));
       return send({ code: 0, customerpayments: list, page_context: { has_more_page: false } });
     }
     if ((m = path.match(/^\/books\/v3\/documents\/(D\d+)$/))) {

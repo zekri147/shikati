@@ -27,6 +27,12 @@ ZOHO_ACCOUNTS_URL = "https://accounts.zoho.com"
 SESSION_HOURS = "12"
 # من يستطيع تسجيل الإيداع: "admin" للتجربة الأولى، ثم "admin,depositor" لأمين
 DEPOSIT_ROLES = "admin,depositor"
+# إشعارات الهاتف: عنوان المرسل في توقيعها. مفاتيحها يُنشئها الخادم ويحفظها في D1
+VAPID_SUBJECT = "https://shikati.zekri3047.workers.dev"
+
+# مهمة دورية: إشعار تحصيل الشيكات كل 10 دقائق
+[triggers]
+crons = ["*/10 * * * *"]
 
 # الأسرار لا تُكتب هنا أبداً. تُضاف بالأوامر:
 #   npx wrangler secret put ZOHO_CLIENT_ID

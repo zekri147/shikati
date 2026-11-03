@@ -36,6 +36,7 @@ const SCREENS = [
   { name: 'register', path: '/#cheques/new' },
   { name: 'detail', path: '/#cheques/c/7418400000000001' },
   { name: 'detail-endorsed', path: '/#cheques/c/7418400000000029' },
+  { name: 'menu', path: '/#cheques', act: async (p) => { await p.locator('#menu-btn').click(); }, full: false },
   { name: 'admin', path: '/admin' },
   { name: 'help', path: '/help' },
 ];

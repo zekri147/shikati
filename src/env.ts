@@ -20,6 +20,8 @@ export interface Env {
   ANTHROPIC_API_KEY?: string;
   // للتجربة المحلية فقط: عنوان خادم كلود الوهمي
   ANTHROPIC_BASE_URL?: string;
+  // إشعارات الهاتف: عنوان المرسل في توقيع VAPID. المفاتيح نفسها في قاعدة D1 (src/push.ts)
+  VAPID_SUBJECT?: string;
   // اختياري: لإنشاء أول حساب مدير من صفحة /setup، ويُحذف بعد الاستعمال
   SETUP_TOKEN?: string;
 }

@@ -5,6 +5,8 @@ import { currentUser, login, logout, requireUser } from './auth';
 import { handleAdmin } from './admin';
 import { modules } from './modules';
 import { handleSetup, setupAvailable } from './setup';
+import { handlePush } from './push';
+import { runCollectNotices } from './modules/collectnotify';
 
 async function handleApi(req: Request, env: Env, path: string): Promise<Response> {
   assertSameOrigin(req);
@@ -24,6 +26,11 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
   if (path.startsWith('/api/admin/')) {
     const admin = await requireUser(req, env, ['admin']);
     return handleAdmin(req, env, admin, path.slice('/api/admin'.length));
+  }
+
+  if (path.startsWith('/api/push/')) {
+    const user = await requireUser(req, env);
+    return handlePush(req, env, user, path.slice('/api/push'.length));
   }
 
   const m = path.match(/^\/api\/m\/([a-z0-9-]+)(\/.*)?$/);
@@ -74,5 +81,12 @@ export default {
     } catch (e) {
       return errorResponse(e);
     }
+  },
+  // مهمة دورية كل 10 دقائق: إشعار التحصيل
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(runCollectNotices(env).then(
+      (r) => console.log('collect notices', JSON.stringify(r)),
+      (e) => console.error('collect notices failed', e instanceof Error ? e.message : e),
+    ));
   },
 } satisfies ExportedHandler<Env>;

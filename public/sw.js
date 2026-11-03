@@ -1,7 +1,7 @@
 // عامل الخدمة: يحفظ ملفات الواجهة الثابتة فقط لتسريع الفتح.
 // لا يحفظ أبداً بيانات الشيكات ولا الصفحات المحمية ولا أي طلب إلى /api،
 // فكل رقم يظهر يأتي من الخادم مباشرة.
-const VERSION = 'shikati-v21';
+const VERSION = 'shikati-v22';
 const STATIC = /^\/(css|js|fonts|img|icons)\//;
 
 self.addEventListener('install', () => self.skipWaiting());
@@ -41,4 +41,36 @@ self.addEventListener('fetch', (event) => {
       { headers: { 'Content-Type': 'text/html; charset=utf-8' } },
     )));
   }
+});
+
+// إشعارات الهاتف: الخادم يرسل عنواناً ونصاً ورابطاً، فيظهر إشعار حتى لو كان التطبيق مغلقاً
+self.addEventListener('push', (event) => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; } catch { d = {}; }
+  event.waitUntil(self.registration.showNotification(d.title || 'شيكاتي', {
+    body: d.body || '',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    lang: 'ar',
+    dir: 'rtl',
+    tag: d.tag || undefined,
+    data: { url: typeof d.url === 'string' && d.url.startsWith('/') ? d.url : '/' },
+  }));
+});
+
+// الضغط على الإشعار يفتح التطبيق على صفحة الشيك، أو ينقل نافذته المفتوحة إليها
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = new URL((event.notification.data && event.notification.data.url) || '/', location.origin).href;
+  event.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const w of wins) {
+      if (new URL(w.url).origin === location.origin) {
+        await w.focus();
+        if ('navigate' in w) await w.navigate(url);
+        return;
+      }
+    }
+    await self.clients.openWindow(url);
+  })());
 });
