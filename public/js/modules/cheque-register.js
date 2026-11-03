@@ -4,7 +4,8 @@
 (function () {
   const { api, toast, el, ltr, fmtAmount, fmtDate } = window.Shikati;
   const MAX_SIDE = 1600;
-  const DEST_LABELS = { ELONAC: 'بنك إيلوناك', ROSTOMIA: 'بنك الرستمية', 'Autre Fournisseur': 'مورد آخر' };
+  // أسماء الوجهات في الواجهة. القيمة المحفوظة في زوهو تبقى ELONAC، والاسم «بنك AGB» كما في شاشة الإيداع (بطلب ZEKRI يوم 3/11/2026)
+  const DEST_LABELS = { ELONAC: 'بنك AGB', ROSTOMIA: 'بنك الرستمية', 'Autre Fournisseur': 'مورد آخر' };
   const LOC_KEY = 'shikati-location';
   const LOC_FROM_LABEL = { 'الجزائر': 'ALGER', 'العلمة': 'EL EULMA' };
 

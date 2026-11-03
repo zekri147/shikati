@@ -151,7 +151,7 @@
         }
         message.className = stopped ? 'form-error' : 'form-warn';
         message.textContent = stopped
-          ? 'توقف الإيداع لأن زوهو لم يرد بوضوح. لا تعد المحاولة: أخبر المدير ليتحقق في زوهو.'
+          ? 'توقف الإيداع، ولم تُحاوَل الشيكات الباقية. اتبع الرسالة تحت الشيك.'
           : `أُودع ${result.done.length} من أصل ${items.length}. راجع الرسائل أعلاه.`;
       });
 
@@ -163,7 +163,8 @@
 
   // ——— الشاشات ———
 
-  async function render(root) {
+  async function render(root, me) {
+    const isAdmin = !!(me && me.user && me.user.role === 'admin');
     const st = {
       data: null,
       loadedAt: 0,
@@ -292,8 +293,8 @@
       ];
       const rejected = pick(d.rejected.items);
       if (rejected.length) parts.push(section('rejected', 'شيكات مرفوضة', rejected, { ...opts, collapsible: true, note: 'تحتاج متابعة مع العميل.', noteClass: 'alert' }, st));
-      if (noDest.length) parts.push(section('nodest', 'في الحوزة والوجهة غير محددة', noDest, { ...opts, collapsible: true, note: 'لا تأخذها إلى البنك قبل أن تُحدَّد وجهتها في زوهو.', noteClass: 'warn' }, st));
-      parts.push(section('rost', 'للإيداع في بنك روستمية', rost, { ...opts, collapsible: true, note: 'للعرض فقط.' }, st));
+      if (noDest.length) parts.push(section('nodest', 'في الحوزة والوجهة غير محددة', noDest, { ...opts, collapsible: true, note: 'لا تأخذها إلى البنك قبل أن يحدد المدير وجهتها.', noteClass: 'warn' }, st));
+      parts.push(section('rost', 'لبنك الرستمية', rost, { ...opts, collapsible: true, note: 'إيداعها في الرستمية لا يُسجَّل من التطبيق بعد. القائمة للاطلاع فقط.' }, st));
       parts.push(section('pending', 'في بنك AGB بانتظار التحصيل', inBank, { ...opts, collapsible: true }, st));
       parts.push(section('recent', 'آخر 5 شيكات أُودعت في بنك AGB', pick(d.agb_recent.items), {
         ...opts, collapsible: true, showStatus: true, noAge: true, hideTotal: true, emptyText: 'لا توجد إيداعات بعد.',
@@ -385,6 +386,7 @@
       if (next.view === 'detail') {
         window.scrollTo(0, 0);
         window.ShikatiChequeDetail.render(detailBox, next.id, {
+          isAdmin,
           onBack: () => { if (st.fromList) history.back(); else location.hash = '#cheques'; },
         });
       } else if (next.view === 'new') {

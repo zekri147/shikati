@@ -103,6 +103,8 @@
 
     function changeRow(c) {
       const money = c.label === 'المبلغ';
+      // الوجهة تأتي بقيمتها في زوهو (ELONAC...)، فتُعرض باسمها في الواجهة
+      if (c.label === 'الوجهة') c = { ...c, from: R.DEST_LABELS[c.from] || c.from, to: R.DEST_LABELS[c.to] || c.to };
       // كل قيمة معزولة الاتجاه، فيبقى السهم من القديم (يميناً) إلى الجديد (يساراً) حتى مع النص اللاتيني
       const show = (v) => (money ? ltr(fmtAmount(Number(v)), 'num') : (/^[\d\s.-]+$/.test(v) ? ltr(v, 'num') : el('bdi', { text: v })));
       return el('li', {}, el('div', { class: 'd-line' },
