@@ -293,7 +293,7 @@
       ];
       const rejected = pick(d.rejected.items);
       if (rejected.length) parts.push(section('rejected', 'شيكات مرفوضة', rejected, { ...opts, collapsible: true, note: 'تحتاج متابعة مع العميل.', noteClass: 'alert' }, st));
-      if (noDest.length) parts.push(section('nodest', 'في الحوزة والوجهة غير محددة', noDest, { ...opts, collapsible: true, note: 'لا تأخذها إلى البنك قبل أن تُحدَّد وجهتها في زوهو.', noteClass: 'warn' }, st));
+      if (noDest.length) parts.push(section('nodest', 'في الحوزة والوجهة غير محددة', noDest, { ...opts, collapsible: true, note: 'لا تأخذها إلى البنك قبل أن يحدد المدير وجهتها.', noteClass: 'warn' }, st));
       parts.push(section('rost', 'لبنك الرستمية', rost, { ...opts, collapsible: true, note: 'إيداعها في الرستمية لا يُسجَّل من التطبيق بعد. القائمة للاطلاع فقط.' }, st));
       parts.push(section('pending', 'في بنك AGB بانتظار التحصيل', inBank, { ...opts, collapsible: true }, st));
       parts.push(section('recent', 'آخر 5 شيكات أُودعت في بنك AGB', pick(d.agb_recent.items), {

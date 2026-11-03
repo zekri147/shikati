@@ -203,7 +203,7 @@
       el('div', { class: 'd-amount display' }, ltr(fmtAmount(d.amount))),
       el('div', { class: 'd-badges' },
         statusBadge(d.status),
-        d.destination ? el('span', { class: 'badge dest', text: 'الوجهة: ' + d.destination }) : el('span', { class: 'badge warn', text: 'الوجهة غير محددة' }))));
+        d.destination ? el('span', { class: 'badge dest', text: 'الوجهة: ' + (window.ShikatiChequeRegister.DEST_LABELS[d.destination] || d.destination) }) : el('span', { class: 'badge warn', text: 'الوجهة غير محددة' }))));
 
     if (d.wrong_account) parts.push(el('div', { class: 'note warn', text: 'حساب غير صحيح: ' + d.wrong_account }));
     if (d.box_alert) parts.push(el('div', { class: 'note alert', text: 'صندوق غير مطابق: ' + d.box_alert }));
