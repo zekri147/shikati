@@ -3,6 +3,7 @@ import { HttpError, json, readJson } from '../http';
 import { zohoRequest, ZohoTimeout } from '../zoho';
 import { audit } from '../audit';
 import { DEPOSIT_DATE_FIELD } from './depositdate';
+import { bankCollectedDate, showDate } from './banksms';
 import { ACCOUNT_CHEQUES_IN_HAND, CACHE_KEY, DEST, STATUS, todayAlgiers } from './constants';
 
 // تسجيل إيداع شيك في بنك AGB، بنفس طريقة دالة deposer_agb في زوهو.
@@ -254,13 +255,17 @@ export async function handleDeposit(req: Request, env: Env, user: User): Promise
 
   // 5. تحديث حالة الشيك وإضافة سطر في سجل الدفعة باسم الموظف
   const logOld = String(cfh.cf_fffaad || '').trim();
-  const logLine = `${today} — إيداع في AGB${depositDate !== today ? ` بتاريخ ${depositDate}` : ''} من تطبيق شيكاتي (${user.display_name})`;
+  // إن كان البنك قد أكّد التحصيل برسالة من قبل، فالشيك محصّل لا «مودع» فقط، حتى لا يضيع أثر التحصيل
+  const collected = bankCollectedDate(logOld);
+  const newStatus = collected ? STATUS.COLLECTED : STATUS.DEPOSITED;
+  const logLine = `${today} — إيداع في AGB${depositDate !== today ? ` بتاريخ ${depositDate}` : ''} من تطبيق شيكاتي (${user.display_name})` +
+    (collected ? `، والبنك أكّد التحصيل برسالة يوم ${showDate(collected)}` : '');
   let updated = false;
   try {
     const up = await zohoRequest(env, 'PUT', `/customerpayments/${pid}`, {
       body: {
         custom_fields: [
-          { api_name: 'cf_5d7197', value: STATUS.DEPOSITED },
+          { api_name: 'cf_5d7197', value: newStatus },
           { api_name: DEPOSIT_DATE_FIELD, value: depositDate },
           { api_name: 'cf_fffaad', value: logOld ? `${logOld}\n${logLine}` : logLine },
         ],
@@ -270,13 +275,16 @@ export async function handleDeposit(req: Request, env: Env, user: User): Promise
   } catch { /* نعالجه أدناه */ }
 
   if (!updated) {
-    const warning = 'تم الإيداع وربطه بالدفعة، لكن تعذّر تحديث حالة الشيك في زوهو. حدّثها يدوياً إلى «مودع في البنك».';
+    const warning = `تم الإيداع وربطه بالدفعة، لكن تعذّر تحديث حالة الشيك في زوهو. حدّثها يدوياً إلى «${newStatus}».`;
     await finish('done', warning, tid);
     return json({ ok: true, warning });
   }
 
   await finish('done', 'تم الإيداع وتحديث الحالة', tid);
-  return json({ ok: true, message: 'تم تسجيل الإيداع في بنك AGB.' });
+  return json({
+    ok: true,
+    message: collected ? `تم تسجيل الإيداع في بنك AGB. البنك أكّد تحصيله برسالة يوم ${showDate(collected)}، فحالته «${STATUS.COLLECTED}».` : 'تم تسجيل الإيداع في بنك AGB.',
+  });
 }
 
 // للمدير: قائمة الإيداعات، وتحرير قفل نتيجته غير معروفة بعد التحقق في زوهو

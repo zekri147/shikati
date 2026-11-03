@@ -18,6 +18,7 @@
 //   ..10 روستمية في الحوزة           ..19 مودع في AGB      ..20 محصّل
 //   ..29 مظهّر لمورد                  ..30 مرفوض            ..39 في صندوق نقدي بالخطأ
 //   ..40 شيك ضمان                     ..49 AGB متأخر
+//   ..50 في الحوزة وسجلّه فيه تحصيل آلي   ..59 مودع وسجلّه فيه تحصيل آلي (التراجع ممنوع)
 //
 // أدوات إضافية:
 //   GET /__log             سجل طلبات الكتابة والصور
@@ -107,6 +108,14 @@ extra('7418400000000040', 40, { customer: 'SARL GARANTIE', amount: 1000000, date
   { cf_5d7197: 'شيك ضمان', cf_n_cheque: '5512040' });
 extra('7418400000000049', 49, { customer: 'SARL ECHU AGB', amount: 133000, date: day(-12), location: 'EL EULMA' },
   { cf_5d7197: 'في الحوزة', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512049' });
+// رسالة البنك أكّدت التحصيل، ثم عادت الحالة يدوياً في زوهو: الإيداع يكتب «محصّل»، والتراجع ممنوع
+extra('7418400000000050', 50, { customer: 'SARL SMS AVANT', amount: 366600.39, date: day(-8) },
+  { cf_5d7197: 'في الحوزة', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512050',
+    cf_fffaad: `${day(-6)} — إيداع في AGB من تطبيق شيكاتي (أمين)\n${day(-3)} — تحصيل آلي عبر رسالة AGB\n${day(-2)} — تراجع عن الإيداع من تطبيق شيكاتي (ZEKRI)` });
+extra('7418400000000059', 59, { customer: 'SARL SMS APRES', amount: 210000, date: day(-9),
+  deposit_details: [{ deposit_id: '7418400000077059', date: day(-5), account_name: 'Bank – AGB', amount: 210000 }] },
+  { cf_5d7197: 'مودع في البنك', cf_d_pos_vers: 'ELONAC', cf_n_cheque: '5512059',
+    cf_fffaad: `${day(-5)} — إيداع في AGB من تطبيق شيكاتي (أمين)\n${day(-2)} — تحصيل آلي عبر رسالة AGB` });
 payments['7418400000000002'].deposit_details = [{ deposit_id: 'x' }];
 payments['7418400000000003'].custom_field_hash.cf_5d7197 = 'محصّل';
 
