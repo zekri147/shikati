@@ -3,6 +3,7 @@ import { HttpError, json, readJson } from '../http';
 import { zohoRequest, ZohoTimeout } from '../zoho';
 import { audit } from '../audit';
 import { DEPOSIT_DATE_FIELD } from './depositdate';
+import { bankCollectedDate, showDate } from './banksms';
 import { ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, CACHE_KEY, STATUS, todayAlgiers } from './constants';
 
 // التراجع عن آخر عملية على الشيك، بموافقة ZEKRI يوم 2/11/2026:
@@ -96,6 +97,11 @@ export async function undoPlan(env: Env, p: Payment): Promise<UndoPlan | null> {
       blocker: null,
     };
     if (status === STATUS.COLLECTED) return { ...plan, blocker: 'الشيك محصّل، فلا يمكن التراجع عن إيداعه.' };
+    // الحالة قد تعود «مودع في البنك» بعد التحصيل بتعديل في زوهو، وسطر رسالة البنك يبقى في السجل
+    const collected = bankCollectedDate(cf.cf_fffaad);
+    if (collected) {
+      return { ...plan, blocker: `البنك أكّد تحصيل هذا الشيك برسالة يوم ${showDate(collected)}، فلا يمكن التراجع عن إيداعه.` };
+    }
     if (status !== STATUS.DEPOSITED) return { ...plan, blocker: `حالة الشيك «${status || 'فارغة'}» وليست «${STATUS.DEPOSITED}».` };
     if (deposits.length > 1) return { ...plan, blocker: 'للشيك أكثر من إيداع في زوهو. راجعه هناك.' };
     if (p.account_id !== ACCOUNT_CHEQUES_IN_HAND) return { ...plan, blocker: 'الشيك ليس في حساب الشيكات في الحوزة.' };
