@@ -8,7 +8,7 @@ import { load, save } from '@/lib/storage';
 import { readCache, writeCache } from '@/lib/cache';
 import { ChequesModule } from '@/features/cheques/ChequesModule';
 import { CollModule } from '@/features/coll/CollModule';
-import { AppNav } from '@/components/nav';
+import { AppNav, setReviewLeft } from '@/components/nav';
 import { toast } from '@/components/toast';
 import { enablePasskey, passkeyOnDevice, passkeySupported } from '@/lib/passkey';
 
@@ -37,6 +37,7 @@ export function AppPage() {
     { href: '/help', label: 'المساعدة وطريقة الاستعمال' },
   ];
   const Mod = mod ? MODULES[mod.id] : null;
+  useReviewReminder(me, available.some((m) => m.id === 'coll'));
 
   return (
     <>
@@ -53,6 +54,26 @@ export function AppPage() {
       {me ? <PasskeyOffer /> : null}
     </>
   );
+}
+
+// تذكير المراجعة الأسبوعية للمندوب: كم بقي من عملائه المدينين، لسطر التذكير فوق شريط التنقل.
+// يُطلب عند الفتح، وعند العودة إلى التطبيق بعد خمس دقائق. قسم التحصيل يحدّثه بعد كل مراجعة.
+function useReviewReminder(me: Me | null, hasColl: boolean) {
+  const rep = !!me && hasColl && me.user.role !== 'admin';
+  useEffect(() => {
+    if (!rep) { setReviewLeft({ left: 0, deadline: 0 }); return; }
+    let at = 0;
+    const get = () => {
+      at = Date.now();
+      api<{ need: number; done: number; deadline: number }>('/api/m/coll/status')
+        .then((r) => setReviewLeft({ left: Math.max(0, r.need - r.done), deadline: r.deadline }))
+        .catch(() => { /* التذكير ثانوي: لا رسالة خطأ */ });
+    };
+    get();
+    const onVis = () => { if (document.visibilityState === 'visible' && Date.now() - at > 5 * 60_000) get(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, [rep]);
 }
 
 // بطاقة ترحيب تظهر مرة واحدة على كل جهاز عند أول دخول: ثلاث خطوات، ومكان المساعدة

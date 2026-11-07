@@ -11,6 +11,7 @@ import { commentText, postReviewComment, type CommentResult } from './collcommen
 // العميل ينسب إلى مندوبه بالحقل المخصص «Owner» (cf_owner) على العميل في زوهو.
 // المندوب يرى عملاءه فقط، والتصفية في الخادم. المدير يرى الكل ويختار المندوب.
 // المراجعة الأسبوعية تُحفظ في الجدول coll_reviews، ثم تُرسل فوراً تعليقاً على العميل في زوهو.
+// منذ 7/11/2026 (بطلب ZEKRI) تشمل كل عميل مدين، وعدد ما يحتاجه كل مندوب يُحفظ في coll_week_need.
 // الكتابة في زوهو نفسها في collcomment.ts وحده (بموافقة ZEKRI يوم 7/11/2026).
 
 const CACHE_KEY = 'coll_snapshot';
@@ -145,12 +146,29 @@ async function getSnapshot(env: Env, refresh: boolean): Promise<Snapshot> {
   const [contacts, invoices] = await Promise.all([fetchDebtors(env), fetchUnpaidInvoices(env)]);
   const snap: Snapshot = { at: nowSec(), today, customers: buildSnapshot(contacts, invoices, today) };
   await cachePut(env, CACHE_KEY, JSON.stringify(snap), TTL);
+  await recordNeed(env, snap.customers);
   return snap;
 }
 
 const isOld = (c: CollCustomer) => c.late === null || c.late > 90;
-// من يحتاج مراجعة هذا الأسبوع: دين متأخر أكثر من 90 يوماً، أو رصيد افتتاحي (ولو مع فواتير حديثة)
-export const needsReview = (c: CollCustomer) => isOld(c) || c.opening > 0;
+// من يحتاج مراجعة هذا الأسبوع: كل عميل مدين له مندوب (منذ 7/11/2026، بطلب ZEKRI).
+// قبلها: من تأخر دينه أكثر من 90 يوماً أو عليه رصيد افتتاحي فقط.
+export const needsReview = (c: CollCustomer) => c.balance >= 1 && !!c.owner;
+
+// عدد من يحتاج مراجعة لكل مندوب هذا الأسبوع: يُستبدل كاملاً مع كل تحديث للأرصدة، فيبقى آخر رقم بعد نهاية الأسبوع
+export function needByRep(customers: CollCustomer[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const c of customers) if (needsReview(c)) out.set(c.owner, (out.get(c.owner) || 0) + 1);
+  return out;
+}
+async function recordNeed(env: Env, customers: CollCustomer[]) {
+  const week = reviewWeek(todayAlgiers());
+  const stmts = [env.DB.prepare('DELETE FROM coll_week_need WHERE week = ?').bind(week)];
+  for (const [rep, need] of needByRep(customers)) {
+    stmts.push(env.DB.prepare('INSERT INTO coll_week_need (week, rep, need) VALUES (?, ?, ?)').bind(week, rep, need));
+  }
+  try { await env.DB.batch(stmts); } catch (e) { console.error('coll_week_need', e); }
+}
 
 // ——— المراجعة الأسبوعية: الأسبوع من السبت إلى الخميس، والأجل الخميس 12:00 بتوقيت الجزائر ———
 
@@ -313,6 +331,38 @@ async function adminResolve(req: Request, env: Env, user: User): Promise<Respons
   return json({ ok: true });
 }
 
+// ——— التذكير: كم بقي للمندوب هذا الأسبوع، لسطر التذكير الثابت في كل الشاشات ———
+
+async function reviewStatus(env: Env, user: User): Promise<Response> {
+  const own = normRep(user.rep_code);
+  const week = reviewWeek(todayAlgiers());
+  const deadline = reviewDeadline(week);
+  if (!own || user.role === 'admin') return json({ week, deadline, need: 0, done: 0 });
+  const snap = await getSnapshot(env, false);
+  const mine = snap.customers.filter((c) => c.owner === own && needsReview(c));
+  const rows = await weekReviews(env, week, own);
+  const done = new Set(rows.map((r) => r.customer_id));
+  return json({ week, deadline, need: mine.length, done: mine.filter((c) => done.has(c.id)).length });
+}
+
+// للمدير: الأسابيع الماضية لكل مندوب، كم احتاج وكم راجع وكم بعد الأجل (آخر 8 أسابيع)
+async function reviewHistory(env: Env, week: string) {
+  const { results } = await env.DB.prepare(
+    'SELECT n.week AS week, n.rep AS rep, n.need AS need, ' +
+    '(SELECT COUNT(*) FROM coll_reviews r WHERE r.week = n.week AND r.rep = n.rep) AS done, ' +
+    '(SELECT COUNT(*) FROM coll_reviews r WHERE r.week = n.week AND r.rep = n.rep AND r.late = 1) AS late ' +
+    'FROM coll_week_need n WHERE n.week < ? ORDER BY n.week DESC, n.rep LIMIT 80',
+  ).bind(week).all<{ week: string; rep: string; need: number; done: number; late: number }>();
+  const weeks = new Map<string, { week: string; reps: { rep: string; need: number; done: number; late: number }[] }>();
+  for (const r of results || []) {
+    const w = weeks.get(r.week) || { week: r.week, reps: [] };
+    // من سدّد دينه بعد مراجعته يخرج من العدد، فلا يتجاوز ما راجعه ما احتاجه
+    w.reps.push({ rep: r.rep, need: r.need, done: Math.min(r.done, r.need), late: Math.min(r.late, r.done, r.need) });
+    weeks.set(r.week, w);
+  }
+  return [...weeks.values()].slice(0, 8);
+}
+
 function summarize(customers: CollCustomer[]) {
   const reps = new Map<string, { rep: string; total: number; old: number; count: number }>();
   for (const c of customers) {
@@ -364,6 +414,8 @@ export async function handleCollect(req: Request, env: Env, user: User): Promise
         .map((r) => ({ rep: r.rep, name: r.customer_name, note: r.note, at: r.reviewed_at, late: !!r.late })) : undefined,
       // المدير: ما لم يصل إلى زوهو، مع سببه
       unsent: isAdmin ? await unsent(env) : undefined,
+      // المدير: سجل الالتزام في الأسابيع الماضية
+      history: isAdmin ? await reviewHistory(env, week) : undefined,
     },
   });
 }
@@ -376,6 +428,7 @@ export const collectModule: AppModule = {
   allow: (user) => user.role === 'admin' || !!normRep(user.rep_code),
   async handle(req, env, user, subpath) {
     if (req.method === 'GET' && (subpath === '' || subpath === '/')) return handleCollect(req, env, user);
+    if (req.method === 'GET' && subpath === '/status') return reviewStatus(env, user);
     if (req.method === 'POST' && subpath === '/review') return saveReview(req, env, user);
     if (req.method === 'POST' && subpath === '/review/send' && user.role === 'admin') return adminSend(req, env, user);
     if (req.method === 'POST' && subpath === '/review/resolve' && user.role === 'admin') return adminResolve(req, env, user);

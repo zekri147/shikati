@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 import { isShared, markShared, sharedStyle } from '@/lib/motion';
 import { LIST_BOX, LateMark } from '@/features/cheques/ui';
 import { Block, KV } from '@/features/cheques/pickers';
+import { setReviewLeft } from '@/components/nav';
 
 const STALE_MS = 5 * 60_000;
 const PAGE = 40;
@@ -31,7 +32,7 @@ const REP_KEY = 'shikati-coll-rep';
 // الفئات حسب تأخر أقدم فاتورة غير مسدّدة، كما في قائمة الاتصال
 const CATS: [string, string][] = [['', 'الكل'], ['rev', 'للمراجعة'], ['old', 'أكثر من 90 يوماً'], ['d90', 'من 31 إلى 90'], ['d30', 'حتى 30 يوماً'], ['due', 'لم يحن موعدها'], ['open', 'أرصدة افتتاحية']];
 const CAT_NOTE: Record<string, string> = {
-  rev: 'عملاء عليهم دين قديم ولم تراجعهم هذا الأسبوع. اتصل بكل واحد، ثم اضغط «راجعت».',
+  rev: 'عملاء مدينون لم تراجعهم هذا الأسبوع. اتصل بكل واحد، ثم اضغط «راجعت».',
   old: 'أقدم فاتورة غير مسدّدة تأخرت أكثر من ثلاثة أشهر. ابدأ بهم.',
   d90: 'أقدم فاتورة غير مسدّدة تأخرت بين شهر وثلاثة أشهر.',
   d30: 'أقدم فاتورة غير مسدّدة تأخرت شهراً على الأكثر.',
@@ -49,13 +50,14 @@ type Review = {
   progress?: { rep: string; done: number; need: number; last: string | null }[];
   notes?: { name: string; rep: string; note: string; late: boolean; at: string }[];
   unsent?: { week: string; id: string; name: string; rep: string; state: string; error?: string; text: string }[];
+  history?: { week: string; reps: { rep: string; need: number; done: number; late: number }[] }[];
 };
 type CollData = { at: number; is_admin: boolean; own_rep: string; customers: Cust[]; reps?: { rep: string; count: number; total: number; old: number }[]; review?: Review };
 
 const catOf = (c: Cust) => (c.late === null ? 'open' : c.late > 90 ? 'old' : c.late > 30 ? 'd90' : c.late > 0 ? 'd30' : 'due');
 const isOld = (c: Cust) => c.late === null || c.late > 90;
-// المراجعة الأسبوعية: كل عميل دينه متأخر أكثر من 90 يوماً أو عليه رصيد افتتاحي
-const needsReview = (c: Cust) => isOld(c) || c.opening > 0;
+// المراجعة الأسبوعية: كل عميل مدين له مندوب (منذ 7/11/2026، بطلب ZEKRI)
+const needsReview = (c: Cust) => c.balance >= 1 && !!c.owner;
 const total = (list: Cust[]) => round2(list.reduce((t, c) => t + c.balance, 0));
 const lateText = (c: Cust) => (c.late === null ? 'رصيد افتتاحي' : c.late > 0 ? `متأخر ${daysWord(c.late)}` : 'لم يحن موعدها');
 // الرقم بالصيغة المحلية: 213561765718 يصبح 0561 76 57 18
@@ -67,10 +69,11 @@ function fmtDeadline(ms: number) {
   return `${p.day}/${p.month}`;
 }
 
+// ‎#coll/rev من سطر التذكير: القائمة على «من بقي دون مراجعة»
 function parseRoute(hash: string) {
   const h = decodeURIComponent(hash.replace(/^#/, ''));
   const m = h.match(/^coll\/c\/(\d{10,25})$/);
-  return m ? { view: 'customer' as const, id: m[1] } : { view: 'list' as const, id: '' };
+  return m ? { view: 'customer' as const, id: m[1], rev: false } : { view: 'list' as const, id: '', rev: h === 'coll/rev' };
 }
 
 export function CollModule({ me, hash }: { me: Me; hash: string }) {
@@ -84,7 +87,7 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
   const [busy, setBusy] = useState(false);
   const [loadedAt, setLoadedAt] = useState(() => readCache<CollData>(keyOf(rep))?.at || 0);
   const [, tick] = useState(0);
-  const [cat, setCat] = useState('');
+  const [cat, setCat] = useState(() => (route.rev ? 'rev' : ''));
   const [q, setQ] = useState('');
   const [limit, setLimit] = useState(PAGE);
   const [reviewing, setReviewing] = useState<{ c: Cust; r: Rev | null } | null>(null);
@@ -136,6 +139,17 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
     if (c) { setData(c.data); setLoadedAt(c.at); }
     load(false, code);
   }
+
+  // سطر التذكير فوق شريط التنقل يتبع ما بقي للمندوب في آخر بيانات
+  useEffect(() => {
+    if (route.rev) setCat('rev');
+  }, [route.rev]);
+  useEffect(() => {
+    const rv = data?.review;
+    if (!rv || !rv.can_review) return;
+    const need = data!.customers.filter(needsReview);
+    setReviewLeft({ left: need.filter((c) => !rv.items[c.id]).length, deadline: rv.deadline });
+  }, [data]);
 
   const markReviewed = (c: Cust, r: Rev) => setData((d) => (d && d.review ? { ...d, review: { ...d.review, items: { ...d.review.items, [c.id]: r } } } : d));
 
@@ -298,7 +312,7 @@ function ReviewBlock({ data, list, rep, cat, setCat, onOpen }: { data: CollData;
   if (data.is_admin && !rep) {
     const prog = rv.progress || [];
     const unsent = rv.unsent || [];
-    if (!prog.length && !unsent.length) return null;
+    if (!prog.length && !unsent.length && !(rv.history || []).length) return null;
     const done = prog.reduce((t, p) => t + p.done, 0);
     const need = prog.reduce((t, p) => t + p.need, 0);
     const late = past && done < need;
@@ -320,7 +334,7 @@ function ReviewBlock({ data, list, rep, cat, setCat, onOpen }: { data: CollData;
   const done = need.filter((c) => rv.items[c.id]).length;
   const all = done === need.length;
   const left = need.length - done;
-  const text = all ? `${rv.can_review ? 'أنهيت' : 'أنهى'} مراجعة كل المدينين القدامى ✓`
+  const text = all ? `${rv.can_review ? 'أنهيت' : 'أنهى'} مراجعة كل العملاء المدينين ✓`
     : past ? `انتهى الأجل، وبقي ${customersWord(left)} دون مراجعة.`
       : `${rv.can_review ? 'راجعت' : 'راجع'} ${done} من ${need.length}.`;
   const pct = Math.round((done / need.length) * 100);
@@ -345,9 +359,12 @@ function ReviewBlock({ data, list, rep, cat, setCat, onOpen }: { data: CollData;
 function ReviewDetails({ data, reload }: { data: CollData; reload: () => void }) {
   const rv = data.review!;
   const [notesOpen, setNotesOpen] = useState(false);
+  const [histOpen, setHistOpen] = useState(false);
   const past = Date.now() > rv.deadline;
   const prog = rv.progress || [];
   const notes = rv.notes || [];
+  const hist = rv.history || [];
+  const missed = hist.reduce((t, w) => t + w.reps.filter((p) => p.done < p.need).length, 0);
   return (
     <>
       <Unsent list={rv.unsent} reload={reload} />
@@ -376,6 +393,30 @@ function ReviewDetails({ data, reload }: { data: CollData; reload: () => void })
                 <div className="flex justify-between gap-3"><Ltr className="font-semibold">{n.name}</Ltr><Ltr className="text-sm text-muted">{n.rep}</Ltr></div>
                 <p className="my-1 text-base [overflow-wrap:anywhere]">{n.note + (n.late ? ' (بعد الأجل)' : '')}</p>
                 <div className="text-sm text-muted">{timeOf(n.at)}</div>
+              </li>
+            ))}
+          </ul>
+        </Fold>
+      ) : null}
+      {hist.length ? (
+        // سجل الالتزام: لكل أسبوع مضى، كم راجع كل مندوب من عملائه المدينين، وكم منها بعد الأجل
+        <Fold open={histOpen} onOpenChange={setHistOpen} className="mt-2"
+          head={<div className="flex items-center justify-between gap-3"><span className="font-bold">الأسابيع الماضية</span>
+            <span className={cn('text-sm', missed ? 'font-semibold text-danger' : 'text-muted')}>{missed ? `لم يُنهِ: ${missed}` : 'أنهوا كلهم ✓'}</span></div>}>
+          <ul className={LIST_BOX}>
+            {hist.map((w) => (
+              <li key={w.week} className="px-3 py-2">
+                <div className="mb-1 text-sm font-semibold text-muted">أسبوع السبت <Num>{`${w.week.slice(8, 10)}/${w.week.slice(5, 7)}`}</Num></div>
+                {w.reps.map((p) => (
+                  <div key={p.rep} className="flex min-h-11 items-center justify-between gap-3">
+                    <Ltr className="font-semibold">{p.rep}</Ltr>
+                    <span className="flex flex-none flex-col items-end">
+                      <Num className="font-display font-semibold">{`${p.done}/${p.need}`}</Num>
+                      <span className={cn('text-sm', p.done < p.need ? 'font-semibold text-danger' : 'text-muted')}>
+                        {p.done < p.need ? `لم يراجع ${customersWord(p.need - p.done)}` : 'أنهى ✓'}{p.late ? ` · بعد الأجل ${p.late}` : ''}</span>
+                    </span>
+                  </div>
+                ))}
               </li>
             ))}
           </ul>

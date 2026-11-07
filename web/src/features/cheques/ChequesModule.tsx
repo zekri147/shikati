@@ -417,7 +417,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
       {/* شريط الإيداع فوق شريط التنقل: المحدد والمجموع والزران، أو شرح المس والإيداع قبل أول إيداع */}
       {barShown ? (
         selItems.length ? (
-          <div className="actionbar fixed inset-x-0 z-[21] flex animate-bar-in items-center justify-between gap-2 border-t-3 border-t-brand bg-bar px-4 py-2 text-white bottom-[calc(60px+env(safe-area-inset-bottom))]">
+          <div className="actionbar fixed inset-x-0 z-[21] flex animate-bar-in items-center justify-between gap-2 border-t-3 border-t-brand bg-bar px-4 py-2 text-white bottom-[calc(var(--nav-h,60px)+env(safe-area-inset-bottom))]">
             <div className="flex flex-col text-sm leading-snug">
               <span className="font-semibold">المحدد: {chequeWord(selItems.length)}</span>
               <Amount value={sum(selItems)} className="font-display text-base font-semibold" />
@@ -432,7 +432,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
             </div>
           </div>
         ) : (
-          <div className="actionbar fixed inset-x-0 z-[21] flex min-h-11 items-center border-t border-line-strong bg-surface px-4 py-2 text-sm text-muted bottom-[calc(60px+env(safe-area-inset-bottom))]">
+          <div className="actionbar fixed inset-x-0 z-[21] flex min-h-11 items-center border-t border-line-strong bg-surface px-4 py-2 text-sm text-muted bottom-[calc(var(--nav-h,60px)+env(safe-area-inset-bottom))]">
             المس الشيكات التي سلّمتها للبنك، ثم «أودعت المحدد».
           </div>
         )
