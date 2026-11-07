@@ -22,7 +22,7 @@ export function TopBar({ name, links = [], themeOnly, bare, showLogout = true }:
   const theme = useTheme();
   const themeLabel = theme === 'dark' ? 'الوضع الفاتح' : 'الوضع الداكن';
   return (
-    <header className="sticky top-0 z-30 flex min-h-[52px] items-center justify-between gap-3 bg-brand pe-2 ps-4 pt-[env(safe-area-inset-top)] text-white [&_:focus-visible]:outline-white">
+    <header style={{ viewTransitionName: 'topbar' } as React.CSSProperties} className="sticky top-0 z-30 flex min-h-[52px] items-center justify-between gap-3 bg-brand pe-2 ps-4 pt-[env(safe-area-inset-top)] text-white [&_:focus-visible]:outline-white">
       <Logo />
       {bare ? null : themeOnly ? (
         <Button variant="ghost" className="text-white hover:bg-press-on-brand active:bg-press-on-brand" onClick={toggleTheme} aria-label={theme === 'dark' ? 'التبديل إلى الوضع الفاتح' : 'التبديل إلى الوضع الداكن'}>{themeLabel}</Button>

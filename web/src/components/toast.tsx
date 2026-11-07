@@ -27,7 +27,7 @@ export function Toaster() {
     <div aria-live="polite" className="pointer-events-none fixed inset-x-4 z-[60] flex flex-col gap-2 bottom-[calc(var(--fixed-bottom,0px)+12px+env(safe-area-inset-bottom))]">
       {list.map((t) => (
         <div key={t.id} role="status"
-          className={cn('border-s-4 bg-bar px-3 py-3 text-base font-semibold text-white transition-all duration-300 dark:ring-1 dark:ring-line-strong',
+          className={cn('animate-bar-in border-s-4 bg-bar px-3 py-3 text-base font-semibold text-white transition-all duration-300 dark:ring-1 dark:ring-line-strong',
             t.kind === 'ok' && 'border-s-ok-on-dark', t.kind === 'warn' && 'border-s-warning', t.kind === 'err' && 'border-s-brand',
             t.out && 'translate-y-2 opacity-0')}>
           {t.message}

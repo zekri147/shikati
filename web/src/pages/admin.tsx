@@ -4,7 +4,7 @@ import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Field, Input } from '@/components/ui/input';
-import { Modal, ModalActions } from '@/components/ui/dialog';
+import { CLOSE_MS, Modal, ModalActions } from '@/components/ui/dialog';
 import { Amount, Ltr, Num } from '@/components/ltr';
 import { ErrorBox, Footer, FormError, Main, Note, TopBar } from '@/components/shell';
 import { toast } from '@/components/toast';
@@ -30,7 +30,7 @@ function AskDialog({ a, onClose }: { a: Ask; onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [open, setOpen] = useState(true);
-  const finish = () => { setOpen(false); setTimeout(onClose, 0); };
+  const finish = () => { setOpen(false); setTimeout(onClose, CLOSE_MS); };
   async function ok() {
     if (a.password && v.length < 8) { setError('الرمز السري 8 أحرف على الأقل.'); return; }
     setBusy(true);

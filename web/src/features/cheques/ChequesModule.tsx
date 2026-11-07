@@ -5,13 +5,16 @@ import { Bell, Landmark, List, SquarePlus } from 'lucide-react';
 import { FilterButton, ListTools } from '@/components/search';
 import { Button } from '@/components/ui/button';
 import { DateField } from '@/components/ui/datefield';
-import { Modal, ModalActions, Sheet, SheetOption } from '@/components/ui/dialog';
+import { CLOSE_MS, Modal, ModalActions, Sheet, SheetOption } from '@/components/ui/dialog';
 import { Segmented } from '@/components/ui/segmented';
-import { Amount, Num } from '@/components/ltr';
+import { AnimatedAmount, Amount, Num } from '@/components/ltr';
+import { haptic } from '@/lib/motion';
+import { PullToRefresh } from '@/components/pull';
 import { Empty, ErrorBox, FormError, Note, RefreshButton, SkeletonList, Slab } from '@/components/shell';
 import { toast } from '@/components/toast';
 import { api, errText, isCutOff, type Me } from '@/lib/api';
 import { useFixedBottom } from '@/lib/layout';
+import { savedScroll } from '@/lib/hash';
 import { readCache, writeCache } from '@/lib/cache';
 import { load as loadKey, save as saveKey } from '@/lib/storage';
 import { cn } from '@/lib/utils';
@@ -110,10 +113,12 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [sheet, setSheet] = useState(false);
   const [depositing, setDepositing] = useState<Cheque[] | null>(null);
+  // بعد الإيداع: الشيكات المودَعة تنطوي (leaving) ثم تُخفى (gone) حتى تصل البيانات الجديدة
+  const [leaving, setLeaving] = useState<Set<string>>(new Set());
+  const [gone, setGone] = useState<Set<string>>(new Set());
   const [, setLearnedTick] = useState(0);
   const busyRef = useRef(false);
   const dialogRef = useRef(false);
-  const scroll = useRef<Record<string, number>>({});
   const prevView = useRef<View>(route.view);
   const fromList = useRef(false);
 
@@ -155,9 +160,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     fromList.current = next === 'detail' && prev !== 'detail' ? true : next === 'detail' ? fromList.current : false;
     prevView.current = next;
     document.title = 'شيكاتي';
-    if (next === 'detail' || next === 'new') window.scrollTo(0, 0);
-    else window.scrollTo(0, scroll.current[next] || 0);
-    return () => { if (next !== 'detail' && next !== 'new') scroll.current[next] = window.scrollY; };
+    window.scrollTo(0, next === 'detail' || next === 'new' ? 0 : savedScroll(hash));
   }, [route.view, route.id]);
 
   // البحث يُمسح عند تغيير الشاشة، لأن حقله يُغلق معها: لا تصفية خفية
@@ -185,6 +188,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   }, [data]);
 
   function toggle(c: Cheque) {
+    haptic();
     setSelected((s) => {
       const n = new Map(s);
       if (n.has(c.id)) n.delete(c.id);
@@ -209,10 +213,17 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     if (!r.attempted) return;
     if (r.done.length) { saveKey(HINT_KEY, '1'); setLearnedTick((n) => n + 1); }
     setSelected(new Map());
+    if (r.done.length) {
+      haptic('success');
+      const ids = new Set(r.done.map((c) => c.id));
+      setLeaving(ids);
+      setTimeout(() => { setGone(ids); setLeaving(new Set()); }, 320);
+    }
     if (r.done.length && !r.failed.length) toast(`تم إيداع ${chequeWord(r.done.length, true)} · ${fmtAmount(sum(r.done))}`);
     else if (r.done.length) toast(`أُودع ${chequeWord(r.done.length)}، وبقي ${chequeWord(r.failed.length)} دون إيداع`, 'warn');
     else toast('لم يُسجَّل أي إيداع. راجع الرسائل.', 'err');
     await load(true);
+    setGone(new Set());
   }
 
   // ——— الشاشات ———
@@ -224,7 +235,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   let body: React.ReactNode = null;
 
   if (data && route.view === 'deposit') {
-    const agb = pick(data.agb_in_hand.items);
+    const agb = pick(data.agb_in_hand.items).filter((c) => !gone.has(c.id));
     const rost = pick(data.rostomia_in_hand.items);
     const noDest = pick(data.no_destination.items);
     const waiting = [...agb, ...rost, ...noDest];
@@ -241,7 +252,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
           <span className="font-semibold">للإيداع في بنك AGB{loc ? ` — ${loc}` : ''}</span>
           {refresh(true)}
         </div>
-        <Amount value={sum(agb)} className="block font-display text-3xl font-semibold leading-tight tracking-tight [overflow-wrap:anywhere] max-[360px]:text-2xl" />
+        <AnimatedAmount value={sum(agb.filter((c) => !leaving.has(c.id)))} className="block font-display text-3xl font-semibold leading-tight tracking-tight [overflow-wrap:anywhere] max-[360px]:text-2xl" />
         <div className="mt-2 flex flex-wrap gap-x-3 text-sm" aria-live="polite">
           <span>{agb.length ? chequeWord(agb.length) : 'لا شيكات'}</span>
           {lateCount ? <span><span className="font-semibold">{lateCount}</span> متأخرة</span> : null}
@@ -261,7 +272,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
           </div>
           {agb.length ? (
             <CardList>
-              {agb.map((c) => <ChequeCard key={c.id} c={c} o={{ ...opts, selectable: data.can_deposit, link: !data.can_deposit, selected: selected.has(c.id) }} />)}
+              {agb.map((c) => <ChequeCard key={c.id} c={c} o={{ ...opts, selectable: data.can_deposit, link: !data.can_deposit, selected: selected.has(c.id), leaving: leaving.has(c.id) }} />)}
             </CardList>
           ) : <Empty>{q || loc ? 'لا شيك يطابق البحث أو الموقع.' : 'لا شيكات تنتظر الإيداع في بنك AGB.'}</Empty>}
         </section>
@@ -362,6 +373,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     <>
       {isList ? (
         <>
+          <PullToRefresh busy={busy} onRefresh={() => load(true)} disabled={selected.size > 0} />
           {onDeposit && !data ? <Slab><div className="pt-2 text-sm font-semibold">للإيداع في بنك AGB</div></Slab> : summary}
           {/* سطر الحالة: معلومة قصيرة يميناً، وزر التحديث بوقته يساراً. في الإيداع صار في اللوح الأحمر */}
           {!onDeposit ? (
@@ -389,7 +401,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
       {/* شريط الإيداع فوق شريط التنقل: المحدد والمجموع والزران، أو شرح المس والإيداع قبل أول إيداع */}
       {barShown ? (
         selItems.length ? (
-          <div className="actionbar fixed inset-x-0 z-[21] flex items-center justify-between gap-2 border-t-3 border-t-brand bg-bar px-4 py-2 text-white bottom-[calc(60px+env(safe-area-inset-bottom))]">
+          <div className="actionbar fixed inset-x-0 z-[21] flex animate-bar-in items-center justify-between gap-2 border-t-3 border-t-brand bg-bar px-4 py-2 text-white bottom-[calc(60px+env(safe-area-inset-bottom))]">
             <div className="flex flex-col text-sm leading-snug">
               <span className="font-semibold">المحدد: {chequeWord(selItems.length)}</span>
               <Amount value={sum(selItems)} className="font-display text-base font-semibold" />
@@ -436,7 +448,7 @@ function BottomNav({ view, alerts }: { view: View; alerts: number }) {
     ['alerts', 'التنبيهات', '#cheques/alerts', Bell], ['new', 'تسجيل', '#cheques/new', SquarePlus],
   ];
   return (
-    <nav aria-label="شاشات الشيكات" className="bottomnav fixed inset-x-0 bottom-0 z-20 flex border-t border-line-strong bg-surface pb-[env(safe-area-inset-bottom)]">
+    <nav aria-label="شاشات الشيكات" style={{ viewTransitionName: 'bottomnav' } as React.CSSProperties} className="bottomnav fixed inset-x-0 bottom-0 z-20 flex border-t border-line-strong bg-surface pb-[env(safe-area-inset-bottom)]">
       {tabs.map(([id, label, href, Icon]) => {
         const on = id === view;
         return (
@@ -444,7 +456,7 @@ function BottomNav({ view, alerts }: { view: View; alerts: number }) {
             className={cn('tab relative flex min-h-[60px] flex-1 flex-col items-center justify-center gap-1 text-sm font-semibold text-muted no-underline active:bg-surface-alt',
               on && 'text-foreground')}>
             {/* علامة حمراء مائلة فوق التبويب الحالي */}
-            {on ? <span aria-hidden className="cut-xs absolute -top-px h-1 w-10 bg-brand" /> : null}
+            {on ? <span aria-hidden style={{ viewTransitionName: 'tabmark' } as React.CSSProperties} className="cut-xs absolute -top-px h-1 w-10 bg-brand" /> : null}
             <span className="relative inline-flex">
               <Icon aria-hidden className="size-5.5" />
               {id === 'alerts' && alerts ? <span className="num absolute -end-4 -top-1.5 min-w-5 bg-brand px-2 py-1 text-center text-sm leading-none text-white">{alerts}</span> : null}
@@ -472,7 +484,7 @@ function DepositDialog({ items, onClosed }: { items: Cheque[]; onClosed: (r: { d
   const [open, setOpen] = useState(true);
   const result = useRef({ done: [] as Cheque[], failed: [] as Cheque[], attempted: false });
 
-  const close = () => { if (phase === 'busy') return; setOpen(false); setTimeout(() => onClosed(result.current), 0); };
+  const close = () => { if (phase === 'busy') return; setOpen(false); setTimeout(() => onClosed(result.current), CLOSE_MS); };
 
   async function run() {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today || (minDate && date < minDate)) {

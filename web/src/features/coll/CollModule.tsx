@@ -6,18 +6,21 @@ import { Check, ChevronLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/input';
-import { Modal, ModalActions, Sheet, SheetOption } from '@/components/ui/dialog';
+import { CLOSE_MS, Modal, ModalActions, Sheet, SheetOption } from '@/components/ui/dialog';
 import { Fold } from '@/components/ui/collapsible';
 import { FilterButton, ListTools } from '@/components/search';
-import { Amount, Ltr, Num } from '@/components/ltr';
+import { AnimatedAmount, Amount, Ltr, Num } from '@/components/ltr';
+import { PullToRefresh } from '@/components/pull';
 import { Empty, ErrorBox, FormError, Note, RefreshButton, SkeletonList, Slab, SlabTop } from '@/components/shell';
 import { toast } from '@/components/toast';
 import { api, errText, type Me } from '@/lib/api';
 import { useFixedBottom } from '@/lib/layout';
+import { savedScroll } from '@/lib/hash';
 import { readCache, writeCache } from '@/lib/cache';
 import { load as loadKey, save as saveKey } from '@/lib/storage';
 import { customersWord, daysWord, fmtAmount, fmtDate, fmtDateTime, invoicesWord, norm, relTime, round2 } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { isShared, markShared, sharedStyle } from '@/lib/motion';
 import { LIST_BOX, LateMark } from '@/features/cheques/ui';
 import { Block, KV } from '@/features/cheques/pickers';
 
@@ -87,7 +90,6 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
   const [reviewing, setReviewing] = useState<{ c: Cust; r: Rev | null } | null>(null);
   const [sheet, setSheet] = useState<'' | 'rep' | 'cat' | 'review'>('');
   const busyRef = useRef(false);
-  const scroll = useRef(0);
   const prev = useRef(route.view);
   const fromList = useRef(false);
 
@@ -124,8 +126,7 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
     fromList.current = route.view === 'customer' && p === 'list';
     prev.current = route.view;
     document.title = 'التحصيل';
-    window.scrollTo(0, route.view === 'list' ? scroll.current : 0);
-    return () => { if (route.view === 'list') scroll.current = window.scrollY; };
+    window.scrollTo(0, route.view === 'list' ? savedScroll(hash) : 0);
   }, [route.view, route.id]);
 
   function pickRep(code: string) {
@@ -172,13 +173,14 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
 
   return (
     <>
+      <PullToRefresh busy={busy} onRefresh={() => load(true)} />
       {/* اللوح الأحمر الملاصق للشريط العلوي، كما في شاشة الإيداع: المجموع، وزر التحديث بوقته */}
       <Slab>
         <div className="flex items-center justify-between gap-3 text-sm">
           <span className="font-semibold">{who ? `مجموع ديون ${who}` : <>مجموع ديون عملاء <Ltr>{rep}</Ltr></>}</span>
           <RefreshButton busy={busy} loadedAt={loadedAt} onClick={() => load(true)} onRed />
         </div>
-        <Amount value={total(list)} className="block font-display text-3xl font-semibold leading-tight tracking-tight max-[360px]:text-2xl" />
+        <AnimatedAmount value={total(list)} className="block font-display text-3xl font-semibold leading-tight tracking-tight max-[360px]:text-2xl" />
         <div className="mt-2 flex flex-wrap gap-x-3 text-sm">
           <span>{list.length ? `على ${customersWord(list.length)}` : 'لا رصيد مفتوح'}</span>
           {old.length ? <span>أكثر من 90 يوماً <Amount value={total(old)} className="font-semibold" /></span> : null}
@@ -244,9 +246,11 @@ function CustomerItem({ c, d, rep, onReview }: { c: Cust; d: CollData; rep: stri
   const rv = d.review;
   const r = rv && needsReview(c) ? rv.items[c.id] : null;
   const canToggle = !!rv?.can_review && needsReview(c);
-  const open = () => { location.hash = '#coll/c/' + c.id; };
+  const ref = useRef<HTMLLIElement>(null);
+  const open = () => { markShared(c.id, ref.current); location.hash = '#coll/c/' + c.id; };
+  const shared = isShared(c.id);
   return (
-    <li role="link" tabIndex={0} aria-label={`${c.name}، ${fmtAmount(c.balance)}، ${lateText(c)}`}
+    <li ref={ref} role="link" tabIndex={0} aria-label={`${c.name}، ${fmtAmount(c.balance)}، ${lateText(c)}`}
       onClick={open} onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(); } }}
       className={cn('item flex min-h-[60px] cursor-pointer items-center gap-1 bg-surface py-2 pe-3 active:bg-surface-alt', canToggle ? 'ps-0' : 'ps-3')}>
       {canToggle ? (
@@ -267,8 +271,8 @@ function CustomerItem({ c, d, rep, onReview }: { c: Cust; d: CollData; rep: stri
       ) : null}
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-start justify-between gap-3">
-          <Ltr className="min-w-0 text-base font-semibold leading-snug [overflow-wrap:anywhere]">{c.name}</Ltr>
-          <Amount value={c.balance} className="whitespace-nowrap font-display text-base font-semibold" />
+          <span data-vt="cust" style={sharedStyle(shared, 'cust')} className="min-w-0"><Ltr className="text-base font-semibold leading-snug [overflow-wrap:anywhere]">{c.name}</Ltr></span>
+          <span data-vt="amt" style={sharedStyle(shared, 'amt')}><Amount value={c.balance} className="whitespace-nowrap font-display text-base font-semibold" /></span>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
           <div className={cn('flex min-w-0 flex-wrap items-center gap-x-1 text-sm', r ? 'text-foreground' : 'text-muted')}>
@@ -448,7 +452,7 @@ function ReviewDialog({ data, me, c, r, onClose, onSaved }: { data: CollData; me
   const [error, setError] = useState('');
   const [open, setOpen] = useState(true);
   const clean = note.replace(/\s+/g, ' ').trim();
-  const finish = () => { setOpen(false); setTimeout(onClose, 0); };
+  const finish = () => { setOpen(false); setTimeout(onClose, CLOSE_MS); };
 
   async function run() {
     setBusy(true);
@@ -522,8 +526,8 @@ function CustomerPage({ data, id, me, onBack, onReview, onCancelled }: {
     <>
       <Slab>
         <SlabTop onBack={onBack} />
-        <h1 className="m-0"><Ltr className="block text-lg font-bold leading-snug [overflow-wrap:anywhere]">{c.name}</Ltr></h1>
-        <Amount value={c.balance} className="mt-1 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
+        <h1 className="m-0" style={sharedStyle(true, 'cust')}><Ltr className="block text-lg font-bold leading-snug [overflow-wrap:anywhere]">{c.name}</Ltr></h1>
+        <Amount value={c.balance} style={sharedStyle(true, 'amt')} className="mt-1 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
         <div className="mt-2 flex flex-wrap gap-2">
           <Badge tone={isOld(c) ? 'dark' : 'inverse'}>{lateText(c)}</Badge>
           {c.invoices.length ? <Badge tone="inverse">{invoicesWord(c.invoices.length)}</Badge> : null}
