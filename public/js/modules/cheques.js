@@ -7,7 +7,7 @@
   const STALE_MS = 60_000;
   const PAGE = 60;
   const LOC_KEY = 'shikati-location';
-  // التلميح فوق قائمة الإيداع يظهر حتى أول إيداع على هذا الجهاز، ثم يختفي ليوفّر المكان
+  // التلميح في شريط الإيداع يظهر حتى أول إيداع على هذا الجهاز، ثم يختفي ليوفّر المكان
   const HINT_KEY = 'shikati-deposit-learned';
   const learned = () => { try { return localStorage.getItem(HINT_KEY) === '1'; } catch { return false; } };
   const setLearned = () => { try { localStorage.setItem(HINT_KEY, '1'); } catch { /* التخزين غير متاح */ } };
@@ -32,6 +32,12 @@
   }
   function saveLoc(v) {
     try { localStorage.setItem(LOC_KEY, v); } catch { /* التخزين غير متاح */ }
+  }
+
+  // تاريخ اليوم بصيغة 2026-11-07 بتوقيت الهاتف
+  function todayIso() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
 
   function parseRoute() {
@@ -191,7 +197,9 @@
     document.body.append(tabs);
 
     const kpiBox = el('div');
-    const listBox = el('div', { 'aria-live': 'polite' });
+    // سطر الحالة تحت الملخص: معلومة قصيرة تتغيّر حسب الشاشة، وزر التحديث
+    const statusText = el('div', { class: 'st-text', 'aria-live': 'polite' });
+    const listBox = el('div', { class: 'listbox', 'aria-live': 'polite' });
     const detailBox = el('div');
     // زر التحديث يعرض وقت آخر تحديث بجانب رمزه، في سطر الموقع نفسه
     const timeLabel = el('span', { class: 'refresh-time' });
@@ -217,7 +225,8 @@
 
     const search = el('input', { type: 'search', class: 'search', placeholder: 'بحث باسم العميل أو رقم الشيك أو الفاتورة', 'aria-label': 'بحث', enterkeyhint: 'search' });
     search.addEventListener('input', () => { st.q = norm(search.value); st.limit = PAGE; draw(); });
-    const filters = el('div', { class: 'filters' }, el('div', { class: 'filter-row' }, locChips, refreshBtn), statusChips, search);
+    const statusLine = el('div', { class: 'statusline' }, statusText, refreshBtn);
+    const filters = el('div', { class: 'filters' }, locChips, statusChips, search);
 
     // شريط الإيداع أسفل الشاشة، يظهر عند تحديد شيك أو أكثر
     const barInfo = el('div', { class: 'ab-info' });
@@ -249,9 +258,19 @@
     }
 
     function updateBar() {
-      const items = st.route.view === 'deposit' ? [...st.selected.values()] : [];
-      bar.classList.toggle('hidden', !items.length);
-      document.body.classList.toggle('has-bar', items.length > 0);
+      const onDeposit = st.route.view === 'deposit';
+      const items = onDeposit ? [...st.selected.values()] : [];
+      // قبل أول إيداع على هذا الجهاز: الشريط يشرح ما يفعله المودِع، مكان الزر الذي سيظهر
+      const d = st.data;
+      const hint = onDeposit && !items.length && !!d && d.can_deposit && !learned() && d.agb_in_hand.items.some((c) => !c.lock);
+      const shown = items.length > 0 || hint;
+      bar.classList.toggle('hidden', !shown);
+      bar.classList.toggle('hint', hint);
+      document.body.classList.toggle('has-bar', shown);
+      if (hint) {
+        barInfo.replaceChildren(el('span', { text: 'المس الشيكات التي سلّمتها للبنك، ثم «أودعت المحدد».' }));
+        return;
+      }
       barInfo.replaceChildren(
         el('span', { class: 'strong', text: `المحدد: ${chequeWord(items.length)}` }),
         el('span', {}, ltr(fmtAmount(sum(items)), 'num')));
@@ -276,10 +295,18 @@
       const inBank = pick(d.agb_pending_collection.items);
       kpiBox.replaceChildren(el('div', { class: 'kpis' },
         el('div', { class: 'kpi' },
-          el('div', { class: 'label', text: 'تنتظر الإيداع' + locLabel }),
-          el('div', { class: 'value display' }, ltr(fmtAmount(sum(waiting)))),
-          el('div', { class: 'sub', text: `${chequeWord(waiting.length)} في الحوزة` })),
+          el('div', { class: 'kpi-row' },
+            el('span', { class: 'label', text: 'تنتظر الإيداع' + locLabel }),
+            el('span', { class: 'sub', text: `${chequeWord(waiting.length)} في الحوزة` })),
+          el('div', { class: 'value display' }, ltr(fmtAmount(sum(waiting))))),
       ));
+
+      // ما أُودع اليوم: من تاريخ الإيداع في زوهو، فيشمل ما أودعته دالة رسائل البنك أيضاً
+      const today = todayIso();
+      const doneToday = pick(d.all.filter((c) => c.deposit_date && c.deposit_date.slice(0, 10) === today));
+      statusText.replaceChildren(...(doneToday.length
+        ? [el('span', { text: 'أُودع اليوم: ' }), el('span', { class: 'strong', text: chequeWord(doneToday.length) }), ' · ', ltr(fmtAmount(sum(doneToday)), 'num')]
+        : [el('span', { text: 'لم يُسجَّل إيداع اليوم بعد.' })]));
 
       const opts = { selected: st.selected, onToggle: toggle, link: true };
       const parts = [
@@ -287,7 +314,6 @@
           ...opts,
           selectable: d.can_deposit,
           link: !d.can_deposit,
-          note: d.can_deposit && agb.some((c) => !c.lock) && !learned() ? 'اضغط الشيكات التي سلّمتها للبنك، ثم «أودعت المحدد».' : null,
           emptyText: st.q || st.loc ? 'لا شيك يطابق البحث أو الموقع.' : 'لا شيكات تنتظر الإيداع في بنك AGB.',
         }, st),
       ];
@@ -310,10 +336,10 @@
       const moreBtn = more > 0 ? el('button', { type: 'button', class: 'btn-plain more', text: `عرض المزيد (${more})` }) : null;
       if (moreBtn) moreBtn.addEventListener('click', () => { st.limit += PAGE; draw(); });
       kpiBox.replaceChildren();
+      statusText.replaceChildren(...(items.length
+        ? [el('span', { class: 'strong', text: chequeWord(items.length) }), ' · ', ltr(fmtAmount(sum(items)), 'num')]
+        : [el('span', { text: 'لا نتائج' })]));
       listBox.replaceChildren(
-        el('div', { class: 'result-head' },
-          el('span', { class: 'strong', text: items.length ? chequeWord(items.length) : 'لا نتائج' }),
-          items.length ? ltr(fmtAmount(sum(items)), 'num muted') : null),
         items.length
           ? el('ul', { class: 'list' }, shown.map((c) => chequeItem(c, { link: true, showStatus: true, ageInHandOnly: true, lateOnly: true })))
           : el('div', { class: 'empty', text: 'لا شيك يطابق البحث أو التصفية.' }),
@@ -327,6 +353,9 @@
       kpiBox.replaceChildren(el('div', { class: 'kpi dark' },
         el('div', { class: 'label' }, 'في بنك AGB بانتظار التحصيل', el('span', { class: 'sub', text: chequeWord(inBank.length) })),
         el('div', { class: 'value display' }, ltr(fmtAmount(sum(inBank))))));
+      const loud = new Set(ALERTS.filter((a) => !a.quiet).map((a) => a.kind));
+      const nLoud = new Set(d.alerts.filter((x) => loud.has(x.kind)).map((x) => x.id)).size;
+      statusText.replaceChildren(el('span', { text: nLoud ? 'تحتاج متابعة: ' : 'لا شيك يحتاج متابعة.' }), nLoud ? el('span', { class: 'strong', text: chequeWord(nLoud) }) : '');
       const parts = [];
       for (const a of ALERTS) {
         const rows = d.alerts.filter((x) => x.kind === a.kind);
@@ -360,7 +389,7 @@
       const v = st.route.view;
       updateTabs();
       const isList = v !== 'detail' && v !== 'new';
-      [kpiBox, filters, listBox].forEach((x) => x.classList.toggle('hidden', !isList));
+      [kpiBox, statusLine, filters, listBox].forEach((x) => x.classList.toggle('hidden', !isList));
       detailBox.classList.toggle('hidden', isList);
       tabs.classList.toggle('hidden', v === 'detail');
       document.body.classList.toggle('has-nav', v !== 'detail');
@@ -431,7 +460,7 @@
     });
     setInterval(() => { if (st.loadedAt && !st.busy) setTime(relTime(st.loadedAt)); }, 30_000);
 
-    root.replaceChildren(kpiBox, filters, listBox, detailBox);
+    root.replaceChildren(kpiBox, statusLine, filters, listBox, detailBox);
     listBox.replaceChildren(el('p', { class: 'muted', text: 'جارٍ التحميل…' }));
     route();
     await load(false);

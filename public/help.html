@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#d73237">
+<meta name="theme-color" content="#1a1a1a">
 <title>شيكاتي — طريقة الاستعمال</title>
 <link rel="icon" href="/img/symbol-red.svg" type="image/svg+xml">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -13,7 +13,7 @@
 </head>
 <body>
 <header class="topbar">
-  <img class="logo" src="/img/logo-white.svg" alt="إيلوناك">
+  <img class="logo logo-on-dark" src="/img/logo-white.svg" alt="إيلوناك"><img class="logo logo-on-light" src="/img/logo-red.svg" alt="إيلوناك">
   <button type="button" class="btn-ghost menu-btn" id="menu-btn" aria-haspopup="true" aria-expanded="false" aria-controls="menu">
     <span class="ico ico-menu" aria-hidden="true"></span><span>القائمة</span>
   </button>
@@ -96,8 +96,9 @@
       <li><strong>للإيداع في بنك AGB:</strong> الشيكات التي تأخذها إلى البنك، وهي أول قسم في الشاشة.</li>
       <li><strong>الأقسام الأخرى:</strong> مطوية، واضغط عنوان أي قسم لفتحه. قسم «لبنك الرستمية» للاطلاع فقط، لأن إيداعه لا يُسجَّل من التطبيق بعد. والوجهة غير المحددة لا تأخذها إلى البنك قبل أن يحددها المدير.</li>
       <li><strong>بطاقة الشيك:</strong> في سطرها الأول اسم العميل والمبلغ، وفي الثاني رقم الشيك وتاريخ استلامه والموقع.</li>
-      <li><strong>الشارة الحمراء «متأخر»:</strong> شيك مضى على استلامه أكثر من 7 أيام، فأعطه الأولوية.</li>
-      <li><strong>التحديث:</strong> يتحدث التطبيق وحده حين ترجع إليه. ويمكنك الضغط على زر السهم الدائري بجانب أزرار الموقع في أي وقت، ويكتب عليه وقت آخر تحديث.</li>
+      <li><strong>«متأخر» برمز الساعة:</strong> شيك مضى على استلامه أكثر من 7 أيام، فأعطه الأولوية. وإن تجاوز 14 يوماً صارت الكلمة في شارة حمراء: أودعه أولاً.</li>
+      <li><strong>سطر «أُودع اليوم»:</strong> تحت الرقم الأحمر، عدد الشيكات التي أُودعت اليوم ومجموعها.</li>
+      <li><strong>التحديث:</strong> يتحدث التطبيق وحده حين ترجع إليه. ويمكنك الضغط على زر السهم الدائري تحت الرقم الأحمر في أي وقت، ويكتب بجانبه وقت آخر تحديث.</li>
     </ul>
     <p>تنتقل بين الشاشات من الشريط الثابت في أسفل الشاشة: الإيداع، وكل الشيكات، والتنبيهات، والتسجيل.</p>
     <ul>

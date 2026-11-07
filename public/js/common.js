@@ -4,6 +4,9 @@
 
   function applyTheme(t) {
     document.documentElement.setAttribute('data-theme', t);
+    // لون شريط المتصفح يطابق الشريط العلوي: أسود في الداكن، وأبيض في الفاتح
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', t === 'dark' ? '#1a1a1a' : '#ffffff');
     document.querySelectorAll('[data-theme-toggle]').forEach((b) => {
       const long = b.dataset.themeToggle === 'long';
       b.textContent = t === 'dark' ? (long ? 'الوضع الفاتح' : 'فاتح') : (long ? 'الوضع الداكن' : 'داكن');
