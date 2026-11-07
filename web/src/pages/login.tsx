@@ -49,7 +49,7 @@ export function LoginPage() {
           <Input id="password" name="password" type="password" autoComplete="current-password" dir="ltr" value={password} onChange={(e) => setPassword(e.target.value)} />
         </Field>
         <FormError>{error}</FormError>
-        <Button type="submit" variant="primary" size="lg" disabled={busy}>{busy ? 'جارٍ الدخول…' : 'دخول'}</Button>
+        <Button id="login-btn" type="submit" variant="primary" size="lg" disabled={busy}>{busy ? "جارٍ الدخول…" : "دخول"}</Button>
       </form>
       <a className="mt-4.5 block text-center text-base text-muted underline" href="/help">طريقة التثبيت على الهاتف والاستعمال</a>
     </AuthCard>

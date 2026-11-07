@@ -10,7 +10,13 @@ const r = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 export default defineConfig({
   root: r('./web'),
   plugins: [react(), tailwindcss()],
-  resolve: { alias: { '@': r('./web/src') } },
+  resolve: {
+    alias: [
+      { find: '@', replacement: r('./web/src') },
+      // يمنع وسم <style> الذي تضيفه نوافذ Radix لقفل التمرير (انظر web/src/shims/remove-scroll-bar.ts)
+      { find: /^react-remove-scroll-bar$/, replacement: r('./web/src/shims/remove-scroll-bar.ts') },
+    ],
+  },
   build: {
     outDir: r('./dist'),
     emptyOutDir: true,

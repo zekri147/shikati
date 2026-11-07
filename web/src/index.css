@@ -140,3 +140,26 @@
   button:disabled { cursor: default; }
   [hidden] { display: none !important; }
 }
+
+/* ——— صفحة المساعدة: نص ثابت في web/help.html ——— */
+@layer components {
+  .help h1 { font-size: 28px; font-weight: 700; margin: 8px 0 4px; line-height: 1.3; }
+  .help h2 { font-size: 17px; font-weight: 700; margin: 0 -16px 12px; padding: 10px 16px 8px; border-bottom: 1px solid var(--line); }
+  .help h3 { font-size: 15px; font-weight: 600; margin: 14px 0 4px; }
+  .help ol, .help ul { padding-inline-start: 22px; margin: 6px 0; }
+  .help li { margin: 5px 0; }
+  .help-muted { color: var(--ink-muted); }
+  .help-block { background: var(--surface); border: 1px solid var(--line); padding: 4px 16px 16px; margin-top: 16px; }
+  .help-summary { border-top: 3px solid var(--brand); }
+  .help-note { font-size: 13px; padding: 8px 12px; margin: 10px 0 0; color: var(--ink-muted); background: var(--surface-alt); border-inline-start: 3px solid var(--line-strong); }
+  .help-table { overflow-x: auto; margin-inline: -16px; }
+  .help-table table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  .help-table th { background: var(--brand); color: var(--white); font-weight: 600; text-align: start; padding: 7px 10px; white-space: nowrap; }
+  .help-table td { padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .help-table tbody tr:nth-child(even) td { background: var(--surface-alt); }
+}
+
+/* قفل تمرير الصفحة خلف النوافذ المفتوحة (بدل وسم style الذي تمنعه سياسة أمان المحتوى) */
+@layer base {
+  body:has([role="dialog"][data-state="open"]) { overflow: hidden; }
+}

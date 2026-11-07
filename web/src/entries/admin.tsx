@@ -1,2 +1,3 @@
 import { mountPage } from '@/lib/page';
-mountPage(<div>…</div>);
+import { AdminPage } from '@/pages/admin';
+mountPage(<AdminPage />);
