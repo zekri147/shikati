@@ -133,15 +133,19 @@
       catNote.classList.toggle('hidden', !st.cat);
     }
 
-    // زر «راجعت» بجانب العميل: لمسة تسجّل المراجعة، ولمسة ثانية تلغيها
+    // حالة الإرسال إلى زوهو بكلمة قصيرة
+    const ZOHO_WORD = { done: 'في زوهو', pending: 'قيد الإرسال', unknown: 'بانتظار التحقق', failed: 'لم يُرسل إلى زوهو', none: 'لم يُرسل إلى زوهو' };
+    const sendable = (r) => r && (r.zoho === 'failed' || r.zoho === 'none');
+
+    // زر «راجعت» بجانب العميل: يفتح بطاقة التأكيد، لأن المراجعة تُكتب في زوهو فوراً
     function reviewToggle(c, r) {
       const b = el('button', { type: 'button', class: 'rev-btn' + (r ? ' on' : ''), 'aria-pressed': String(!!r),
-        'aria-label': r ? 'ألغِ مراجعة ' + c.name : 'راجعت ' + c.name },
+        'aria-label': r ? `${c.name}: ${ZOHO_WORD[r.zoho] || 'راجعته'}` : 'راجعت ' + c.name },
       el('span', { class: 'rev-mark', 'aria-hidden': 'true' }), el('span', { text: r ? 'راجعته' : 'راجعت' }));
       b.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (r && r.note) { toast('في المراجعة ملاحظة. افتح بطاقة العميل لإلغائها.', 'warn'); return; }
-        if (r) cancelReview(c, b); else saveReview(c, '', b);
+        if (!r || sendable(r)) { reviewDialog(c, r); return; }
+        toast(r.zoho === 'done' ? 'سُجّلت هذه المراجعة في زوهو، فلا تُلغى.' : 'لم يصل رد واضح من زوهو. الإدارة تتحقق منها.', 'warn');
       });
       return b;
     }
@@ -150,6 +154,7 @@
       const rv = d.review || { items: {} };
       const r = needsReview(c) ? rv.items[c.id] : null;
       const facts = [el('span', { text: r ? 'راجعته ' + timeOf(r.at) + (r.late ? ' (بعد الأجل)' : '') : lateText(c) })];
+      if (r && r.zoho !== 'done') facts.push(el('span', { class: 'dot', 'aria-hidden': 'true', text: '·' }), el('span', { class: 'rev-warn', text: ZOHO_WORD[r.zoho] }));
       if (c.invoices.length > 1) facts.push(el('span', { class: 'dot', 'aria-hidden': 'true', text: '·' }), el('span', { text: invoicesWord(c.invoices.length) }));
       if (d.is_admin && !st.rep) facts.push(el('span', { class: 'dot', 'aria-hidden': 'true', text: '·' }), c.owner ? ltr(c.owner) : el('span', { text: 'بلا مندوب' }));
       const mark = isOld(c) ? el('span', { class: 'age late', text: c.late === null ? 'افتتاحي' : '+90 يوماً' }) : null;
@@ -202,7 +207,8 @@
       // المدير على «الكل»: جدول التقدّم لكل مندوب والملاحظات
       if (d.is_admin && !st.rep) {
         const prog = rv.progress || [];
-        if (!prog.length) return null;
+        const pending = unsentBlock(rv.unsent);
+        if (!prog.length) return pending;
         const rows = prog.map((p) => el('tr', {},
           el('td', {}, ltr(p.rep)),
           el('td', { class: 'num' }, ltr(`${p.done}/${p.need}`)),
@@ -220,7 +226,8 @@
             el('ul', { class: 'list' }, notes.map((n) => el('li', { class: 'item' }, el('div', { class: 'item-body' },
               el('div', { class: 'item-main' }, el('div', { class: 'customer' }, ltr(n.name)), ltr(n.rep, 'muted small')),
               el('div', { class: 'rev-text', text: n.note + (n.late ? ' (بعد الأجل)' : '') }),
-              el('div', { class: 'muted small', text: timeOf(n.at) })))))) : null);
+              el('div', { class: 'muted small', text: timeOf(n.at) })))))) : null,
+          pending);
       }
       // المندوب، أو المدير على مندوب واحد: شريط التقدّم
       const need = list.filter(needsReview);
@@ -242,21 +249,69 @@
         el('div', { class: 'rev-foot' }, el('p', { class: 'rev-st', text }), showLeft));
     }
 
-    async function saveReview(c, note, btn) {
-      if (btn) btn.disabled = true;
-      try {
-        const r = await api('/api/m/coll/review', { method: 'POST', body: { customer_id: c.id, note } });
-        const items = st.data.review.items;
-        const prev = items[c.id];
-        items[c.id] = { at: prev ? prev.at : new Date().toISOString().slice(0, 19).replace('T', ' '), note, late: prev ? prev.late : r.late, by: me.user.username };
-        toast(prev ? 'حُفظت الملاحظة' : 'سُجّلت المراجعة ✓');
-        draw();
-        return true;
-      } catch (e) {
-        toast(e.message, 'err');
-        if (btn) btn.disabled = false;
-        return false;
-      }
+    // نص التعليق كما سيُكتب في سجل العميل في زوهو (نفس صيغة الخادم في collcomment.ts)
+    function previewText(c, note, late) {
+      const rv = st.data.review;
+      const now = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Algiers', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+        .formatToParts(new Date()).map((x) => [x.type, x.value]));
+      const wk = `${rv.week.slice(8, 10)}/${rv.week.slice(5, 7)}`;
+      return `مراجعة التحصيل لأسبوع ${wk}: راجعه ${st.data.own_rep} يوم ${now.day}/${now.month} الساعة ${now.hour}:${now.minute}${late ? ' (بعد الأجل)' : ''}. `
+        + `الرصيد ${fmtAmount(c.balance).replace(' DA', ' دج')}. ` + (note ? `الملاحظة: ${note}` : 'دون ملاحظة.') + ' — من تطبيق شيكاتي';
+    }
+
+    // بطاقة التأكيد: الملاحظة، ونص التعليق كما سيُكتب، ثم «سجّل في زوهو». لا رجوع بعد الإرسال.
+    function reviewDialog(c, r) {
+      const rv = st.data.review;
+      const late = r ? r.late : Date.now() > rv.deadline;
+      const area = el('textarea', { rows: '3', maxlength: '400', class: 'rev-area', placeholder: 'اختياري. مثال: وعد بالدفع يوم الخميس' });
+      area.value = r ? r.note : '';
+      const preview = el('p', { class: 'rev-preview' });
+      const upd = () => { preview.textContent = previewText(c, area.value.replace(/\s+/g, ' ').trim(), late); };
+      area.addEventListener('input', upd);
+      upd();
+      const message = el('div', { role: 'alert' });
+      const okBtn = el('button', { type: 'button', class: 'btn-primary', text: 'سجّل في زوهو' });
+      const cancelBtn = el('button', { type: 'button', class: 'btn-plain', text: 'إلغاء' });
+      const dlg = el('dialog', { class: 'confirm', 'aria-labelledby': 'rev-title' },
+        el('h2', { id: 'rev-title' }, 'مراجعة ', ltr(c.name)),
+        el('label', { class: 'field' }, el('span', { text: 'ماذا قال العميل؟' }), area),
+        el('div', { class: 'rev-will' }, el('span', { class: 'muted small', text: 'سيُكتب في سجل العميل في زوهو:' }), preview),
+        el('p', { class: 'note warn', text: 'بعد الإرسال لا تُعدَّل المراجعة ولا تُلغى من التطبيق.' }),
+        message,
+        el('div', { class: 'dlg-actions' }, okBtn, cancelBtn));
+      let busy = false;
+      const close = () => { if (busy) return; dlg.close(); dlg.remove(); };
+      cancelBtn.addEventListener('click', close);
+      dlg.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
+      okBtn.addEventListener('click', async () => {
+        busy = true; okBtn.disabled = true; cancelBtn.disabled = true; area.disabled = true;
+        okBtn.textContent = 'جارٍ التسجيل…';
+        const note = area.value.replace(/\s+/g, ' ').trim();
+        try {
+          const res = await api('/api/m/coll/review', { method: 'POST', body: { customer_id: c.id, note } });
+          const prev = rv.items[c.id];
+          rv.items[c.id] = { at: prev ? prev.at : new Date().toISOString().slice(0, 19).replace('T', ' '), note, late: prev ? prev.late : res.late, by: me.user.username, zoho: res.zoho };
+          busy = false;
+          if (res.zoho === 'done') { close(); toast('سُجّلت المراجعة في زوهو ✓'); draw(); return; }
+          // سُجّلت في التطبيق ولم تصل إلى زوهو: نشرح دون إعادة تلقائية
+          message.className = 'note warn';
+          message.textContent = res.zoho === 'unknown'
+            ? 'سُجّلت المراجعة في التطبيق، لكن لم يصل رد واضح من زوهو. لا تعد المحاولة: الإدارة تتحقق منها.'
+            : 'سُجّلت المراجعة في التطبيق، لكن زوهو رفض التعليق. الإدارة تعيد إرساله، ويمكنك إعادة المحاولة لاحقاً.';
+          okBtn.classList.add('hidden');
+          cancelBtn.disabled = false;
+          cancelBtn.textContent = 'إغلاق';
+          draw();
+        } catch (e) {
+          busy = false; okBtn.disabled = false; cancelBtn.disabled = false; area.disabled = false;
+          okBtn.textContent = 'سجّل في زوهو';
+          message.className = 'form-error';
+          message.textContent = e.message;
+        }
+      });
+      document.body.append(dlg);
+      dlg.showModal();
+      area.focus();
     }
 
     async function cancelReview(c, btn) {
@@ -270,6 +325,40 @@
         toast(e.message, 'err');
         if (btn) btn.disabled = false;
       }
+    }
+
+    // للمدير: إرسال مراجعة لم تصل، أو حسم مراجعة انقطع ردها بعد التحقق في زوهو
+    async function adminAct(path, body, btn, okText) {
+      btn.disabled = true;
+      try {
+        const res = await api('/api/m/coll/review/' + path, { method: 'POST', body });
+        if (res.state && res.state !== 'done') toast(res.state === 'unknown' ? 'لم يصل رد واضح من زوهو. تحقق قبل أي إعادة.' : (res.error || 'زوهو رفض التعليق.'), 'warn');
+        else toast(okText);
+        await load(false);
+      } catch (e) {
+        toast(e.message, 'err');
+        btn.disabled = false;
+      }
+    }
+
+    function unsentBlock(list) {
+      if (!list || !list.length) return null;
+      const rows = list.map((u) => {
+        const body = { week: u.week, customer_id: u.id };
+        const waiting = u.state === 'unknown' || u.state === 'pending';
+        const actions = waiting
+          ? [el('button', { type: 'button', class: 'btn-plain', text: 'موجود في زوهو', onclick: (e) => adminAct('resolve', { ...body, found: true }, e.currentTarget, 'سُجّلت كأنها في زوهو') }),
+            el('button', { type: 'button', class: 'btn-plain', text: 'غير موجود', onclick: (e) => adminAct('resolve', { ...body, found: false }, e.currentTarget, 'صارت قابلة للإرسال') })]
+          : [el('button', { type: 'button', class: 'btn-plain', text: 'أرسل إلى زوهو', onclick: (e) => adminAct('send', body, e.currentTarget, 'أُرسلت إلى زوهو ✓') })];
+        return el('li', { class: 'item' }, el('div', { class: 'item-body' },
+          el('div', { class: 'item-main' }, el('div', { class: 'customer' }, ltr(u.name)), ltr(u.rep, 'muted small')),
+          el('div', { class: 'rev-warn small', text: (waiting ? 'بانتظار التحقق: افتح العميل في زوهو وابحث عن التعليق أدناه.' : ZOHO_WORD[u.state]) + (u.error ? ` (${u.error})` : '') }),
+          el('div', { class: 'rev-text muted small', text: u.text }),
+          el('div', { class: 'user-actions' }, actions)));
+      });
+      return el('details', { class: 'fold warn', open: true },
+        el('summary', {}, el('div', { class: 'block-head' }, el('h2', { text: 'لم تصل إلى زوهو' }), el('span', { class: 'meta', text: `${list.length}` }))),
+        el('ul', { class: 'list' }, rows));
     }
 
     function drawList(d) {
@@ -346,27 +435,31 @@
       detailBox.replaceChildren(top, el('div', { class: 'detail' }, head, reviewCard(c), facts, invs, bar));
     }
 
-    // المراجعة في بطاقة العميل: ملاحظة اختيارية، ثم «سجّل المراجعة»
+    // المراجعة في بطاقة العميل: الحالة، وزر يفتح بطاقة التأكيد
     function reviewCard(c) {
       const rv = st.data.review;
       if (!rv || !needsReview(c)) return null;
       const r = rv.items[c.id];
-      if (!rv.can_review) {
-        if (!r) return el('div', { class: 'note warn', text: 'لم يُراجَع هذا العميل هذا الأسبوع.' });
-        return el('section', { class: 'd-block' }, el('h2', { text: 'مراجعة الأسبوع' }),
-          el('p', { class: 'rev-text', text: r.note || 'رُوجع دون ملاحظة.' }),
-          el('p', { class: 'muted small', text: `${r.by} · ${timeOf(r.at)}${r.late ? ' (بعد الأجل)' : ''}` }));
+      if (!r) {
+        if (!rv.can_review) return el('div', { class: 'note warn', text: 'لم يُراجَع هذا العميل هذا الأسبوع.' });
+        const go = el('button', { type: 'button', class: 'btn-plain', text: 'سجّل المراجعة' });
+        go.addEventListener('click', () => reviewDialog(c, null));
+        return el('section', { class: 'd-block rev-card' }, el('h2', { text: 'مراجعة الأسبوع: لم تراجعه بعد' }),
+          el('p', { class: 'muted small', text: 'اتصل به، ثم سجّل ما قاله. المراجعة تُكتب تعليقاً في سجل العميل في زوهو.' }),
+          el('div', { class: 'rev-actions' }, go));
       }
-      const area = el('textarea', { rows: '2', maxlength: '400', class: 'rev-area', 'aria-label': 'ملاحظة المراجعة', placeholder: 'اختياري. مثال: وعد بالدفع يوم الخميس' });
-      area.value = r ? r.note : '';
-      const save = el('button', { type: 'button', class: 'btn-plain', text: r ? 'حفظ الملاحظة' : 'سجّل المراجعة' });
-      save.addEventListener('click', async () => { if (await saveReview(c, area.value.trim(), save)) { /* الرسم يعيد البطاقة */ } });
-      const cancel = r ? el('button', { type: 'button', class: 'btn-plain', text: 'إلغاء المراجعة' }) : null;
-      if (cancel) cancel.addEventListener('click', () => cancelReview(c, cancel));
-      return el('section', { class: 'd-block rev-card' + (r ? ' on' : '') },
-        el('h2', { text: r ? `راجعته ${timeOf(r.at)}${r.late ? ' (بعد الأجل)' : ''}` : 'مراجعة الأسبوع: لم تراجعه بعد' }),
-        el('label', { class: 'field' }, el('span', { class: 'muted small', text: 'ماذا قال العميل؟' }), area),
-        el('div', { class: 'rev-actions' }, save, cancel));
+      const parts = [el('h2', { text: `راجعه ${rv.can_review ? '' : r.by + ' '}${timeOf(r.at)}${r.late ? ' (بعد الأجل)' : ''}`.replace('  ', ' ') }),
+        el('p', { class: 'rev-text', text: r.note || 'دون ملاحظة.' }),
+        el('p', { class: r.zoho === 'done' ? 'muted small' : 'rev-warn small', text: r.zoho === 'done' ? '✓ مكتوبة في سجل العميل في زوهو.' : r.zoho === 'unknown' || r.zoho === 'pending'
+          ? 'لم يصل رد واضح من زوهو. لا تعد المحاولة: الإدارة تتحقق منها.' : 'لم تصل إلى زوهو بعد.' })];
+      if (rv.can_review && sendable(r)) {
+        const again = el('button', { type: 'button', class: 'btn-plain', text: 'أعد الإرسال' });
+        again.addEventListener('click', () => reviewDialog(c, r));
+        const cancel = el('button', { type: 'button', class: 'btn-plain', text: 'إلغاء المراجعة' });
+        cancel.addEventListener('click', () => cancelReview(c, cancel));
+        parts.push(el('div', { class: 'rev-actions' }, again, cancel));
+      }
+      return el('section', { class: 'd-block rev-card on' }, ...parts);
     }
 
     // ——— التوجيه والتحميل ———

@@ -3,7 +3,7 @@
   const ROLE = { admin: 'مدير', depositor: 'مودِع', rep: 'مندوب' };
   const ACTION = {
     login: 'دخول', 'user.create': 'إنشاء مستخدم', 'user.disable': 'إيقاف مستخدم',
-    'user.enable': 'تفعيل مستخدم', 'user.password': 'تغيير رمز سري', 'user.rep': 'تغيير رمز المندوب', 'coll.review': 'مراجعة عميل', 'coll.review.cancel': 'إلغاء مراجعة', setup: 'الإعداد الأولي',
+    'user.enable': 'تفعيل مستخدم', 'user.password': 'تغيير رمز سري', 'user.rep': 'تغيير رمز المندوب', 'coll.review': 'مراجعة عميل', 'coll.review.cancel': 'إلغاء مراجعة', 'coll.comment': 'تعليق مراجعة في زوهو', 'coll.comment.resolve': 'حسم تعليق مراجعة', setup: 'الإعداد الأولي',
     deposit: 'إيداع شيك', 'deposit.release': 'تحرير إيداع', 'deposit.reverted': 'إيداع أُلغي في زوهو',
   };
   const RESULT = { ok: 'تمّ', denied: 'مرفوض', error: 'خطأ' };
