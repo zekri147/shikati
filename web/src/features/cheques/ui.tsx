@@ -45,6 +45,8 @@ const Dot = () => <span aria-hidden className="text-soft">·</span>;
 export type CardOpts = {
   selectable?: boolean; selected?: boolean; onToggle?: (c: Cheque) => void; link?: boolean;
   showStatus?: boolean; noAge?: boolean; ageInHandOnly?: boolean; lateOnly?: boolean; note?: string | null;
+  // أسباب التنبيه تحت البطاقة: سطر لكل سبب، بخط ملوّن على طرفه (alert عاجل، warn متابعة، info للعلم)
+  reasons?: { tone: 'alert' | 'warn' | 'info'; text: string }[];
 };
 
 // بطاقة الشيك في سطرين: العميل والمبلغ، ثم الرقم والتاريخ والموقع وشارة واحدة.
@@ -109,6 +111,16 @@ export function ChequeCard({ c, o }: { c: Cheque; o: CardOpts }) {
           {(lock || status || age) ? <div className="ms-auto flex flex-none flex-wrap items-center gap-1.5">{lock}{status}{age}</div> : null}
         </div>
         {o.note ? <div className="border-s-3 border-s-warning bg-warning-tint px-2.5 py-1 text-sm text-foreground [overflow-wrap:anywhere]">{o.note}</div> : null}
+        {o.reasons && o.reasons.length ? (
+          <ul className="reasons m-0 mt-1 flex list-none flex-col gap-1 p-0">
+            {o.reasons.map((r, i) => (
+              <li key={i} className={cn('border-s-3 px-2.5 py-1 text-sm text-foreground [overflow-wrap:anywhere]',
+                r.tone === 'alert' ? 'border-s-brand bg-brand-tint' : r.tone === 'warn' ? 'border-s-warning bg-warning-tint' : 'border-s-line-strong bg-surface-alt text-muted')}>
+                {r.text}
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
       {o.selectable ? (
         <a href={detailHash(c.id)} onClick={(e) => e.stopPropagation()} aria-label={`تفاصيل شيك ${c.customer}`}
