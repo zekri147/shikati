@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Fingerprint } from 'lucide-react';
+import { loginWithPasskey, passkeyOnDevice, passkeySupported } from '@/lib/passkey';
 import { Button } from '@/components/ui/button';
 import { Field, Input, PasswordInput } from '@/components/ui/input';
 import { Footer, FormError, TopBar } from '@/components/shell';
@@ -29,6 +31,20 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  // زر البصمة يظهر فقط على هاتف فُعّلت عليه، فلا يحيّر من لم يفعّلها
+  const [bio, setBio] = useState(false);
+  const [bioBusy, setBioBusy] = useState(false);
+  useEffect(() => { if (passkeyOnDevice()) passkeySupported().then(setBio); }, []);
+
+  async function bioLogin() {
+    setError('');
+    setBioBusy(true);
+    const r = await loginWithPasskey();
+    if (r.ok) { clearCaches(); location.href = '/'; return; }
+    setBioBusy(false);
+    if (r.error) setError(r.error);
+    if (!passkeyOnDevice()) setBio(false);
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -49,6 +65,14 @@ export function LoginPage() {
 
   return (
     <AuthCard title="شيكاتي" sub="متابعة شيكات العملاء وإيداعها في البنك.">
+      {bio ? (
+        <>
+          <Button variant="primary" size="lg" className="mb-2" disabled={bioBusy} onClick={bioLogin}>
+            <Fingerprint aria-hidden className="size-6" />{bioBusy ? 'جارٍ التحقق…' : 'الدخول بالبصمة'}
+          </Button>
+          <p className="mb-2 mt-0 text-center text-sm text-muted">أو بالاسم والرمز السري:</p>
+        </>
+      ) : null}
       <form onSubmit={submit} noValidate>
         <Field label="اسم المستخدم">
           <Input id="username" name="username" enterKeyHint="next" autoComplete="username" autoCapitalize="none" spellCheck={false} dir="ltr" value={username} onChange={(e) => setUsername(e.target.value)} />
@@ -57,7 +81,7 @@ export function LoginPage() {
           <PasswordInput id="password" name="password" autoComplete="current-password" dir="ltr" enterKeyHint="go" value={password} onChange={(e) => setPassword(e.target.value)} />
         </Field>
         <FormError>{error}</FormError>
-        <Button id="login-btn" type="submit" variant="primary" size="lg" disabled={busy}>{busy ? "جارٍ الدخول…" : "دخول"}</Button>
+        <Button id="login-btn" type="submit" variant={bio ? "plain" : "primary"} size="lg" disabled={busy}>{busy ? "جارٍ الدخول…" : "دخول"}</Button>
       </form>
       <a className="mt-4 block text-center text-base text-muted underline" href="/help">طريقة التثبيت على الهاتف والاستعمال</a>
     </AuthCard>

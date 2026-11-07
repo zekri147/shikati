@@ -9,6 +9,8 @@ import { readCache, writeCache } from '@/lib/cache';
 import { ChequesModule } from '@/features/cheques/ChequesModule';
 import { CollModule } from '@/features/coll/CollModule';
 import { AppNav } from '@/components/nav';
+import { toast } from '@/components/toast';
+import { enablePasskey, passkeyOnDevice, passkeySupported } from '@/lib/passkey';
 
 const MODULES: Record<string, React.ComponentType<{ me: Me; hash: string }>> = { cheques: ChequesModule, coll: CollModule };
 
@@ -31,6 +33,7 @@ export function AppPage() {
   // الأقسام في شريط التنقل السفلي، فلا تُكرَّر في القائمة
   const links: MenuLink[] = [
     ...(me?.user.role === 'admin' ? [{ href: '/admin', label: 'الإدارة' }] : []),
+    { href: '/?passkey=1', label: 'الدخول بالبصمة' },
     { href: '/help', label: 'المساعدة وطريقة الاستعمال' },
   ];
   const Mod = mod ? MODULES[mod.id] : null;
@@ -47,6 +50,7 @@ export function AppPage() {
       <Footer />
       {me ? <AppNav hash={hash} modules={available.map((m) => m.id)} /> : null}
       {me && mod?.id === 'cheques' ? <Welcome name={me.user.display_name} /> : null}
+      {me ? <PasskeyOffer /> : null}
     </>
   );
 }
@@ -69,6 +73,44 @@ function Welcome({ name }: { name: string }) {
       <ModalActions>
         <Button variant="primary" onClick={close} autoFocus>فهمت، ابدأ</Button>
         <Button asChild><a href="/help" onClick={() => save(WELCOME_KEY, '1')}>اقرأ المساعدة</a></Button>
+      </ModalActions>
+    </Modal>
+  );
+}
+
+// عرض الدخول بالبصمة: مرة واحدة بعد الدخول على هاتف يدعمها ولم تُفعَّل عليه (بعد بطاقة الترحيب)،
+// ومتى شاء الموظف من «القائمة» (العنوان ‎/?passkey=1). البصمة لا تخرج من الهاتف.
+const ASKED_KEY = 'shikati-passkey-asked';
+function PasskeyOffer() {
+  const asked = new URLSearchParams(location.search).get('passkey') === '1';
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (asked) history.replaceState(history.state, '', '/' + location.hash);
+    if (!asked && (passkeyOnDevice() || load(ASKED_KEY) === '1' || load(WELCOME_KEY) !== '1')) return;
+    passkeySupported().then((ok) => {
+      if (ok) setOpen(true);
+      else if (asked) toast('هذا الهاتف لا يدعم الدخول بالبصمة من المتصفح، أو لا قفل بالبصمة فيه.', 'warn');
+    });
+  }, []);
+  const close = () => { save(ASKED_KEY, '1'); setOpen(false); };
+  async function run() {
+    setBusy(true); setError('');
+    const r = await enablePasskey();
+    setBusy(false);
+    if (r.ok) { save(ASKED_KEY, '1'); setOpen(false); toast('فُعّل الدخول بالبصمة على هذا الهاتف'); return; }
+    if (r.error) setError(r.error);
+  }
+  if (!open) return null;
+  return (
+    <Modal open={open} onClose={close} busy={busy} title="الدخول بالبصمة">
+      <p>{passkeyOnDevice() ? 'البصمة مفعّلة على هذا الهاتف. يمكنك تفعيلها من جديد إن حُذفت.' : 'ادخل في المرة القادمة ببصمتك أو بوجهك بدل الاسم والرمز السري.'}</p>
+      <Note>البصمة لا تخرج من هاتفك ولا تُرسل إلى التطبيق. والرمز السري يبقى صالحاً. إن ضاع الهاتف، يحذف المدير بصمته من صفحة الإدارة.</Note>
+      {error ? <p className="mt-2 text-base text-danger">{error}</p> : null}
+      <ModalActions>
+        <Button variant="primary" disabled={busy} onClick={run}>{busy ? 'جارٍ التفعيل…' : 'فعّل البصمة'}</Button>
+        <Button disabled={busy} onClick={close}>ليس الآن</Button>
       </ModalActions>
     </Modal>
   );

@@ -18,11 +18,16 @@ export function useBackClose(open: boolean, close: () => void) {
   }, [open]);
 }
 
-// الانتقال إلى عنوان بعد إغلاق نافذة: ننتظر رجوع خطوة النافذة أولاً، وإلا ضاع الانتقال
-export function navigate(hash: string) {
-  if (!(history.state && history.state.overlay)) { location.hash = hash; return; }
+// عمل بعد إغلاق نافذة: ننتظر رجوع خطوة النافذة في السجل أولاً، وإلا أغلق ذلك الرجوعُ ما يُفتح بعدها
+export function afterOverlay(fn: () => void) {
+  if (!(history.state && history.state.overlay)) { fn(); return; }
   let done = false;
-  const go = () => { if (done) return; done = true; window.removeEventListener('popstate', go); location.hash = hash; };
+  const go = () => { if (done) return; done = true; window.removeEventListener('popstate', go); fn(); };
   window.addEventListener('popstate', go);
   setTimeout(go, 400);
+}
+
+// الانتقال إلى عنوان بعد إغلاق نافذة
+export function navigate(hash: string) {
+  afterOverlay(() => { location.hash = hash; });
 }
