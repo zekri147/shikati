@@ -64,7 +64,7 @@ export function LoginPage() {
   }
 
   return (
-    <AuthCard title="شيكاتي" sub="متابعة شيكات العملاء وإيداعها في البنك.">
+    <AuthCard title="ميداني" sub="شيكات العملاء وتحصيلهم، لمندوبي إيلوناك.">
       {bio ? (
         <>
           <Button variant="primary" size="lg" className="mb-2" disabled={bioBusy} onClick={bioLogin}>

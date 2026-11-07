@@ -73,6 +73,10 @@ export function DepositDialog({ items, onClosed }: { items: Cheque[]; onClosed: 
                 <div className="font-semibold">{c.customer}</div>
                 <div className="text-sm text-muted">شيك رقم {c.cheque_number ? <Num>{c.cheque_number}</Num> : 'غير مسجّل'}</div>
                 <Amount value={c.amount} className="font-display text-base font-semibold" />
+                {/* الإيداع لا يشترط العهدة، لكن من يودع شيكاً عند غيره يُنبَّه */}
+                {c.custody && !c.custody.mine && (c.custody.holder || c.custody.to) ? (
+                  <Note tone="warn" compact>{c.custody.incoming ? 'سُلّم إليك ولم تؤكد استلامه بعد.' : `في عهدة ${c.custody.holder || c.custody.to}. تأكد أنه معك قبل الإيداع.`}</Note>
+                ) : null}
                 {r ? <div className={cn('mt-1 text-sm', r.cls === 'ok' && 'font-semibold text-success', r.cls === 'err' && 'text-danger', r.cls === 'muted' && 'text-muted')}>
                   {r.cls === 'ok' ? '✓ ' : r.cls === 'warn' ? <span className="text-warning">⚠ </span> : null}{r.text}</div> : null}
               </div>

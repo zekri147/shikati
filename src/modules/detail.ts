@@ -6,6 +6,8 @@ import { canEndorse as endorseAllowed, endorseBlocker } from './endorse';
 import { undoForDetail } from './undo';
 import { editForDetail } from './edit';
 import { depositDateFor } from './depositdate';
+import { custodyForDetail } from './custody';
+import { STATUS } from './constants';
 
 // صفحة تفاصيل الشيك: قراءة فقط. تُقرأ الدفعة من زوهو مباشرة في كل مرة،
 // ثم يُضاف إليها ما سجّله التطبيق نفسه (قفل الإيداع وسجل العمليات).
@@ -108,6 +110,7 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
   const undo = await undoForDetail(env, user, p as Parameters<typeof undoForDetail>[2]);
   const edit = await editForDetail(env, user, p as Parameters<typeof editForDetail>[2]);
   const rep = await customerRep(env, str(p.customer_id));
+  const custody = await custodyForDetail(env, user, pid, str(cf.cf_5d7197) === STATUS.IN_HAND);
   return json({
     id: p.payment_id,
     number: str(p.payment_number),
@@ -152,6 +155,7 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
       endorsement: endorsement || null,
     },
     can_endorse: canEndorse,
+    custody,
     undo,
     edit,
   });

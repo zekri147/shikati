@@ -20,6 +20,7 @@ import { ChequeImage } from './media';
 import { AllocList, Block, KV, PartyPicker, type Party } from './pickers';
 import { EditPanel } from './edit';
 import { DepositDialog } from './deposit';
+import { CustodyBlock } from './custody';
 import type { Cheque, Line } from './types';
 
 const LOCK_TEXT: Record<string, string> = {
@@ -117,6 +118,9 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, onDeposi
           : <div className="flex min-h-11 items-center justify-center bg-surface-alt p-2 text-center text-sm text-soft">لا توجد صورة لهذا الشيك</div>}
 
         <ChequePath d={d} />
+
+        {/* العهدة للشيك في الحوزة: من يحمله، والتسليم والاستلام */}
+        {d.custody ? <CustodyBlock id={d.id} k={d.custody} onChanged={() => { reload(); onDeposited?.(); }} /> : null}
 
         {/* بيانات الشيك: سطور «عنوان وقيمة» في مجموعة واحدة، لا مربع لكل معلومة */}
         <Block title="بيانات الشيك">

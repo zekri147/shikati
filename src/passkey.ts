@@ -111,7 +111,7 @@ export async function registerOptions(req: Request, env: Env, user: User): Promi
   const { results } = await env.DB.prepare('SELECT id FROM passkeys WHERE user_id = ?').bind(user.id).all<{ id: string }>();
   return json({
     challenge: await newChallenge(env, 'reg', user.id),
-    rp: { id: site(req).rpId, name: 'شيكاتي' },
+    rp: { id: site(req).rpId, name: 'ميداني' },
     user: { id: toB64url(enc.encode('u' + user.id)), name: user.username, displayName: user.display_name },
     pubKeyCredParams: [{ type: 'public-key', alg: ES256 }, { type: 'public-key', alg: RS256 }],
     timeout: 60_000,

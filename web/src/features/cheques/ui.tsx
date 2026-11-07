@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { isShared, markShared, sharedStyle } from '@/lib/motion';
 import { daysCount, daysText, fmtDate, shortDate, sum } from '@/lib/format';
 import type { Cheque, Line } from './types';
+import { custodyShort } from './custody';
 
 export const LATE_DAYS = 7;
 // بعد 14 يوماً يصير التأخير عاجلاً: شارة حمراء. قبلها نص بلون التحذير برمز الساعة
@@ -119,6 +120,7 @@ export function ChequeCard({ c, o }: { c: Cheque; o: CardOpts }) {
               ? <span>إيداع <Num>{shortDate(c.deposit_date)}</Num></span>
               : <Num>{shortDate(c.date)}</Num>}
             {c.location ? <><Dot /><span>{c.location}</span></> : null}
+            {custodyShort(c.custody) ? <><Dot /><span className={cn(c.custody?.incoming && 'font-semibold text-warning')}>{custodyShort(c.custody)}</span></> : null}
           </div>
           {(lock || status || age) ? <div className="ms-auto flex flex-none flex-wrap items-center gap-2">{lock}{status}{age}</div> : null}
         </div>

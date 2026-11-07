@@ -2,10 +2,12 @@
 export type Cheque = {
   id: string; number: string; customer: string; amount: number; cheque_number: string; date: string; days: number;
   location: string; status: string; destination: string; account: string; invoices: string;
-  has_image?: boolean; lock?: string; deposit_date?: string; deposit_days?: number; v?: string;
+  has_image?: boolean; lock?: string; deposit_date?: string; deposit_days?: number; v?: string; custody?: Custody;
 };
+// العهدة: من يحمل الشيك، بالنسبة إلى المستخدم الحالي (src/modules/custody.ts)
+export type Custody = { holder: string | null; mine: boolean; to: string | null; incoming: boolean; outgoing: boolean; from: string | null };
 export type Section = { items: Cheque[]; count: number; total: number };
-export type AlertKind = 'rejected' | 'late' | 'collect_late' | 'endorse_incomplete' | 'wrong_account' | 'unknown_lock' | 'box' | 'fiscal';
+export type AlertKind = 'rejected' | 'late' | 'collect_late' | 'endorse_incomplete' | 'wrong_account' | 'unknown_lock' | 'box' | 'fiscal' | 'handover';
 export type ChequesData = {
   generated_at: string; today: string; can_deposit: boolean;
   rejected: Section; agb_in_hand: Section; rostomia_in_hand: Section; no_destination: Section;

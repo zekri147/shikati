@@ -7,6 +7,7 @@ import {
 } from './constants';
 import { parseImage, readCheque, readerConfigured, readOrientation } from './ocr';
 import { allocateBills, canEndorse, endorseCheque } from './endorse';
+import { custodyOnRegister } from './custody';
 
 // تسجيل شيك جديد من التطبيق: دفعة عميل بطريقة «شيك»، موزّعة على أقدم فواتير العميل.
 // هذا ثاني مكان يكتب في زوهو بعد الإيداع، بموافقة ZEKRI (الإنشاء مباشرة دون اعتماد).
@@ -279,6 +280,8 @@ export async function handleRegister(req: Request, env: Env, user: User): Promis
   }
 
   await finish('done', warning || 'تم التسجيل', pid);
+  // العهدة: الشيك عند من سجّله. فشلها لا يمس التسجيل في زوهو
+  if (!endorsed) await custodyOnRegister(env, user, pid).catch((e) => console.error('custody', e));
 
   // 6. الشيك المظهّر لمورد: دفعة المورد مباشرة بعد دفعة العميل. فشلها لا يلغي التسجيل،
   // والشيك يبقى «في الحوزة» في حساب الشيكات المظهّرة حتى يُتمّ تظهيره من صفحته.
