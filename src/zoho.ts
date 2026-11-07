@@ -12,7 +12,15 @@ const TOKEN_HINTS: Record<string, string> = {
   'relay: invalid_client': 'معرّف العميل أو سرّه في الوسيط غير صحيح.',
   'relay: invalid_code': 'رمز التجديد في الوسيط غير صحيح.',
   relay_unreachable: 'تعذّر الوصول إلى الوسيط في غوغل.',
+  // زوهو يسمح بعدد محدود من تجديدات الرمز في كل 10 دقائق، ثم يرفض مؤقتاً برسالة «Access Denied»
+  'relay: too_many_requests': 'زوهو يرفض مؤقتاً لكثرة طلبات تجديد الرمز. لا تحاول لمدة 15 دقيقة، ثم افتح التطبيق مرة واحدة.',
+  'relay: zoho_refused': 'زوهو رفض تجديد الرمز دون سبب واضح، والأرجح كثرة الطلبات المتتالية. انتظر 15 دقيقة ثم حاول مرة واحدة. إن بقي الخطأ، شغّل الدالة checkSetup في الوسيط.',
+  'relay: not_json': 'الوسيط في غوغل رد بصفحة بدل الرمز. تحقق أن النشر ما زال «Anyone»، وأن السكربت لم يتغيّر دون نشر جديد.',
 };
+
+// بعد فشل التجديد لا نطلب الوسيط من جديد لمدة دقيقة: كل طلب أثناء رفض زوهو يطيل مدة الرفض
+const FAIL_KEY = 'zoho_token_fail';
+const FAIL_TTL = 60;
 
 let memToken: { token: string; exp: number } | null = null;
 
@@ -86,9 +94,15 @@ async function viaRelay(env: Env, force: boolean): Promise<TokenReply> {
   }
   const text = await res.text();
   let data: { access_token?: string; expires_in?: number; error?: string } = {};
-  try { data = JSON.parse(text); } catch { /* صفحة غير متوقعة من غوغل */ }
+  let isJson = true;
+  try { data = JSON.parse(text); } catch { isJson = false; /* صفحة غير متوقعة من غوغل */ }
   if (!data.access_token) {
-    const code = /^[a-z_]{3,40}$/.test(String(data.error || '')) ? `relay: ${data.error}` : `relay: HTTP ${res.status}`;
+    const err = String(data.error || '');
+    // الوسيط يمرّر رمز خطأ زوهو كما هو، أو «HTTP 400» حين يرد زوهو بخطأ غير معروف (مثل «Access Denied» عند كثرة الطلبات)
+    const code = !isJson ? 'relay: not_json'
+      : /^[a-z_]{3,40}$/.test(err) ? `relay: ${err}`
+        : /^HTTP \d{3}$/.test(err) ? 'relay: zoho_refused'
+          : `relay: HTTP ${res.status}`;
     console.error('relay token failed', code);
     throw tokenError(code);
   }
@@ -105,7 +119,16 @@ async function accessToken(env: Env, force = false): Promise<string> {
       return token;
     }
   }
-  const data = env.ZOHO_RELAY_URL ? await viaRelay(env, force) : await direct(env);
+  const failed = await cacheGet(env, FAIL_KEY);
+  if (failed) throw tokenError(failed);
+  let data: TokenReply;
+  try {
+    data = env.ZOHO_RELAY_URL ? await viaRelay(env, force) : await direct(env);
+  } catch (e) {
+    const code = e instanceof HttpError ? e.publicMessage.match(/\(([^)]+)\)/)?.[1] : null;
+    if (code) await cachePut(env, FAIL_KEY, code, FAIL_TTL);
+    throw e;
+  }
   // نُبقي هامش 5 دقائق قبل انتهاء الرمز
   const ttl = Math.max(60, (data.expires_in ?? 3600) - 300);
   memToken = { token: data.access_token, exp: nowSec() + ttl };
