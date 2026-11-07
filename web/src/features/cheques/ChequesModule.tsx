@@ -15,11 +15,12 @@ import { useFixedBottom } from '@/lib/layout';
 import { load as loadKey, save as saveKey } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 import { chequeWord, fmtAmount, norm, relTime, sum, todayIso } from '@/lib/format';
-import { CardList, ChequeCard, ChequeSection } from './ui';
+import { CardList, ChequeCard, ChequeSection, SectionHead } from './ui';
+import { Fold } from '@/components/ui/collapsible';
 import { ChequeImage } from './media';
 import { DetailPage } from './detail';
 import { RegisterPage } from './register';
-import type { Cheque, ChequesData } from './types';
+import type { AlertKind, Cheque, ChequesData } from './types';
 
 const MAX_BATCH = 15;
 const STALE_MS = 60_000;
@@ -31,17 +32,25 @@ const LOCATIONS = [{ value: '', label: 'الكل' }, { value: 'الجزائر', 
 const MAIN_STATUSES = ['في الحوزة', 'مودع في البنك', 'محصّل', 'مظهّر لمورد', 'مرفوض'];
 const STATUS_FILTERS: [string, string][] = [['', 'كل الحالات'], ['في الحوزة', 'في الحوزة'], ['مودع في البنك', 'في البنك'], ['محصّل', 'محصّل'],
   ['مظهّر لمورد', 'مظهّر'], ['مرفوض', 'مرفوض'], ['other', 'أخرى']];
-// ترتيب التنبيهات وعناوينها. closed: مطوي في البداية. quiet: لا يُحسب في عدد التبويب.
-const ALERTS = [
-  { kind: 'unknown_lock', title: 'بانتظار التحقق', cls: 'alert', note: 'انقطع الرد بعد محاولة الإيداع. تحقق في زوهو، ثم حرّر القفل من صفحة الإدارة.' },
-  { kind: 'rejected', title: 'شيكات مرفوضة', cls: 'alert', note: 'تحتاج متابعة مع العميل.' },
-  { kind: 'endorse_incomplete', title: 'تظهير غير مكتمل', cls: 'alert', note: 'مسجّل لمورد في حساب الشيكات المظهّرة دون دفعة مورد. افتح الشيك وأتمّ التظهير.' },
-  { kind: 'collect_late', title: 'تحصيل متأخر في AGB', cls: 'warn', note: 'أودعت في AGB منذ أكثر من 7 أيام ولم تُحصَّل بعد. تابعها مع البنك.' },
-  { kind: 'late', title: 'لم يودع بعد 7 أيام', cls: 'warn', note: 'في الحوزة منذ أكثر من 7 أيام من الاستلام. أعطها الأولوية في الإيداع.' },
-  { kind: 'wrong_account', title: 'حساب غير صحيح في زوهو', cls: 'warn', withText: true },
-  { kind: 'box', title: 'صندوق غير مطابق', cls: 'warn', withText: true },
-  { kind: 'fiscal', title: 'الملف الجبائي للعميل ناقص', cls: '', withText: true, closed: true, quiet: true },
-] as const;
+// أسباب التنبيه مرتبة من الأعجل. كل شيك يظهر مرة واحدة في مجموعة أعجل أسبابه، وتحته أسبابه كلها.
+// text: سطر السبب تحت البطاقة. «متأخر» و«تحصيل متأخر» تظهر في شارة البطاقة نفسها، فلا سطر لهما.
+// quiet: لا يُحسب في عدد التبويب.
+type Tier = 'urgent' | 'follow' | 'info';
+const REASONS: Record<AlertKind, { rank: number; tier: Tier; text: (t?: string) => string | null; quiet?: boolean }> = {
+  unknown_lock: { rank: 0, tier: 'urgent', text: () => 'بانتظار التحقق: انقطع الرد بعد محاولة الإيداع. تحقق في زوهو، ثم حرّر القفل من صفحة الإدارة.' },
+  rejected: { rank: 1, tier: 'urgent', text: () => 'تابعه مع العميل.' },
+  endorse_incomplete: { rank: 2, tier: 'urgent', text: () => 'تظهير غير مكتمل: لم تُنشأ دفعة المورد. افتح الشيك وأتمّ التظهير.' },
+  collect_late: { rank: 3, tier: 'follow', text: () => null },
+  late: { rank: 4, tier: 'follow', text: () => null },
+  wrong_account: { rank: 5, tier: 'follow', text: (t) => 'حساب غير صحيح في زوهو' + (t ? ': ' + t : '.') },
+  box: { rank: 6, tier: 'follow', text: (t) => 'صندوق غير مطابق' + (t ? ': ' + t : '.') },
+  fiscal: { rank: 7, tier: 'info', text: (t) => 'الملف الجبائي للعميل ناقص' + (t ? ': ' + t : '.'), quiet: true },
+};
+const TIERS: { id: Tier; title: string; tone: 'alert' | 'warn' | 'info' }[] = [
+  { id: 'urgent', title: 'عاجل', tone: 'alert' },
+  { id: 'follow', title: 'للمتابعة', tone: 'warn' },
+  { id: 'info', title: 'للعلم', tone: 'info' },
+];
 
 type View = 'deposit' | 'all' | 'alerts' | 'new' | 'detail';
 function parseRoute(hash: string): { view: View; id?: string } {
@@ -70,7 +79,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   const [status, setStatus] = useState('');
   const [limit, setLimit] = useState(PAGE);
   const [selected, setSelected] = useState<Map<string, Cheque>>(new Map());
-  const [open, setOpen] = useState<Record<string, boolean>>(() => Object.fromEntries(ALERTS.map((a) => ['al-' + a.kind, !('closed' in a && a.closed)])));
+  const [open, setOpen] = useState<Record<string, boolean>>({});
   const [sheet, setSheet] = useState(false);
   const [depositing, setDepositing] = useState<Cheque[] | null>(null);
   const [, setLearnedTick] = useState(0);
@@ -130,8 +139,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   const pick = (items: Cheque[]) => items.filter(matches);
 
   // عدد التنبيهات في التبويب: الشيكات لا الأسباب، ودون التنبيهات الهادئة
-  const loud = new Set<string>(ALERTS.filter((a) => !('quiet' in a && a.quiet)).map((a) => a.kind));
-  const alertCount = data ? new Set(data.alerts.filter((x) => loud.has(x.kind)).map((x) => x.id)).size : 0;
+  const alertCount = data ? new Set(data.alerts.filter((x) => REASONS[x.kind] && !REASONS[x.kind].quiet).map((x) => x.id)).size : 0;
 
   // إزالة ما لم يعد قابلاً للإيداع من التحديد
   useEffect(() => {
@@ -258,21 +266,52 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
       </div>
     );
     statusText = alertCount ? <>تحتاج متابعة: <span className="font-semibold text-foreground">{chequeWord(alertCount)}</span></> : 'لا شيك يحتاج متابعة.';
-    const parts = ALERTS.map((a) => {
-      const rows = data.alerts.filter((x) => x.kind === a.kind);
-      const texts = new Map(rows.map((x) => [x.id, x.text || null]));
-      const items = pick(rows.map((x) => byId.get(x.id)).filter(Boolean) as Cheque[]);
-      if (!items.length) return null;
-      const id = 'al-' + a.kind;
+    // كل شيك مرة واحدة: أسبابه كلها، وأعجلها يحدد مجموعته وترتيبه
+    const groups = new Map<string, { c: Cheque; kinds: { kind: AlertKind; text?: string }[]; rank: number }>();
+    for (const x of data.alerts) {
+      const def = REASONS[x.kind];
+      const c = byId.get(x.id);
+      if (!def || !c || !matches(c)) continue;
+      const g = groups.get(x.id) || { c, kinds: [], rank: 99 };
+      if (!g.kinds.some((k) => k.kind === x.kind)) g.kinds.push({ kind: x.kind, text: x.text });
+      g.rank = Math.min(g.rank, def.rank);
+      groups.set(x.id, g);
+    }
+    const sorted = [...groups.values()].sort((a, b) => a.rank - b.rank || b.c.days - a.c.days);
+    const tierOf = (rank: number) => (Object.values(REASONS).find((r) => r.rank === rank) || REASONS.fiscal).tier;
+    const parts = TIERS.map((t) => {
+      const list = sorted.filter((g) => tierOf(g.rank) === t.id);
+      if (!list.length) return null;
+      const cards = (
+        <CardList>
+          {list.map((g) => {
+            const reasons = g.kinds.sort((a, b) => REASONS[a.kind].rank - REASONS[b.kind].rank)
+              .map((k) => ({ tone: REASONS[k.kind].tier === 'urgent' ? 'alert' as const : REASONS[k.kind].tier === 'follow' ? 'warn' as const : 'info' as const, text: REASONS[k.kind].text(k.text) }))
+              .filter((r): r is { tone: 'alert' | 'warn' | 'info'; text: string } => !!r.text);
+            return <ChequeCard key={g.c.id} c={g.c} o={{ link: true, showStatus: true, lateOnly: true, ageInHandOnly: true, reasons }} />;
+          })}
+        </CardList>
+      );
+      const items = list.map((g) => g.c);
+      // «للعلم» مطوي: ليس عملاً للمودِع
+      if (t.id === 'info') {
+        return (
+          <Fold key={t.id} open={openFold('al-info', true)} onOpenChange={setFold('al-info')} className="fold mt-2"
+            head={<SectionHead title={t.title} count={items.length} total={sum(items)} inTrigger />}>
+            <div className="[&_.item]:bg-raised">{cards}</div>
+          </Fold>
+        );
+      }
       return (
-        <ChequeSection key={id} title={a.title} items={items} collapsible noteTone={a.cls as 'alert' | 'warn' | ''}
-          note={'note' in a ? a.note : null}
-          opts={{ link: true, ageInHandOnly: true, showStatus: a.kind === 'wrong_account' || a.kind === 'box' || a.kind === 'fiscal' }}
-          noteFor={'withText' in a && a.withText ? (c) => texts.get(c.id) || null : undefined}
-          open={openFold(id, true)} onOpenChange={setFold(id)} />
+        <section key={t.id} className="mt-4">
+          <div className={cn('mb-2 border-b pb-2', t.id === 'urgent' ? 'border-brand' : 'border-warning')}>
+            <SectionHead title={t.title} count={items.length} total={sum(items)} primary />
+          </div>
+          {cards}
+        </section>
       );
     }).filter(Boolean);
-    body = parts.length ? <div className="mt-4 flex flex-col gap-2">{parts}</div>
+    body = parts.length ? <div>{parts}</div>
       : <div className="mt-4"><Empty>{q || loc ? 'لا تنبيه يطابق البحث أو الموقع.' : 'لا توجد تنبيهات. كل الشيكات في وضع سليم.'}</Empty></div>;
   }
 
