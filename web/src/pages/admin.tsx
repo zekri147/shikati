@@ -8,6 +8,7 @@ import { CLOSE_MS, Modal, ModalActions, Sheet } from '@/components/ui/dialog';
 import { Segmented } from '@/components/ui/segmented';
 import { LIST_BOX } from '@/features/cheques/ui';
 import { load, save } from '@/lib/storage';
+import { afterOverlay } from '@/lib/back';
 import { Amount, Ltr, Num } from '@/components/ltr';
 import { ErrorBox, Footer, FormError, Main, Note, TopBar } from '@/components/shell';
 import { toast } from '@/components/toast';
@@ -19,7 +20,7 @@ const ROLE: Record<string, string> = { admin: 'مدير', depositor: 'مودِع
 const ACTION: Record<string, string> = {
   login: 'دخول', 'user.create': 'إنشاء مستخدم', 'user.disable': 'إيقاف مستخدم', 'user.enable': 'تفعيل مستخدم',
   'user.password': 'تغيير رمز سري', 'user.rep': 'تغيير رمز المندوب', 'coll.review': 'مراجعة عميل', 'coll.review.cancel': 'إلغاء مراجعة',
-  'coll.comment': 'تعليق مراجعة في زوهو', 'coll.comment.resolve': 'حسم تعليق مراجعة', setup: 'الإعداد الأولي',
+  'coll.comment': 'تعليق مراجعة في زوهو', 'passkey.add': 'تفعيل البصمة', 'passkey.clear': 'حذف البصمة', 'coll.comment.resolve': 'حسم تعليق مراجعة', setup: 'الإعداد الأولي',
   deposit: 'إيداع شيك', 'deposit.release': 'تحرير إيداع', 'deposit.reverted': 'إيداع أُلغي في زوهو',
 };
 const RESULT: Record<string, string> = { ok: 'تمّ', denied: 'مرفوض', error: 'خطأ' };
@@ -90,7 +91,7 @@ function UserActions({ u, self, setAsk, refresh }: { u: any; self: boolean; setA
   const post = (path: string, body?: object) => api(`/api/admin/users/${u.id}/${path}`, { method: 'POST', body: body || {} });
   return (
     <div className="flex flex-col gap-2 px-4 pb-2">
-      <p className="m-0 text-sm text-muted"><Ltr>{u.username}</Ltr> · {ROLE[u.role] || u.role} · {u.active ? 'نشط' : 'موقوف'}</p>
+      <p className="m-0 text-sm text-muted"><Ltr>{u.username}</Ltr> · {ROLE[u.role] || u.role} · {u.active ? 'نشط' : 'موقوف'}{u.passkeys ? ' · البصمة مفعّلة' : ''}</p>
       <Button onClick={() => setAsk({ title: 'رمز سري جديد لـ ' + u.display_name, text: 'أعطه الرمز الجديد بنفسك، لا في رسالة مكتوبة.', okText: 'حفظ الرمز', password: true,
         run: async (p) => { await post('password', { password: p }); toast('حُفظ الرمز السري الجديد'); await refresh(); } })}>رمز سري جديد</Button>
       {/* رمز المندوب: يربط المستخدم بعملائه في زوهو (حقل «Owner») فيرى تحصيلهم */}
@@ -98,6 +99,12 @@ function UserActions({ u, self, setAsk, refresh }: { u: any; self: boolean; setA
         text: u.role === 'rep' ? 'اكتبه كما في حقل «Owner» على العميل في زوهو. يرى المندوب عملاء هذا الرمز فقط.' : 'اكتبه كما في حقل «Owner» في زوهو ليرى قسم التحصيل لعملائه. اتركه فارغاً لإزالته.',
         okText: 'حفظ الرمز', field: { label: 'رمز المندوب', value: u.rep_code || '', placeholder: 'AMINE' },
         run: async (code) => { await post('rep', { rep_code: code }); toast('حُفظ رمز المندوب'); await refresh(); } })}>رمز المندوب{u.rep_code ? <> (<Ltr>{u.rep_code}</Ltr>)</> : null}</Button>
+      {/* حذف أجهزة البصمة: لهاتف ضاع أو تغيّر. يبقى الدخول بالرمز السري */}
+      {u.passkeys ? (
+        <Button onClick={() => setAsk({ title: 'حذف البصمة لـ ' + u.display_name, okText: 'احذف البصمة', danger: true,
+          text: `سيُحذف الدخول بالبصمة من ${u.passkeys === 1 ? 'جهازه' : 'أجهزته (' + u.passkeys + ')'}. يبقى دخوله بالاسم والرمز السري، ويمكنه تفعيل البصمة من جديد.`,
+          run: async () => { await post('passkeys'); toast('حُذفت البصمة'); await refresh(); } })}>حذف البصمة ({u.passkeys})</Button>
+      ) : null}
       {self ? null : u.active ? (
         <Button variant="danger" className="mt-4" onClick={() => setAsk({ title: 'إيقاف ' + u.display_name, text: 'سيُخرج من التطبيق فوراً، ولن يستطيع الدخول حتى تعيد تفعيله.', okText: 'إيقاف', danger: true,
           run: async () => { await post('disable'); toast('أُوقف ' + u.display_name); await refresh(); } })}>إيقاف الحساب</Button>
@@ -255,7 +262,7 @@ export function AdminPage() {
       </Main>
       <Footer />
       <Sheet open={!!userSheet} onClose={() => setUserSheet(null)} title={userSheet ? userSheet.display_name : ''} action={<Button onClick={() => setUserSheet(null)}>إغلاق</Button>}>
-        {userSheet ? <UserActions u={userSheet} self={userSheet.username === me?.user.username} setAsk={(a) => { setUserSheet(null); setAsk(a); }} refresh={refresh} /> : null}
+        {userSheet ? <UserActions u={userSheet} self={userSheet.username === me?.user.username} setAsk={(a) => { setUserSheet(null); afterOverlay(() => setAsk(a)); }} refresh={refresh} /> : null}
       </Sheet>
       <Modal open={adding} onClose={() => setAdding(false)} title="إضافة مستخدم">
           <form onSubmit={addUser} noValidate>

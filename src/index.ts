@@ -5,6 +5,7 @@ import { currentUser, login, logout, requireUser } from './auth';
 import { handleAdmin } from './admin';
 import { canUse, modules } from './modules';
 import { handleSetup, setupAvailable } from './setup';
+import { loginOptions, loginVerify, registerOptions, registerVerify } from './passkey';
 
 async function handleApi(req: Request, env: Env, path: string): Promise<Response> {
   assertSameOrigin(req);
@@ -12,6 +13,11 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
   if (path === '/api/login' && req.method === 'POST') return login(req, env);
   if (path === '/api/logout' && req.method === 'POST') return logout(req, env);
   if (path === '/api/setup' && req.method === 'POST') return handleSetup(req, env);
+  // الدخول بالبصمة: الخياران والتحقق دون جلسة، والتفعيل لمن دخل بالرمز السري
+  if (path === '/api/passkey/login/options' && req.method === 'POST') return loginOptions(req, env);
+  if (path === '/api/passkey/login' && req.method === 'POST') return loginVerify(req, env);
+  if (path === '/api/passkey/register/options' && req.method === 'POST') return registerOptions(req, env, await requireUser(req, env));
+  if (path === '/api/passkey/register' && req.method === 'POST') return registerVerify(req, env, await requireUser(req, env));
 
   if (path === '/api/me' && req.method === 'GET') {
     const user = await requireUser(req, env);

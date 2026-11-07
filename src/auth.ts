@@ -15,13 +15,13 @@ const MAX_PER_IP = 20;
 // بصمة ثابتة تُحسب عند غياب المستخدم حتى يتساوى زمن الرد
 const DUMMY_SALT = 'AAAAAAAAAAAAAAAAAAAAAA==';
 
-async function isLocked(env: Env, key: string): Promise<boolean> {
+export async function isLocked(env: Env, key: string): Promise<boolean> {
   const row = await env.DB.prepare('SELECT locked_until FROM login_attempts WHERE key = ?')
     .bind(key).first<{ locked_until: number }>();
   return !!row && row.locked_until > nowSec();
 }
 
-async function recordFailure(env: Env, key: string, max: number): Promise<void> {
+export async function recordFailure(env: Env, key: string, max: number): Promise<void> {
   const now = nowSec();
   const row = await env.DB.prepare('SELECT failures, first_at FROM login_attempts WHERE key = ?')
     .bind(key).first<{ failures: number; first_at: number }>();
@@ -84,7 +84,11 @@ export async function login(req: Request, env: Env): Promise<Response> {
   }
 
   await env.DB.prepare('DELETE FROM login_attempts WHERE key = ?').bind(userKey).run();
+  return startSession(env, row, 'password');
+}
 
+// جلسة جديدة بعد التحقق من المستخدم: بالرمز السري أو بالبصمة. الطريقة تُكتب في سجل العمليات
+export async function startSession(env: Env, row: { id: number; username: string; display_name: string; role: Role }, method: 'password' | 'passkey'): Promise<Response> {
   const hours = Math.max(1, Number(env.SESSION_HOURS) || 12);
   const token = randomToken();
   const now = nowSec();
@@ -93,7 +97,7 @@ export async function login(req: Request, env: Env): Promise<Response> {
   // تنظيف الجلسات المنتهية بين الحين والآخر
   await env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(now).run();
 
-  await audit(env, row, 'login', 'ok');
+  await audit(env, row, 'login', 'ok', undefined, method === 'passkey' ? 'passkey' : undefined);
   return json(
     { user: { username: row.username, display_name: row.display_name, role: row.role } },
     200,

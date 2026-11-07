@@ -32,7 +32,7 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
   // GET /api/admin/users
   if (req.method === 'GET' && path === '/users') {
     const { results } = await env.DB.prepare(
-      'SELECT id, username, display_name, role, rep_code, active, created_at FROM users ORDER BY id',
+      'SELECT id, username, display_name, role, rep_code, active, created_at, (SELECT COUNT(*) FROM passkeys p WHERE p.user_id = users.id) AS passkeys FROM users ORDER BY id',
     ).all();
     return json({ users: results });
   }
@@ -61,8 +61,8 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
     return json({ ok: true }, 201);
   }
 
-  // POST /api/admin/users/:id/(disable|enable|password)
-  const m = path.match(/^\/users\/(\d+)\/(disable|enable|password|rep)$/);
+  // POST /api/admin/users/:id/(disable|enable|password|rep|passkeys)
+  const m = path.match(/^\/users\/(\d+)\/(disable|enable|password|rep|passkeys)$/);
   if (req.method === 'POST' && m) {
     const id = Number(m[1]);
     const action = m[2];
@@ -76,6 +76,13 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
       const code = validateRepCode(b.rep_code, target.role);
       await env.DB.prepare('UPDATE users SET rep_code = ? WHERE id = ?').bind(code, id).run();
       await audit(env, admin, 'user.rep', 'ok', target.username, code || '—');
+      return json({ ok: true });
+    }
+
+    // حذف أجهزة البصمة: هاتف ضاع أو تغيّر. يبقى الدخول بالرمز السري
+    if (action === 'passkeys') {
+      await env.DB.prepare('DELETE FROM passkeys WHERE user_id = ?').bind(id).run();
+      await audit(env, admin, 'passkey.clear', 'ok', target.username);
       return json({ ok: true });
     }
 
