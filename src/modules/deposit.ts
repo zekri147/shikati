@@ -4,7 +4,7 @@ import { zohoRequest, ZohoTimeout } from '../zoho';
 import { audit } from '../audit';
 import { DEPOSIT_DATE_FIELD } from './depositdate';
 import { bankCollectedDate, showDate } from './banksms';
-import { ACCOUNT_CHEQUES_IN_HAND, CACHE_KEY, DEST, STATUS, todayAlgiers } from './constants';
+import { ACCOUNT_CHEQUES_IN_HAND, CACHE_KEY, DEST, parseRoles, STATUS, todayAlgiers } from './constants';
 
 // تسجيل إيداع شيك في بنك AGB، بنفس طريقة دالة deposer_agb في زوهو.
 // كل خطوة بعد إرسال طلب الإيداع لا تُعاد تلقائياً أبداً.
@@ -16,10 +16,7 @@ const PAYMENT_ID_RE = /^\d{10,25}$/;
 export type DepositState = 'pending' | 'done' | 'failed' | 'unknown';
 
 export function depositRoles(env: Env): Role[] {
-  return String(env.DEPOSIT_ROLES || 'admin')
-    .split(',')
-    .map((r) => r.trim())
-    .filter((r): r is Role => r === 'admin' || r === 'depositor');
+  return parseRoles(env.DEPOSIT_ROLES, 'admin');
 }
 
 export function canDeposit(env: Env, user: User): boolean {

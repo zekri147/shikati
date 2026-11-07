@@ -126,6 +126,7 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, onDeposi
             {d.deposit_date ? <KV label="تاريخ الإيداع"><Num>{fmtDate(d.deposit_date)}</Num></KV> : null}
             <KV label="الوجهة">{d.destination ? DEST_LABELS[d.destination] || d.destination : 'غير محددة'}</KV>
             <KV label="الموقع">{d.location}</KV>
+            <KV label="مندوب العميل">{d.rep || 'غير محدد في زوهو'}</KV>
             <KV label="سجّله">{d.created_by}</KV>
           </dl>
         </Block>

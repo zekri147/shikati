@@ -10,7 +10,7 @@ import { ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, CACHE_KEY, STATUS, todayAlgi
 //   الإيداع  ← حذف المعاملة البنكية، والحالة تعود «في الحوزة»
 //   التظهير  ← حذف دفعة المورد، والحالة تعود «في الحوزة»
 //   التسجيل  ← حذف دفعة العميل
-// يشمل ما أُنشئ قبل التطبيق. المدير يتراجع عن أي عملية، والمودِع عن عملياته هو فقط.
+// يشمل ما أُنشئ قبل التطبيق. المدير يتراجع عن أي عملية، والمندوب عن عملياته هو فقط.
 // التراجع يكون من آخر عملية إلى أولها، ويُفحص كل شيء في زوهو قبل الحذف.
 // لا إعادة تلقائية بعد طلب الحذف: إن انقطع الرد يُطلب التحقق.
 
@@ -150,7 +150,7 @@ export async function undoPlan(env: Env, p: Payment): Promise<UndoPlan | null> {
   return plan;
 }
 
-// من أنجز العملية في التطبيق؟ المودِع يتراجع عن عملياته هو فقط
+// من أنجز العملية في التطبيق؟ المندوب يتراجع عن عملياته هو فقط
 async function performer(env: Env, kind: UndoKind, pid: string): Promise<number | null> {
   const sql = {
     deposit: "SELECT user_id FROM deposits WHERE payment_id = ? AND state IN ('done', 'unknown')",
@@ -166,7 +166,7 @@ export async function canUndo(env: Env, user: User, kind: UndoKind, pid: string)
   return (await performer(env, kind, pid)) === user.id;
 }
 
-const NOT_YOURS = 'يتراجع المودِع عن العمليات التي أنجزها هو من التطبيق فقط. اطلب ذلك من المدير.';
+const NOT_YOURS = 'يتراجع المندوب عن العمليات التي أنجزها هو من التطبيق فقط. اطلب ذلك من المدير.';
 
 // لصفحة التفاصيل: خيار التراجع المتاح لهذا المستخدم، أو لا شيء
 export async function undoForDetail(env: Env, user: User, p: Payment): Promise<(UndoPlan & { allowed: boolean }) | null> {
@@ -179,7 +179,7 @@ export async function undoForDetail(env: Env, user: User, p: Payment): Promise<(
   if (!plan) return null;
   const mine = await canUndo(env, user, plan.kind, p.payment_id);
   if (!mine) {
-    // المودِع لا يرى زر تراجع لعملية غيره
+    // المندوب لا يرى زر تراجع لعملية غيره
     return null;
   }
   return { kind: plan.kind, title: plan.title, effect: plan.effect, blocker: plan.blocker, allowed: !plan.blocker };

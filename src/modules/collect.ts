@@ -371,7 +371,7 @@ export async function handleCollect(req: Request, env: Env, user: User): Promise
 export const collectModule: AppModule = {
   id: 'coll',
   title: 'التحصيل',
-  roles: ['admin', 'depositor', 'rep'],
+  roles: ['admin', 'rep'],
   // المدير يرى القسم دائماً، وغيره إن كان له رمز مندوب
   allow: (user) => user.role === 'admin' || !!normRep(user.rep_code),
   async handle(req, env, user, subpath) {

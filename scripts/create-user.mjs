@@ -31,8 +31,8 @@ const username = (await ask('اسم الدخول (أحرف لاتينية صغي
 if (!/^[a-z0-9._-]{3,32}$/.test(username)) { console.error('اسم غير صالح'); process.exit(1); }
 const display = (await ask('الاسم الظاهر: ')).trim();
 if (!display || display.length > 60) { console.error('الاسم الظاهر مطلوب'); process.exit(1); }
-const role = ((await ask('الدور (admin أو depositor أو rep) [admin]: ')).trim() || 'admin');
-if (!['admin', 'depositor', 'rep'].includes(role)) { console.error('دور غير صالح'); process.exit(1); }
+const role = ((await ask('الدور (admin أو rep) [admin]: ')).trim() || 'admin');
+if (!['admin', 'rep'].includes(role)) { console.error('دور غير صالح'); process.exit(1); }
 // رمز المندوب كما في حقل «Owner» على العميل في زوهو. إجباري للمندوب، واختياري لغيره
 const repCode = role === 'rep' ? (await ask('رمز المندوب (مثل AMINE): ')).trim().toUpperCase() : '';
 if (role === 'rep' && !/^[A-Z][A-Z0-9 _-]{1,31}$/.test(repCode)) { console.error('رمز مندوب غير صالح'); process.exit(1); }

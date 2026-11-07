@@ -8,7 +8,7 @@ import { handleReconcile } from './modules/reconcile';
 import { probeImage } from './modules/image';
 
 const USERNAME_RE = /^[a-z0-9._-]{3,32}$/;
-const ROLES: Role[] = ['admin', 'depositor', 'rep'];
+const ROLES: Role[] = ['admin', 'rep'];
 // رمز المندوب كما في الحقل «Owner» في زوهو: أحرف لاتينية كبيرة، مثل AMINE
 const REP_CODE_RE = /^[A-Z][A-Z0-9 _-]{1,31}$/;
 
@@ -70,7 +70,7 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
       .bind(id).first<{ id: number; username: string; role: Role }>();
     if (!target) throw new HttpError(404, 'المستخدم غير موجود.');
 
-    // رمز المندوب: يُضاف أو يُغيَّر أو يُحذف (للمودِع والمدير). يسري من الطلب التالي دون خروج.
+    // رمز المندوب: يُغيَّر للمندوب، ويُضاف أو يُحذف للمدير. يسري من الطلب التالي دون خروج.
     if (action === 'rep') {
       const b = await readJson<{ rep_code?: string }>(req);
       const code = validateRepCode(b.rep_code, target.role);

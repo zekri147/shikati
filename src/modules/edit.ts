@@ -6,12 +6,13 @@ import { ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, CACHE_KEY, DESTINATIONS, LOC
 import { canRegister, decodeBase64, type Allocation } from './register';
 import { parseImage } from './ocr';
 import { findVendorPayment } from './undo';
+import { canEndorse } from './endorse';
 import { chequeNumber, isoDate } from './fields';
 
 // تعديل الشيك بعد تسجيله، بموافقة ZEKRI يوم 2/11/2026: الرقم والمبلغ والتاريخ والموقع والوجهة والصورة.
 // العميل لا يُعدَّل: يُحذف التسجيل بالتراجع ثم يُسجَّل من جديد.
 // يُسمح ما دام الشيك «في الحوزة» دون إيداع ولا تظهير. تغيير المبلغ يعيد توزيعه آلياً على أقدم الفواتير.
-// المدير يعدّل أي شيك، حتى ما سُجّل قبل التطبيق، والمودِع ما سجّله هو فقط. لا إعادة تلقائية بعد الحفظ.
+// المدير يعدّل أي شيك، حتى ما سُجّل قبل التطبيق، والمندوب ما سجّله هو فقط. لا إعادة تلقائية بعد الحفظ.
 
 const ID_RE = /^\d{10,25}$/;
 const CHEQUE_RE = /^\d{7}$/;
@@ -53,7 +54,7 @@ async function readPayment(env: Env, pid: string): Promise<Payment> {
   return r.data.payment;
 }
 
-// المدير يعدّل أي شيك، والمودِع ما سجّله هو من التطبيق
+// المدير يعدّل أي شيك، والمندوب ما سجّله هو من التطبيق
 async function ownsOrAdmin(env: Env, user: User, pid: string): Promise<boolean> {
   if (!canRegister(env, user)) return false;
   if (user.role === 'admin') return true;
@@ -79,7 +80,7 @@ async function editBlocker(env: Env, p: Payment): Promise<string | null> {
 }
 
 // لصفحة التفاصيل: هل يظهر زر «تعديل» لهذا المستخدم؟
-export async function editForDetail(env: Env, user: User, p: Payment): Promise<{ allowed: boolean; blocker: string | null; version: string } | null> {
+export async function editForDetail(env: Env, user: User, p: Payment): Promise<{ allowed: boolean; blocker: string | null; version: string; destinations: string[] } | null> {
   if (!(await ownsOrAdmin(env, user, p.payment_id))) return null;
   const status = str(p.custom_field_hash?.cf_5d7197);
   if (status !== STATUS.IN_HAND) return null;
@@ -89,7 +90,10 @@ export async function editForDetail(env: Env, user: User, p: Payment): Promise<{
   } catch {
     blocker = 'تعذّر التحقق من الشيك في زوهو.';
   }
-  return { allowed: !blocker, blocker, version: version(p) };
+  // المندوب لا يحوّل الشيك إلى «مورد آخر»، لأن التظهير للمدير وحده
+  const current = str(p.custom_field_hash?.cf_d_pos_vers);
+  const destinations = DESTINATIONS.filter((d) => d !== ENDORSED_DEST || canEndorse(user) || d === current);
+  return { allowed: !blocker, blocker, version: version(p), destinations };
 }
 
 // التوزيع الجديد: الفواتير التي يسدّدها الشيك الآن (برصيدها قبله) مع فواتير العميل غير المدفوعة، الأقدم أولاً
@@ -142,7 +146,7 @@ async function plan(env: Env, user: User, b: EditBody) {
   const pid = str(b.payment_id);
   if (!ID_RE.test(pid)) throw new HttpError(400, 'معرّف الدفعة غير صالح.');
   if (!(await ownsOrAdmin(env, user, pid))) {
-    throw new HttpError(403, 'يعدّل المودِع الشيكات التي سجّلها هو من التطبيق فقط. اطلب ذلك من المدير.');
+    throw new HttpError(403, 'يعدّل المندوب الشيكات التي سجّلها هو من التطبيق فقط. اطلب ذلك من المدير.');
   }
   const p = await readPayment(env, pid);
   if (str(b.version) && str(b.version) !== version(p)) throw new HttpError(409, 'تغيّر الشيك في زوهو بعد فتح النموذج. حدّث الصفحة.');
@@ -167,6 +171,7 @@ async function plan(env: Env, user: User, b: EditBody) {
   if (!DATE_RE.test(date) || date > todayAlgiers()) throw new HttpError(400, 'تاريخ الاستلام غير صالح.');
   if (!LOCATIONS[locKey]) throw new HttpError(400, 'اختر الموقع.');
   if (!(DESTINATIONS as readonly string[]).includes(dest)) throw new HttpError(400, 'اختر وجهة الشيك.');
+  if (dest === ENDORSED_DEST && dest !== old.dest && !canEndorse(user)) throw new HttpError(403, 'التظهير لمورد للمدير وحده.');
   const image = b.image ? parseImage(b.image) : null;
 
   const changes: Change[] = [];

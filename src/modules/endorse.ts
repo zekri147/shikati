@@ -3,7 +3,7 @@ import { HttpError, json, readJson } from '../http';
 import { zohoGet, zohoRequest, ZohoTimeout } from '../zoho';
 import { audit } from '../audit';
 import { ACCOUNT_ENDORSED, CACHE_KEY, STATUS, todayAlgiers } from './constants';
-import { requireRegister, searchContacts } from './register';
+import { searchContacts } from './register';
 
 // التظهير لمورد: دفعة عميل في حساب الشيكات المظهّرة ← دفعة مورد من الحساب نفسه.
 // ثالث مكان يكتب في زوهو، بموافقة ZEKRI يوم 2/11/2026. التوزيع آلياً على أقدم فواتير المورد.
@@ -14,8 +14,14 @@ const ENDORSED_DEST = 'Autre Fournisseur';
 const VENDOR_STATUS = 'سُلّم للمورد';
 const VENDOR_BANK = 'شيك مظهّر من عميل';
 
+// التظهير لمورد للمدير وحده منذ 7/11/2026: دفع الموردين عمل محاسبي، لا عمل المندوب
+export const canEndorse = (user: User) => user.role === 'admin';
+function requireEndorse(user: User) {
+  if (!canEndorse(user)) throw new HttpError(403, 'التظهير لمورد للمدير وحده.');
+}
+
 export async function searchVendors(env: Env, user: User, q: string): Promise<Response> {
-  requireRegister(env, user);
+  requireEndorse(user);
   return json({ vendors: await searchContacts(env, 'vendor', q) });
 }
 
@@ -190,7 +196,7 @@ export async function endorseCheque(
 
 // إتمام التظهير من صفحة الشيك
 export async function handleEndorse(req: Request, env: Env, user: User): Promise<Response> {
-  requireRegister(env, user);
+  requireEndorse(user);
   const b = await readJson<{ payment_id?: string; vendor_id?: string; vendor?: string }>(req);
   const pid = String(b.payment_id || '');
   const vendorId = String(b.vendor_id || '');
@@ -203,7 +209,7 @@ export async function handleEndorse(req: Request, env: Env, user: User): Promise
 }
 
 export async function handleBillsPreview(req: Request, env: Env, user: User): Promise<Response> {
-  requireRegister(env, user);
+  requireEndorse(user);
   const b = await readJson<{ vendor_id?: string; amount?: number }>(req);
   const vendorId = String(b.vendor_id || '');
   const amount = Number(b.amount);

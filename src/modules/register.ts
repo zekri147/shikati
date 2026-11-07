@@ -3,10 +3,10 @@ import { HttpError, json, readJson } from '../http';
 import { zohoGet, zohoRequest, zohoUpload, ZohoTimeout } from '../zoho';
 import { audit } from '../audit';
 import {
-  ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, CACHE_KEY, DESTINATIONS, LOCATIONS, STATUS, todayAlgiers,
+  ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, CACHE_KEY, DESTINATIONS, LOCATIONS, parseRoles, STATUS, todayAlgiers,
 } from './constants';
 import { parseImage, readCheque, readerConfigured, readOrientation } from './ocr';
-import { allocateBills, endorseCheque } from './endorse';
+import { allocateBills, canEndorse, endorseCheque } from './endorse';
 
 // تسجيل شيك جديد من التطبيق: دفعة عميل بطريقة «شيك»، موزّعة على أقدم فواتير العميل.
 // هذا ثاني مكان يكتب في زوهو بعد الإيداع، بموافقة ZEKRI (الإنشاء مباشرة دون اعتماد).
@@ -17,10 +17,9 @@ const REQUEST_RE = /^[a-zA-Z0-9-]{16,64}$/;
 const CHEQUE_RE = /^\d{7}$/;
 const UNPAID_FILTER = 'Status.Unpaid';
 
+// كل مندوب يسجّل شيكاً لأي عميل (بطلب ZEKRI يوم 7/11/2026)
 export function registerRoles(env: Env): Role[] {
-  return String(env.REGISTER_ROLES || 'admin,depositor')
-    .split(',').map((r) => r.trim())
-    .filter((r): r is Role => r === 'admin' || r === 'depositor');
+  return parseRoles(env.REGISTER_ROLES, 'admin,rep');
 }
 export const canRegister = (env: Env, user: User) => registerRoles(env).includes(user.role);
 
@@ -34,7 +33,8 @@ export function registerOptions(env: Env, user: User): Response {
   return json({
     can_register: canRegister(env, user),
     reader: readerConfigured(env),
-    destinations: DESTINATIONS,
+    // وجهة «مورد آخر» تظهّر الشيك فور تسجيله، والتظهير للمدير وحده
+    destinations: DESTINATIONS.filter((d) => d !== 'Autre Fournisseur' || canEndorse(user)),
     locations: Object.entries(LOCATIONS).map(([key, v]) => ({ key, label: v.label })),
   });
 }
@@ -97,7 +97,7 @@ export async function handlePreview(req: Request, env: Env, user: User): Promise
   const customer = await allocate(env, customerId, amount);
   // الشيك المظهّر لمورد: توزيعه أيضاً على أقدم فواتير المورد
   const vendorId = String(b.vendor_id || '');
-  const vendor = ID_RE.test(vendorId) ? await allocateBills(env, vendorId, amount) : null;
+  const vendor = ID_RE.test(vendorId) && canEndorse(user) ? await allocateBills(env, vendorId, amount) : null;
   return json({ ...customer, vendor });
 }
 
@@ -157,6 +157,7 @@ export async function handleRegister(req: Request, env: Env, user: User): Promis
   if (!(DESTINATIONS as readonly string[]).includes(dest)) throw new HttpError(400, 'اختر وجهة الشيك.');
   if (!loc) throw new HttpError(400, 'اختر الموقع.');
   const endorsed = dest === 'Autre Fournisseur';
+  if (endorsed && !canEndorse(user)) throw new HttpError(403, 'التظهير لمورد للمدير وحده. سجّل الشيك لبنك AGB أو الرستمية.');
   const vendorId = String(b.vendor_id || '');
   const vendorName = String(b.vendor || '').trim().slice(0, 200);
   if (endorsed && (!ID_RE.test(vendorId) || !vendorName)) throw new HttpError(400, 'اختر المورد الذي سُلّم له الشيك.');

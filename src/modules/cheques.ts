@@ -243,7 +243,7 @@ async function getView(env: Env, refresh: boolean): Promise<ChequesView> {
 export const chequesModule: AppModule = {
   id: 'cheques',
   title: 'شيكاتي',
-  roles: ['admin', 'depositor'],
+  roles: ['admin', 'rep'],
   async handle(req, env, user, subpath) {
     if (req.method === 'GET' && (subpath === '' || subpath === '/')) {
       const refresh = new URL(req.url).searchParams.get('refresh') === '1';
