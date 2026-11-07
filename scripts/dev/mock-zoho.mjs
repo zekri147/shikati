@@ -30,6 +30,8 @@
 // قسم التحصيل: GET /contacts دون بحث يعيد العملاء المدينين بحقل «Owner» (cf_owner)،
 // وGET /invoices?status=unpaid يعيد كل الفواتير غير المسدّدة. المندوبون: AMINE وZAKARIA وSMAIL،
 // وعميل بلا مندوب، وعميل برصيد افتتاحي فقط، وآخر بفواتير ورصيد افتتاحي معاً.
+// تعليق المراجعة (POST /contacts/<id>/comments) حسب نص الملاحظة:
+//   «#قطع» ينقطع الرد بعد الإرسال    «#رفض» زوهو يرفض بالرمز 57 (صلاحية ناقصة)    غير ذلك: نجاح
 // ودفعة المورد عند التظهير (POST /vendorpayments) حسب آخر رقم في رقم الشيك:
 //   8 زوهو يرفض دفعة المورد     6 ينقطع الرد بعد الإرسال
 // ويقلّد أيضاً واجهة كلود (POST /v1/messages) فيعيد قراءة ثابتة لصورة الشيك،
@@ -227,6 +229,13 @@ http.createServer((req, res) => {
     }
     if (req.headers.authorization !== `Zoho-oauthtoken ${TOKEN}`) return send({ code: 57, message: 'not authorized' }, 401);
 
+    if ((m = path.match(/^\/books\/v3\/contacts\/(\d+)\/comments$/)) && req.method === 'POST') {
+      const j = JSON.parse(body || '{}');
+      log.push(`COMMENT ${m[1]} ${j.description}`);
+      if (String(j.description).includes('#رفض')) return send({ code: 57, message: 'You are not authorized to perform this operation' }, 401);
+      if (String(j.description).includes('#قطع')) { req.socket.destroy(); return; }
+      return send({ code: 0, message: 'Comment added.', contact_comment: { comment_id: `9${Date.now()}`, description: j.description } }, 201);
+    }
     if (path === '/books/v3/contacts' && req.method === 'GET' && !url.searchParams.get('search_text')) {
       const page = Number(url.searchParams.get('page') || 1);
       return send({ code: 0, contacts: page === 1 ? DEBTORS : [], page_context: { page, has_more_page: false } });

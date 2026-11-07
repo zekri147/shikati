@@ -123,6 +123,16 @@ https://shikati.zekri3047.workers.dev/api/admin/diag?refresh=1
 | ‏`invalid_code` | رمز التجديد في خصائص السكربت غير صحيح |
 | ‏`not_json` | الرابط غير صحيح، أو خيار «Who has access» ليس «Anyone» |
 
+## صلاحيات تعليقات المراجعة (قسم التحصيل)
+
+منذ 7/11/2026 تُرسل كل مراجعة في قسم التحصيل تعليقاً على العميل في زوهو، فيحتاج رمز التجديد صلاحية إنشاء التعليقات على العملاء. كرر الخطوة «3 مكرر» بهذه القائمة الكاملة معاً، مفصولة بفاصلة دون مسافات:
+
+```
+ZohoBooks.customerpayments.READ,ZohoBooks.customerpayments.CREATE,ZohoBooks.customerpayments.UPDATE,ZohoBooks.banking.CREATE,ZohoBooks.banking.READ,ZohoBooks.banking.DELETE,ZohoBooks.invoices.READ,ZohoBooks.contacts.READ,ZohoBooks.vendorpayments.CREATE,ZohoBooks.bills.READ,ZohoBooks.vendorpayments.READ,ZohoBooks.vendorpayments.DELETE,ZohoBooks.customerpayments.DELETE,ZohoBooks.contacts.CREATE
+```
+
+الصلاحية الأخيرة هي الجديدة. قبل إضافتها يرفض زوهو التعليق بالرمز 57، فتبقى المراجعة في التطبيق بحالة «لم يُرسل إلى زوهو»، ويرسلها المدير بعد تحديث الرمز من شاشة التحصيل (قسم «لم تصل إلى زوهو»).
+
 ## صلاحيات تسجيل الشيك
 
 تسجيل شيك جديد يحتاج إنشاء دفعات العملاء وقراءة الفواتير والعملاء. كرر الخطوة «3 مكرر» بهذه الصلاحيات معاً:
