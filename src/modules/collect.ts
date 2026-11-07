@@ -4,12 +4,14 @@ import { audit } from '../audit';
 import { cacheGet, cachePut, zohoGet } from '../zoho';
 import { todayAlgiers } from './constants';
 import type { AppModule } from './types';
+import { commentText, postReviewComment, type CommentResult } from './collcomment';
 
 // قسم «التحصيل» (7/11/2026، بطلب ZEKRI): أرصدة العملاء المدينين لكل مندوب، قراءة فقط من زوهو.
 // نقل من تبويب «التحصيل» في قائمة الاتصال، لكن الأرقام هنا حيّة بدل سكربت الصباح.
 // العميل ينسب إلى مندوبه بالحقل المخصص «Owner» (cf_owner) على العميل في زوهو.
 // المندوب يرى عملاءه فقط، والتصفية في الخادم. المدير يرى الكل ويختار المندوب.
-// لا كتابة في زوهو في هذا الملف. المراجعة الأسبوعية تُحفظ في قاعدة شيكاتي فقط (الجدول coll_reviews).
+// المراجعة الأسبوعية تُحفظ في الجدول coll_reviews، ثم تُرسل فوراً تعليقاً على العميل في زوهو.
+// الكتابة في زوهو نفسها في collcomment.ts وحده (بموافقة ZEKRI يوم 7/11/2026).
 
 const CACHE_KEY = 'coll_snapshot';
 const TTL = 600;            // عشر دقائق
@@ -167,10 +169,14 @@ export function reviewDeadline(week: string): number {
   return Date.parse(week + 'T11:00:00Z') + 5 * 86_400_000;
 }
 
-interface ReviewRow { customer_id: string; rep: string; customer_name: string; balance: number; note: string; username: string; reviewed_at: string; late: number }
+interface ReviewRow {
+  week: string; customer_id: string; rep: string; customer_name: string; balance: number; note: string;
+  username: string; reviewed_at: string; late: number; zoho_state: string; zoho_error: string | null;
+}
+const REVIEW_COLS = 'week, customer_id, rep, customer_name, balance, note, username, reviewed_at, late, zoho_state, zoho_error';
 
 async function weekReviews(env: Env, week: string, rep?: string): Promise<ReviewRow[]> {
-  const sql = 'SELECT customer_id, rep, customer_name, balance, note, username, reviewed_at, late FROM coll_reviews WHERE week = ?' + (rep ? ' AND rep = ?' : '');
+  const sql = `SELECT ${REVIEW_COLS} FROM coll_reviews WHERE week = ?` + (rep ? ' AND rep = ?' : '');
   const stmt = rep ? env.DB.prepare(sql).bind(week, rep) : env.DB.prepare(sql).bind(week);
   return (await stmt.all<ReviewRow>()).results || [];
 }
@@ -194,14 +200,46 @@ function reviewProgress(customers: CollCustomer[], rows: ReviewRow[]) {
   return [...out.values()].sort((a, b) => a.rep.localeCompare(b.rep));
 }
 
-// حفظ المراجعة أو تعديل ملاحظتها. المندوب يراجع عملاءه فقط، والعميل يجب أن يكون في قائمة المراجعة الآن.
+// ——— الإرسال إلى زوهو (المرحلة الثالثة): الكتابة نفسها في collcomment.ts ———
+
+// القفل: الصف يصير «pending» بإدخال ذري، فلا يُرسل تعليقان للمراجعة نفسها
+const SENDABLE = "('none', 'failed')";
+
+async function sendRow(env: Env, actor: User, week: string, id: string): Promise<{ state: string; error?: string }> {
+  const lock = await env.DB.prepare(
+    `UPDATE coll_reviews SET zoho_state = 'pending', zoho_error = NULL WHERE week = ? AND customer_id = ? AND zoho_state IN ${SENDABLE}`,
+  ).bind(week, id).run();
+  if (!lock.meta.changes) throw new HttpError(409, 'هذه المراجعة أُرسلت إلى زوهو أو قيد الإرسال.');
+  const row = await env.DB.prepare(`SELECT ${REVIEW_COLS} FROM coll_reviews WHERE week = ? AND customer_id = ?`).bind(week, id).first<ReviewRow>();
+  if (!row) throw new HttpError(404, 'المراجعة غير موجودة.');
+  let result: CommentResult;
+  try {
+    result = await postReviewComment(env, row);
+  } catch (e) {
+    // خطأ قبل الإرسال (رمز الوصول مثلاً): زوهو لم يستقبل شيئاً
+    result = { state: 'failed', error: e instanceof HttpError ? e.publicMessage : 'تعذّر الاتصال بزوهو' };
+  }
+  if (result.state === 'done') {
+    await env.DB.prepare("UPDATE coll_reviews SET zoho_state = 'done', zoho_comment_id = ?, zoho_error = NULL WHERE week = ? AND customer_id = ?")
+      .bind(result.comment_id, week, id).run();
+  } else {
+    await env.DB.prepare('UPDATE coll_reviews SET zoho_state = ?, zoho_error = ? WHERE week = ? AND customer_id = ?')
+      .bind(result.state, result.error, week, id).run();
+  }
+  await audit(env, actor, 'coll.comment', result.state === 'done' ? 'ok' : 'error', row.customer_name,
+    result.state === 'done' ? undefined : `${result.state}: ${result.error}`);
+  return result.state === 'done' ? { state: 'done' } : { state: result.state, error: result.error };
+}
+
+// تسجيل المراجعة ثم إرسالها فوراً تعليقاً على العميل في زوهو. المندوب يراجع عملاءه فقط.
+// بعد الإرسال تُقفل المراجعة. والمرفوضة من زوهو تُعدَّل ملاحظتها وتُرسل من جديد.
 async function saveReview(req: Request, env: Env, user: User): Promise<Response> {
   const b = await readJson<{ customer_id?: string; note?: string }>(req);
   const id = String(b.customer_id || '');
   if (!ID_RE.test(id)) throw new HttpError(400, 'العميل غير صالح.');
   const note = String(b.note ?? '').replace(/\s+/g, ' ').trim().slice(0, NOTE_MAX);
   const own = normRep(user.rep_code);
-  if (!own) throw new HttpError(403, 'المراجعة للمندوب صاحب العميل فقط.');
+  if (!own || user.role === 'admin') throw new HttpError(403, 'المراجعة للمندوب صاحب العميل فقط.');
   const snap = await getSnapshot(env, false);
   const c = snap.customers.find((x) => x.id === id);
   if (!c || c.owner !== own) throw new HttpError(403, 'هذا العميل ليس من عملائك.');
@@ -209,23 +247,69 @@ async function saveReview(req: Request, env: Env, user: User): Promise<Response>
   const now = Date.now();
   const week = reviewWeek(todayAlgiers(new Date(now)));
   const late = now > reviewDeadline(week) ? 1 : 0;
-  // الملاحظة تُعدَّل دون تغيير وقت المراجعة الأول ولا علامة التأخر
-  await env.DB.prepare(
-    'INSERT INTO coll_reviews (week, customer_id, rep, customer_name, balance, note, user_id, username, late) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ' +
-    'ON CONFLICT(week, customer_id) DO UPDATE SET note = excluded.note',
+  // مراجعة جديدة، أو تعديل ملاحظة مراجعة لم تصل إلى زوهو
+  const up = await env.DB.prepare(
+    'INSERT INTO coll_reviews (week, customer_id, rep, customer_name, balance, note, user_id, username, late, zoho_state) ' +
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'none') " +
+    `ON CONFLICT(week, customer_id) DO UPDATE SET note = excluded.note WHERE coll_reviews.zoho_state IN ${SENDABLE}`,
   ).bind(week, id, own, c.name, c.balance, note, user.id, user.username, late).run();
+  if (!up.meta.changes) {
+    const cur = await env.DB.prepare('SELECT zoho_state FROM coll_reviews WHERE week = ? AND customer_id = ?').bind(week, id).first<{ zoho_state: string }>();
+    throw new HttpError(409, cur?.zoho_state === 'done'
+      ? 'سُجّلت هذه المراجعة في زوهو، فلا تُعدَّل.'
+      : 'لم يصل رد واضح من زوهو لهذه المراجعة. لا تعد المحاولة: الإدارة تتحقق منها.');
+  }
   await audit(env, user, 'coll.review', 'ok', c.name, note ? 'note' : undefined);
-  return json({ ok: true, week, late: !!late });
+  const sent = await sendRow(env, user, week, id);
+  return json({ ok: true, week, late: !!late, zoho: sent.state, error: sent.error });
 }
 
+// الإلغاء ممكن فقط لمراجعة لم تصل إلى زوهو
 async function cancelReview(env: Env, user: User, id: string): Promise<Response> {
   if (!ID_RE.test(id)) throw new HttpError(400, 'العميل غير صالح.');
   const own = normRep(user.rep_code);
   if (!own) throw new HttpError(403, 'المراجعة للمندوب صاحب العميل فقط.');
   const week = reviewWeek(todayAlgiers());
-  const r = await env.DB.prepare('DELETE FROM coll_reviews WHERE week = ? AND customer_id = ? AND rep = ?').bind(week, id, own).run();
-  if (!r.meta.changes) throw new HttpError(404, 'لا مراجعة لهذا العميل هذا الأسبوع.');
+  const r = await env.DB.prepare(`DELETE FROM coll_reviews WHERE week = ? AND customer_id = ? AND rep = ? AND zoho_state IN ${SENDABLE}`)
+    .bind(week, id, own).run();
+  if (!r.meta.changes) throw new HttpError(409, 'لا مراجعة قابلة للإلغاء: ما سُجّل في زوهو لا يُلغى من التطبيق.');
   await audit(env, user, 'coll.review.cancel', 'ok', id);
+  return json({ ok: true });
+}
+
+// ——— للمدير: المراجعات التي لم تصل إلى زوهو، في كل الأسابيع ———
+
+async function unsent(env: Env) {
+  const { results } = await env.DB.prepare(
+    `SELECT ${REVIEW_COLS} FROM coll_reviews WHERE zoho_state != 'done' ORDER BY week DESC, reviewed_at DESC LIMIT 200`,
+  ).all<ReviewRow>();
+  return (results || []).map((r) => ({
+    week: r.week, id: r.customer_id, rep: r.rep, name: r.customer_name, note: r.note, at: r.reviewed_at,
+    state: r.zoho_state, error: r.zoho_error, text: commentText(r),
+  }));
+}
+
+function adminTarget(b: { week?: string; customer_id?: string }) {
+  const week = String(b.week || '');
+  const id = String(b.customer_id || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(week) || !ID_RE.test(id)) throw new HttpError(400, 'المراجعة غير صالحة.');
+  return { week, id };
+}
+
+// إرسال مراجعة لم تُرسل أو رفضها زوهو. لا يشمل «unknown»: تلك تحتاج تحقق المدير أولاً.
+async function adminSend(req: Request, env: Env, user: User): Promise<Response> {
+  const { week, id } = adminTarget(await readJson(req));
+  return json({ ok: true, ...(await sendRow(env, user, week, id)) });
+}
+
+// بعد أن يتحقق المدير في زوهو من مراجعة انقطع ردها (أو بقيت «قيد الإرسال» لتوقف الخادم): موجودة (تُقفل) أو غير موجودة (تصبح قابلة للإرسال)
+async function adminResolve(req: Request, env: Env, user: User): Promise<Response> {
+  const b = await readJson<{ week?: string; customer_id?: string; found?: boolean }>(req);
+  const { week, id } = adminTarget(b);
+  const r = await env.DB.prepare("UPDATE coll_reviews SET zoho_state = ?, zoho_error = ? WHERE week = ? AND customer_id = ? AND zoho_state IN ('unknown', 'pending')")
+    .bind(b.found ? 'done' : 'failed', b.found ? null : 'تحقق المدير: غير موجود في زوهو', week, id).run();
+  if (!r.meta.changes) throw new HttpError(409, 'هذه المراجعة ليست بانتظار التحقق.');
+  await audit(env, user, 'coll.comment.resolve', 'ok', id, b.found ? 'found' : 'not_found');
   return json({ ok: true });
 }
 
@@ -259,8 +343,8 @@ export async function handleCollect(req: Request, env: Env, user: User): Promise
   const week = reviewWeek(todayAlgiers());
   const rows = await weekReviews(env, week, isAdmin ? undefined : own);
   const shown = new Set(customers.map((c) => c.id));
-  const reviews: Record<string, { at: string; note: string; late: boolean; by: string }> = {};
-  for (const r of rows) if (shown.has(r.customer_id)) reviews[r.customer_id] = { at: r.reviewed_at, note: r.note, late: !!r.late, by: r.username };
+  const reviews: Record<string, { at: string; note: string; late: boolean; by: string; zoho: string }> = {};
+  for (const r of rows) if (shown.has(r.customer_id)) reviews[r.customer_id] = { at: r.reviewed_at, note: r.note, late: !!r.late, by: r.username, zoho: r.zoho_state };
   return json({
     at: snap.at * 1000,
     today: snap.today,
@@ -278,6 +362,8 @@ export async function handleCollect(req: Request, env: Env, user: User): Promise
       progress: isAdmin ? reviewProgress(snap.customers, rows) : undefined,
       notes: isAdmin ? rows.filter((r) => r.note).sort((a, b) => b.reviewed_at.localeCompare(a.reviewed_at))
         .map((r) => ({ rep: r.rep, name: r.customer_name, note: r.note, at: r.reviewed_at, late: !!r.late })) : undefined,
+      // المدير: ما لم يصل إلى زوهو، مع سببه
+      unsent: isAdmin ? await unsent(env) : undefined,
     },
   });
 }
@@ -291,6 +377,8 @@ export const collectModule: AppModule = {
   async handle(req, env, user, subpath) {
     if (req.method === 'GET' && (subpath === '' || subpath === '/')) return handleCollect(req, env, user);
     if (req.method === 'POST' && subpath === '/review') return saveReview(req, env, user);
+    if (req.method === 'POST' && subpath === '/review/send' && user.role === 'admin') return adminSend(req, env, user);
+    if (req.method === 'POST' && subpath === '/review/resolve' && user.role === 'admin') return adminResolve(req, env, user);
     const m = subpath.match(/^\/review\/(\d{10,25})$/);
     if (req.method === 'DELETE' && m) return cancelReview(env, user, m[1]);
     throw new HttpError(404, 'غير موجود.');

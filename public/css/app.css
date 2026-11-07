@@ -743,6 +743,10 @@ button.kpi-btn[aria-pressed="true"] { outline: 3px solid var(--brand); outline-o
 .rev-area:focus-visible { outline: 3px solid var(--accent-text); outline-offset: 0; }
 .rev-actions { display: flex; gap: 8px; margin-top: 8px; }
 .rev-actions > button { flex: 1; }
+.rev-warn { color: var(--warning); font-weight: 600; }
+.rev-will { margin: 8px 0; }
+.rev-preview { margin: 4px 0 0; padding: 8px 12px; font-size: 13px; background: var(--surface-alt); border-inline-start: 3px solid var(--line-strong); overflow-wrap: anywhere; }
+dialog .field .rev-area { margin-top: 4px; }
 
 /* ———————————————— عارض الصورة ———————————————— */
 dialog.viewer {
