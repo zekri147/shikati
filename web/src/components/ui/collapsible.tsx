@@ -16,7 +16,7 @@ export function Fold({ open, onOpenChange, head, tone, children, className }: {
         <ChevronLeft aria-hidden className={cn('size-4.5 flex-none text-muted transition-transform duration-150', open && '-rotate-90')} />
         <div className="min-w-0 flex-1">{head}</div>
       </C.Trigger>
-      <C.Content className="px-3 pb-3 pt-2">{children}</C.Content>
+      <C.Content className="overflow-hidden px-3 pb-3 pt-2 data-[state=open]:animate-fold-open data-[state=closed]:animate-fold-close">{children}</C.Content>
     </C.Root>
   );
 }

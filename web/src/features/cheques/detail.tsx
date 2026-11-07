@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronRight, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Modal, ModalActions } from '@/components/ui/dialog';
+import { CLOSE_MS, Modal, ModalActions } from '@/components/ui/dialog';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/dropdown';
 import { Badge } from '@/components/ui/badge';
 import { Amount, Num } from '@/components/ltr';
@@ -14,6 +14,7 @@ import { navigate } from '@/lib/back';
 import { useFixedBottom } from '@/lib/layout';
 import { daysText, fmtDate, fmtDateTime, todayIso } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { sharedStyle } from '@/lib/motion';
 import { DEST_LABELS, StatusBadge } from './ui';
 import { ChequeImage } from './media';
 import { AllocList, Block, KV, PartyPicker, type Party } from './pickers';
@@ -69,8 +70,8 @@ export function DetailPage({ id, isAdmin, onBack, preview }: { id: string; isAdm
         {preview ? (
           <Slab>
             {backRow(preview.cheque_number ? <>شيك <Num>{preview.cheque_number}</Num></> : null)}
-            <h1 className="m-0 text-lg font-bold leading-snug [overflow-wrap:anywhere]">{preview.customer}</h1>
-            <Amount value={preview.amount} className="mt-1 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
+            <h1 className="m-0 text-lg font-bold leading-snug [overflow-wrap:anywhere]" style={sharedStyle(true, 'cust')}>{preview.customer}</h1>
+            <Amount value={preview.amount} style={sharedStyle(true, 'amt')} className="mt-1 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
             <div className="mt-2 flex flex-wrap gap-2"><Badge tone={preview.status === 'في الحوزة' || preview.status === 'مرفوض' ? 'dark' : 'inverse'}>{preview.status || 'بلا حالة'}</Badge></div>
           </Slab>
         ) : <Slab>{backRow()}<h1 className="m-0 text-lg font-bold">تفاصيل الشيك</h1></Slab>}
@@ -87,8 +88,8 @@ export function DetailPage({ id, isAdmin, onBack, preview }: { id: string; isAdm
     <>
       <Slab>
         {backRow(d.cheque_number ? <>شيك <Num>{d.cheque_number}</Num></> : null)}
-        <h1 className="m-0 text-lg font-bold leading-snug [overflow-wrap:anywhere]">{d.customer}</h1>
-        <Amount value={d.amount} className="mt-1 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
+        <h1 className="m-0 text-lg font-bold leading-snug [overflow-wrap:anywhere]" style={sharedStyle(true, 'cust')}>{d.customer}</h1>
+        <Amount value={d.amount} style={sharedStyle(true, 'amt')} className="mt-1 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
         <div className="mt-2 flex flex-wrap gap-2">
           <Badge tone={d.status === 'في الحوزة' || d.status === 'مرفوض' ? 'dark' : 'inverse'}>{d.status || 'بلا حالة'}</Badge>
           {d.destination ? <Badge tone="inverse">{DEST_LABELS[d.destination] || d.destination}{d.location ? ' · ' + d.location : ''}</Badge> : <Badge tone="dark">الوجهة غير محددة</Badge>}
@@ -345,7 +346,7 @@ function UndoDialog({ d, onClose }: { d: Detail; onClose: (after: 'gone' | 'relo
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState('');
   const [open, setOpen] = useState(true);
-  const finish = (after: 'gone' | 'reload' | null) => { setOpen(false); setTimeout(() => onClose(after), 0); };
+  const finish = (after: 'gone' | 'reload' | null) => { setOpen(false); setTimeout(() => onClose(after), CLOSE_MS); };
 
   async function run() {
     setBusy(true);

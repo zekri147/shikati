@@ -187,3 +187,55 @@
 @layer base {
   body:has([role="dialog"][data-state="open"]) { overflow: hidden; }
 }
+
+/* ——— الحركة (الدفعة «ب»، بموافقة ZEKRI يوم 7/11/2026) ———
+   مدد قصيرة: 150 للون والضغط، و200 إلى 250 للصفحات واللوحات. كل الحركة تُلغى مع «تقليل الحركة» في الهاتف. */
+@theme inline {
+  --ease-out-quick: cubic-bezier(.2, .8, .2, 1);
+  --animate-sheet-in: sheet-in 240ms var(--ease-out-quick);
+  --animate-sheet-out: sheet-out 180ms ease-in forwards;
+  --animate-fade-in: fade-in 200ms ease-out;
+  --animate-fade-out: fade-out 180ms ease-in forwards;
+  --animate-bar-in: bar-in 220ms var(--ease-out-quick);
+  --animate-pop: pop 180ms var(--ease-out-quick);
+  --animate-row-out: row-out 300ms ease-in forwards;
+  --animate-menu-in: menu-in 160ms var(--ease-out-quick);
+  --animate-fold-open: fold-open 200ms var(--ease-out-quick);
+  --animate-fold-close: fold-close 160ms ease-in;
+}
+@keyframes sheet-in { from { transform: translateY(100%); } }
+@keyframes sheet-out { to { transform: translateY(100%); } }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes fade-out { to { opacity: 0; } }
+@keyframes bar-in { from { transform: translateY(100%); opacity: 0; } }
+@keyframes pop { 50% { transform: scale(1.25); } }
+@keyframes menu-in { from { opacity: 0; transform: translateY(-4px); } }
+/* الشيك المودَع ينطوي من القائمة: يبهت ثم يُغلق مكانه */
+@keyframes row-out { 40% { opacity: 0; max-height: 120px; } to { opacity: 0; max-height: 0; min-height: 0; padding-block: 0; border-width: 0; } }
+@keyframes fold-open { from { height: 0; opacity: 0; } to { height: var(--radix-collapsible-content-height); } }
+@keyframes fold-close { from { height: var(--radix-collapsible-content-height); } to { height: 0; opacity: 0; } }
+
+/* الانتقال بين الصفحات (View Transitions): إلى الأمام تدخل الصفحة من اليسار كما يُقرأ العربي،
+   وإلى الخلف تعود من اليمين، وبين التبويبات تلاشٍ سريع. الشريط العلوي وشريط التنقل ثابتان. */
+@keyframes vt-in-left { from { transform: translateX(-28%); opacity: 0; } }
+@keyframes vt-out-right { to { transform: translateX(14%); opacity: 0; } }
+@keyframes vt-in-right { from { transform: translateX(28%); opacity: 0; } }
+@keyframes vt-out-left { to { transform: translateX(-14%); opacity: 0; } }
+::view-transition-group(*) { animation-duration: 240ms; animation-timing-function: var(--ease-out-quick); }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 160ms; }
+html[data-vt="forward"]::view-transition-old(root) { animation: 200ms ease-in both vt-out-right; }
+html[data-vt="forward"]::view-transition-new(root) { animation: 240ms var(--ease-out-quick) both vt-in-left; }
+html[data-vt="back"]::view-transition-old(root) { animation: 200ms ease-in both vt-out-left; }
+html[data-vt="back"]::view-transition-new(root) { animation: 240ms var(--ease-out-quick) both vt-in-right; }
+/* اسم العميل والمبلغ ينتقلان من البطاقة إلى رأس الصفحة: الحجم يتغيّر، فلا تمدد للنص */
+::view-transition-old(vt-amt), ::view-transition-new(vt-amt), ::view-transition-old(vt-cust), ::view-transition-new(vt-cust) { height: 100%; object-fit: none; object-position: right center; }
+
+@layer base {
+  /* السحب للتحديث للتطبيق نفسه، لا لتحديث المتصفح للصفحة */
+  html, body { overscroll-behavior-y: contain; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}

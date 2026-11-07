@@ -76,6 +76,8 @@
 | `web/src/components/shell.tsx` | الشريط العلوي والقائمة والتذييل والملاحظات |
 | `web/src/components/search.tsx` | شريط الأدوات الموحّد فوق القوائم: التصفية والعدسة |
 | `web/src/components/ui/datefield.tsx` | حقل التاريخ: اليوم وأمس وتاريخ آخر، والتاريخ مكتوباً بالعربية |
+| `web/src/lib/motion.ts` و`web/src/lib/hash.ts` | الحركة: الانتقال بين الصفحات والعنصر المشترك والاهتزاز، وحفظ موضع التمرير |
+| `web/src/components/pull.tsx` | السحب للتحديث |
 | `web/src/lib/cache.ts` | آخر بيانات على الهاتف للعرض الفوري، تُمسح عند الخروج |
 | `web/src/index.css` | رموز الألوان والخطوط (Tailwind) |
 | `web/src/pages/` | صفحات الدخول والإعداد والإدارة والتطبيق |

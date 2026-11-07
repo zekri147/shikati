@@ -5,7 +5,7 @@ import { Camera } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/input';
 import { DateField } from '@/components/ui/datefield';
-import { Modal, ModalActions } from '@/components/ui/dialog';
+import { CLOSE_MS, Modal, ModalActions } from '@/components/ui/dialog';
 import { Segmented } from '@/components/ui/segmented';
 import { Amount, Num } from '@/components/ltr';
 import { FormError, Note } from '@/components/shell';
@@ -118,7 +118,7 @@ function EditConfirm({ d, b, p, onClose }: { d: Detail; b: any; p: any; onClose:
   const [failed, setFailed] = useState('');
   const [cut, setCut] = useState(false);
   const [open, setOpen] = useState(true);
-  const finish = (reload: boolean) => { setOpen(false); setTimeout(() => onClose(reload), 0); };
+  const finish = (reload: boolean) => { setOpen(false); setTimeout(() => onClose(reload), CLOSE_MS); };
 
   async function save() {
     setBusy(true);
