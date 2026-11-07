@@ -13,11 +13,11 @@ import { api, errText, isCutOff } from '@/lib/api';
 import { parseAmount, todayIso } from '@/lib/format';
 import { DEST_LABELS } from './ui';
 import { rotateDataUrl, shrink } from './media';
-import { AllocList } from './pickers';
+import { AllocList, Block } from './pickers';
 import type { Detail } from './detail';
 
 export function GroupField({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div className="py-2"><span className="mb-1.5 block text-base font-semibold">{label}</span>{children}</div>;
+  return <div className="py-2"><span className="mb-2 block text-base font-semibold">{label}</span>{children}</div>;
 }
 
 // أزرار الصورة: الكاميرا والمعرض. onImage يستقبل الصورة مصغّرة
@@ -29,10 +29,10 @@ export function PhotoButtons({ onFile, first, disabled, shootLabel }: { onFile: 
     <div className={first ? 'mt-2 flex flex-col gap-2' : 'mt-2 flex gap-2 [&>button]:flex-1'}>
       <input ref={cam} type="file" accept="image/*" capture="environment" hidden onChange={pick} />
       <input ref={gal} type="file" accept="image/*" hidden onChange={pick} />
-      <Button disabled={disabled} className={first ? 'border-muted py-4.5 text-lg' : 'py-2.5'} onClick={() => cam.current?.click()}>
+      <Button disabled={disabled} className={first ? 'border-muted py-4 text-lg' : 'py-2'} onClick={() => cam.current?.click()}>
         <Camera aria-hidden className={first ? 'size-6.5' : 'size-5'} /><span>{shootLabel}</span>
       </Button>
-      <Button disabled={disabled} className="py-2.5" onClick={() => gal.current?.click()}>من المعرض</Button>
+      <Button disabled={disabled} className="py-2" onClick={() => gal.current?.click()}>من المعرض</Button>
     </div>
   );
 }
@@ -88,8 +88,7 @@ export function EditPanel({ d, onSaved, onCancel }: { d: Detail; onSaved: () => 
   }
 
   return (
-    <section ref={box} className="scroll-mt-16 border border-line bg-surface px-3.5 pb-3 pt-1">
-      <h2 className="-mx-3.5 mb-2 mt-0 border-b border-line px-3.5 pb-2 pt-2.5 text-base font-bold">تعديل الشيك</h2>
+    <Block title="تعديل الشيك" innerRef={box}>
       <Field label="رقم الشيك"><Input ref={first} inputMode="numeric" dir="ltr" maxLength={7} autoComplete="off" value={num} onChange={(x) => setNum(x.target.value)} /></Field>
       <Field label="المبلغ" hint="إن تغيّر المبلغ يُعاد توزيعه آلياً على أقدم فواتير العميل.">
         <Input inputMode="decimal" dir="ltr" autoComplete="off" value={amount} onChange={(x) => setAmount(x.target.value)} />
@@ -109,7 +108,7 @@ export function EditPanel({ d, onSaved, onCancel }: { d: Detail; onSaved: () => 
       <Button variant="primary" size="lg" className="mt-2" disabled={checking} onClick={review}>{checking ? 'جارٍ التحقق…' : 'مراجعة التعديل'}</Button>
       <Button size="lg" className="mt-2" onClick={onCancel}>إلغاء</Button>
       {preview ? <EditConfirm d={d} b={preview.body} p={preview.p} onClose={(saved) => { setPreview(null); if (saved) onSaved(); }} /> : null}
-    </section>
+    </Block>
   );
 }
 
@@ -145,7 +144,7 @@ function EditConfirm({ d, b, p, onClose }: { d: Detail; b: any; p: any; onClose:
           const c = c0.label === 'الوجهة' ? { ...c0, from: DEST_LABELS[c0.from] || c0.from, to: DEST_LABELS[c0.to] || c0.to } : c0;
           const money = c.label === 'المبلغ';
           return (
-            <li key={i} className="flex flex-wrap items-baseline justify-between gap-2.5 border-b border-line py-2 text-base last:border-b-0">
+            <li key={i} className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line py-2 text-base last:border-b-0">
               <span className="font-semibold">{c.label}</span>
               {c.from ? <span>{show(c.from, money)} ← {show(c.to, money)}</span> : <span>{c.to}</span>}
             </li>
@@ -154,7 +153,7 @@ function EditConfirm({ d, b, p, onClose }: { d: Detail; b: any; p: any; onClose:
       </ul>
       {p.allocation ? (
         <>
-          <h3 className="mb-1 mt-3.5 text-base">التوزيع الجديد على الفواتير</h3>
+          <h3 className="mb-1 mt-3 text-base">التوزيع الجديد على الفواتير</h3>
           <AllocList lines={p.allocation.lines} emptyText="لا فواتير غير مدفوعة لهذا العميل." />
           {p.allocation.unused > 0 ? <Note tone="warn" className="mt-2">يبقى <Amount value={p.allocation.unused} className="font-semibold" /> رصيداً للعميل.</Note> : null}
         </>

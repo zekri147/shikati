@@ -60,11 +60,11 @@ export function Viewer({ src, onClose }: { src: string | null; onClose: () => vo
   return (
     <D.Root open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <D.Portal>
-        <D.Content aria-describedby={undefined} className="fixed inset-0 z-[55] flex h-dvh w-screen flex-col bg-black text-white focus:outline-none">
+        <D.Content aria-describedby={undefined} className="fixed inset-0 z-[55] flex h-dvh w-screen flex-col bg-bar text-white focus:outline-none">
           <D.Title className="sr-only">صورة الشيك</D.Title>
-          <div className="flex flex-none gap-2 px-3 pb-2.5 pt-[max(10px,env(safe-area-inset-top))]">
+          <div className="flex flex-none gap-2 px-3 pb-2 pt-[max(10px,env(safe-area-inset-top))]">
             <Button variant="primary" className="flex-1 py-3 text-lg" onClick={onClose}>إغلاق</Button>
-            <Button variant="plain" className="flex-1 border-white/35 bg-transparent py-3 text-lg text-white" onClick={() => setZoom(!zoom)}>{zoom ? 'تصغير' : 'تكبير'}</Button>
+            <Button variant="plain" className="flex-1 border-line-on-dark bg-transparent py-3 text-lg text-white" onClick={() => setZoom(!zoom)}>{zoom ? 'تصغير' : 'تكبير'}</Button>
           </div>
           <div className={cn('flex flex-1 touch-pan-x touch-pan-y touch-pinch-zoom items-center justify-center overflow-auto', zoom && 'block')}>
             {src ? <img src={src} alt="صورة الشيك" onClick={() => setZoom(!zoom)}
@@ -94,8 +94,8 @@ export function ChequeImage({ id, hasImage, v, size }: { id: string; hasImage: b
   }, [src0, hasImage]);
 
   const box = size === 'thumb' ? 'h-14' : size === 'mid' ? 'h-[72px]' : 'max-h-[280px]';
-  if (!hasImage) return <div className={cn('flex items-center justify-center bg-surface-alt p-1.5 text-center text-sm text-soft', size === 'big' ? 'p-4' : size === 'mid' ? 'h-[72px]' : 'h-14')}>لا صورة</div>;
-  if (failed) return <div className={cn('flex items-center justify-center bg-warning-tint p-1.5 text-center text-sm text-foreground', size === 'big' ? 'p-4' : size === 'mid' ? 'h-[72px]' : 'h-14')}>تعذّر تحميل الصورة</div>;
+  if (!hasImage) return <div className={cn('flex items-center justify-center bg-surface-alt p-2 text-center text-sm text-soft', size === 'big' ? 'p-4' : size === 'mid' ? 'h-[72px]' : 'h-14')}>لا صورة</div>;
+  if (failed) return <div className={cn('flex items-center justify-center bg-warning-tint p-2 text-center text-sm text-foreground', size === 'big' ? 'p-4' : size === 'mid' ? 'h-[72px]' : 'h-14')}>تعذّر تحميل الصورة</div>;
   return (
     <>
       <a href={src} title="تكبير الصورة" className="block" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setView(src); }}>
