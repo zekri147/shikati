@@ -53,8 +53,12 @@ function doPost(e) {
   var d = {};
   try { d = JSON.parse(res.getContentText()); } catch (err) { d = {}; }
   if (!d.access_token) {
-    // رمز الخطأ فقط، دون أي محتوى آخر من الرد
-    var code = /^[a-z_]{3,40}$/.test(String(d.error || '')) ? d.error : ('HTTP ' + res.getResponseCode());
+    // رمز الخطأ فقط، دون أي محتوى آخر من الرد. زوهو يرد عند كثرة التجديدات بـ «Access Denied»
+    // ووصف «too many requests»، فنسمّيه too_many_requests ليعرضه التطبيق بوضوح.
+    var err = String(d.error || '');
+    var code = /^[a-z_]{3,40}$/.test(err) ? err
+      : /too many requests/i.test(String(d.error_description || '')) ? 'too_many_requests'
+      : ('HTTP ' + res.getResponseCode());
     return out_({ error: code });
   }
 

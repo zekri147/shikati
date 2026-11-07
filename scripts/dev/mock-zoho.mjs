@@ -203,6 +203,10 @@ http.createServer((req, res) => {
 
     if (path === '/relay') {
       const j = JSON.parse(body || '{}');
+      // لتجربة أخطاء الوسيط: MOCK_RELAY=denied (نسخة الوسيط القديمة عند كثرة الطلبات) أو many أو html
+      if (process.env.MOCK_RELAY === 'denied') return send({ error: 'HTTP 400' });
+      if (process.env.MOCK_RELAY === 'many') return send({ error: 'too_many_requests' });
+      if (process.env.MOCK_RELAY === 'html') { res.setHeader('Content-Type', 'text/html'); res.end('<html>error</html>'); return; }
       return send(j.key === RELAY_KEY ? { access_token: TOKEN, expires_in: 3600 } : { error: 'forbidden' });
     }
     if (path === '/__log') return send(log);
