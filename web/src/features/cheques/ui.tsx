@@ -50,7 +50,7 @@ export type CardOpts = {
 };
 
 // بطاقة الشيك في سطرين: العميل والمبلغ، ثم الرقم والتاريخ والموقع وشارة واحدة.
-// في شاشة الإيداع يحدد اللمسُ البطاقة، والسهم وحده يفتح التفاصيل. وفي غيرها يفتح اللمسُ التفاصيل.
+// في شاشة الإيداع يحدد اللمسُ البطاقة، والسهم وحده يفتح التفاصيل. وفي غيرها يفتح اللمسُ البطاقة كلها التفاصيل، دون سهم.
 export function ChequeCard({ c, o }: { c: Cheque; o: CardOpts }) {
   const noAge = o.noAge || (o.ageInHandOnly && c.status !== 'في الحوزة');
   const late = c.days > LATE_DAYS && !noAge;
@@ -117,11 +117,12 @@ export function ChequeCard({ c, o }: { c: Cheque; o: CardOpts }) {
         </div>
         {o.note ? <div className="border-s-3 border-s-warning bg-warning-tint px-2.5 py-1 text-sm text-foreground [overflow-wrap:anywhere]">{o.note}</div> : null}
         {o.reasons && o.reasons.length ? (
-          <ul className="reasons m-0 mt-1 flex list-none flex-col gap-1 p-0">
+          // سطر نصي لكل سبب بعلامة صغيرة ملوّنة، لا صناديق ملوّنة: الجملة نفسها تشرح
+          <ul className="reasons m-0 mt-1 flex list-none flex-col gap-0.5 p-0">
             {o.reasons.map((r, i) => (
-              <li key={i} className={cn('border-s-3 px-2.5 py-1 text-sm text-foreground [overflow-wrap:anywhere]',
-                r.tone === 'alert' ? 'border-s-brand bg-brand-tint' : r.tone === 'warn' ? 'border-s-warning bg-warning-tint' : 'border-s-line-strong bg-surface-alt text-muted')}>
-                {r.text}
+              <li key={i} className={cn('flex items-start gap-2 text-sm [overflow-wrap:anywhere]', r.tone === 'info' ? 'text-muted' : 'text-foreground')}>
+                <span aria-hidden className={cn('mt-[8px] size-1.5 flex-none', r.tone === 'alert' ? 'bg-brand' : r.tone === 'warn' ? 'bg-warning' : 'bg-line-strong')} />
+                <span className="min-w-0">{r.text}</span>
               </li>
             ))}
           </ul>
@@ -132,7 +133,7 @@ export function ChequeCard({ c, o }: { c: Cheque; o: CardOpts }) {
           className="-my-2 flex w-11 flex-none items-center justify-center self-stretch border-s border-line text-muted active:bg-surface-alt">
           <ChevronLeft aria-hidden className="size-4.5" />
         </a>
-      ) : o.link ? <span aria-hidden className="-me-2 flex w-8 flex-none items-center justify-center text-soft"><ChevronLeft className="size-4.5" /></span> : null}
+      ) : null}
     </li>
   );
 }

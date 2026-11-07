@@ -79,7 +79,32 @@ export function relTime(ts: number): string {
   if (m === 2) return 'منذ دقيقتين';
   if (m <= 10) return `منذ ${m} دقائق`;
   if (m < 60) return `منذ ${m} دقيقة`;
-  return 'منذ أكثر من ساعة';
+  const h = Math.floor(m / 60);
+  if (h === 1) return 'منذ ساعة';
+  if (h === 2) return 'منذ ساعتين';
+  if (h <= 10) return `منذ ${h} ساعات`;
+  if (h < 24) return `منذ ${h} ساعة`;
+  return h < 48 ? 'منذ يوم' : 'منذ يومين';
+}
+
+// ——— التاريخ مكتوباً بالعربية: لا يلتبس اليوم بالشهر مهما كانت لغة الهاتف ———
+const WEEKDAYS = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+// أسماء الأشهر كما تُكتب في الجزائر
+const MONTHS = ['جانفي', 'فيفري', 'مارس', 'أفريل', 'ماي', 'جوان', 'جويلية', 'أوت', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+
+export function isoAddDays(iso: string, n: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d + n));
+  return t.toISOString().slice(0, 10);
+}
+
+// «السبت 7 نوفمبر»، والسنة إن لم تكن الحالية
+export function longDate(iso: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}/.test(iso || '')) return '—';
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  const wd = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  const year = String(y) === todayIso().slice(0, 4) ? '' : ' ' + y;
+  return `${WEEKDAYS[wd]} ${d} ${MONTHS[m - 1]}${year}`;
 }
 
 export const newRequestId = () =>

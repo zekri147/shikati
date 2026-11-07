@@ -165,7 +165,7 @@
   .help-note { font-size: 13px; padding: 8px 12px; margin: 10px 0 0; color: var(--ink-muted); background: var(--surface-alt); border-inline-start: 3px solid var(--line-strong); }
   .help-table { overflow-x: auto; margin-inline: -16px; }
   .help-table table { border-collapse: collapse; width: 100%; font-size: 15px; }
-  .help-table th { background: var(--brand); color: var(--white); font-weight: 600; text-align: start; padding: 7px 10px; white-space: nowrap; }
+  .help-table th { background: var(--surface-alt); color: var(--ink-muted); font-size: 13px; font-weight: 600; text-align: start; padding: 7px 10px; white-space: nowrap; border-bottom: 2px solid var(--line-strong); }
   .help-table td { padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
   .help-table tbody tr:nth-child(even) td { background: var(--surface-alt); }
 }

@@ -43,7 +43,13 @@ const SCREENS = [
   { name: 'detail-endorsed', path: '/#cheques/c/7418400000000029' },
   // قسم التحصيل: المدير يرى الكل (للمندوب: SHOTS_USER=amine أو zakaria)
   { name: 'coll', path: '/#coll', act: async (p) => { try { localStorage.removeItem('shikati-coll-rep'); } catch {} await p.evaluate(() => { try { localStorage.removeItem('shikati-coll-rep'); } catch {} }); } },
-  { name: 'coll-old', path: '/#coll', act: async (p) => { await p.locator('.kpi-btn').click(); } },
+  { name: 'coll-old', path: '/#coll', act: async (p) => {
+    await p.locator('.cat-btn').click();
+    await p.locator('.sheet-opt', { hasText: 'أكثر من 90' }).click();
+  } },
+  { name: 'coll-cat-sheet', path: '/#coll', act: async (p) => { await p.locator('.cat-btn').click(); }, full: false },
+  // للمدير: سطر «مراجعة الأسبوع» يفتح تقدّم المندوبين في لوحة سفلية
+  { name: 'coll-review-sheet', path: '/#coll', act: async (p) => { const b = p.locator('.review-btn'); if (await b.count()) await b.click(); }, full: false },
   { name: 'coll-customer', path: '/#coll/c/7418400000200001', full: false },
   // المراجعة الأسبوعية: لمسة «راجعت» على أول عميل لم يُراجَع (للمندوب فقط)، وبطاقة عميل لم يُراجَع
   { name: 'coll-review', path: '/#coll', act: async (p) => { const b = p.locator('.rev-btn:not(.on)').first(); if (await b.count()) await b.click(); }, full: false },

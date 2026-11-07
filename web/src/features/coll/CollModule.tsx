@@ -2,19 +2,19 @@
 // المندوب يرى عملاءه فقط، والمدير يختار المندوب. المراجعة الأسبوعية تُكتب تعليقاً على العميل في زوهو.
 // العنوان بعد #: ‎#coll للقائمة، و‎#coll/c/<معرّف العميل> لبطاقة العميل.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { Check, ChevronLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/input';
-import { Modal, ModalActions } from '@/components/ui/dialog';
-import { Segmented } from '@/components/ui/segmented';
+import { Modal, ModalActions, Sheet, SheetOption } from '@/components/ui/dialog';
 import { Fold } from '@/components/ui/collapsible';
-import { SearchBox } from '@/components/search';
+import { FilterButton, ListTools } from '@/components/search';
 import { Amount, Ltr, Num } from '@/components/ltr';
-import { Empty, ErrorBox, FormError, Note, RefreshButton, Slab, SlabTop } from '@/components/shell';
+import { Empty, ErrorBox, FormError, Note, RefreshButton, SkeletonList, Slab, SlabTop } from '@/components/shell';
 import { toast } from '@/components/toast';
 import { api, errText, type Me } from '@/lib/api';
 import { useFixedBottom } from '@/lib/layout';
+import { readCache, writeCache } from '@/lib/cache';
 import { load as loadKey, save as saveKey } from '@/lib/storage';
 import { customersWord, daysWord, fmtAmount, fmtDate, fmtDateTime, invoicesWord, norm, relTime, round2 } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -73,16 +73,19 @@ function parseRoute(hash: string) {
 export function CollModule({ me, hash }: { me: Me; hash: string }) {
   const isAdmin = me.user.role === 'admin';
   const route = useMemo(() => parseRoute(hash), [hash]);
-  const [data, setData] = useState<CollData | null>(null);
+  const [rep, setRep] = useState(() => (isAdmin ? loadKey(REP_KEY) : ''));
+  // آخر أرصدة على الهاتف تُعرض فوراً، ثم تُحدَّث. لكل اختيار مندوب نسخته
+  const keyOf = (code: string) => 'coll:' + me.user.username + ':' + code;
+  const [data, setData] = useState<CollData | null>(() => readCache<CollData>(keyOf(rep))?.data || null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [loadedAt, setLoadedAt] = useState(0);
+  const [loadedAt, setLoadedAt] = useState(() => readCache<CollData>(keyOf(rep))?.at || 0);
   const [, tick] = useState(0);
   const [cat, setCat] = useState('');
   const [q, setQ] = useState('');
   const [limit, setLimit] = useState(PAGE);
-  const [rep, setRep] = useState(() => (isAdmin ? loadKey(REP_KEY) : ''));
   const [reviewing, setReviewing] = useState<{ c: Cust; r: Rev | null } | null>(null);
+  const [sheet, setSheet] = useState<'' | 'rep' | 'cat' | 'review'>('');
   const busyRef = useRef(false);
   const scroll = useRef(0);
   const prev = useRef(route.view);
@@ -100,6 +103,7 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
       setData(d);
       setLoadedAt(Number(d.at) || Date.now());
       setError('');
+      writeCache(keyOf(repCode), d, Number(d.at) || Date.now());
     } catch (e) {
       setData((old) => { if (old) toast(errText(e), 'err'); else setError(errText(e)); return old; });
     } finally {
@@ -127,6 +131,8 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
   function pickRep(code: string) {
     if (code === rep) return;
     setRep(code); saveKey(REP_KEY, code); setCat('');
+    const c = readCache<CollData>(keyOf(code));
+    if (c) { setData(c.data); setLoadedAt(c.at); }
     load(false, code);
   }
 
@@ -144,26 +150,25 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
   }
 
   if (error && !data) return <><Slab><div className="pt-2 text-sm font-semibold">التحصيل</div></Slab><ErrorBox>{error}</ErrorBox></>;
-  if (!data) return <><Slab><div className="pt-2 text-sm font-semibold">التحصيل</div></Slab><p className="mt-4 text-muted">جارٍ تحميل أرصدة العملاء…</p></>;
+  if (!data) return <><Slab><div className="pt-2 text-sm font-semibold">التحصيل</div></Slab><SkeletonList rows={8} /></>;
 
   const list = data.customers;
   const rv = data.review;
   const items0 = rv ? rv.items : {};
-  const counts: Record<string, number> = {};
-  for (const c of list) { const k = catOf(c); counts[k] = (counts[k] || 0) + 1; }
-  if (rv && (rv.can_review || rep)) counts.rev = list.filter((c) => needsReview(c) && !items0[c.id]).length;
-  const inCat = (c: Cust) => !cat || (cat === 'old' ? isOld(c) : cat === 'rev' ? needsReview(c) && !items0[c.id] : catOf(c) === cat);
+  const canRev = !!rv && (rv.can_review || !!rep);
+  const inCatV = (c: Cust, v: string) => !v || (v === 'old' ? isOld(c) : v === 'rev' ? needsReview(c) && !items0[c.id] : catOf(c) === v);
   const match = (c: Cust) => !q || norm(c.name).includes(q) || c.invoices.some((i) => norm(i.number).includes(q));
-  const items = list.filter((c) => inCat(c) && match(c));
+  const items = list.filter((c) => inCatV(c, cat) && match(c));
   const shown = items.slice(0, limit);
   const more = items.length - shown.length;
   const old = list.filter(isOld);
-  const opening = list.reduce((t, c) => t + (c.late === null ? c.balance : 0), 0);
   const who = data.is_admin ? (rep ? (rep === '-' ? 'العملاء بلا مندوب' : null) : 'كل العملاء') : 'عملائك';
-  const catOptions = CATS.filter(([v]) => !v || counts[v] || (v === 'old' && cat === 'old')).map(([v, t]) => {
-    const n = v ? (v === 'old' ? (counts.old || 0) + (counts.open || 0) : counts[v] || 0) : list.length;
-    return { value: v, label: <>{t} <span className="num">{n}</span></> };
-  });
+  // الفئات في اللوحة السفلية: كل فئة بعدد عملائها ومجموعها، والفارغة تُخفى
+  const catList = CATS.filter(([v]) => v !== 'rev' || canRev).map(([v, t]) => ({ v, t, of: list.filter((c) => inCatV(c, v)) }))
+    .filter((x) => !x.v || x.of.length || x.v === cat);
+  const catLabel = cat ? CATS.find(([v]) => v === cat)![1] : 'كل الفئات';
+  const repLabel = rep ? (rep === '-' ? 'بلا مندوب' : <Ltr>{rep}</Ltr>) : 'كل المندوبين';
+  const reps = data.reps || [];
 
   return (
     <>
@@ -174,36 +179,24 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
           <RefreshButton busy={busy} loadedAt={loadedAt} onClick={() => load(true)} onRed />
         </div>
         <Amount value={total(list)} className="block font-display text-3xl font-semibold leading-tight tracking-tight max-[360px]:text-2xl" />
-        <div className="mt-1.5 text-sm">{list.length ? `على ${customersWord(list.length)}` : 'لا رصيد مفتوح'} · الأرصدة من زوهو بوكس</div>
+        <div className="mt-1.5 flex flex-wrap gap-x-3 text-sm">
+          <span>{list.length ? `على ${customersWord(list.length)}` : 'لا رصيد مفتوح'}</span>
+          {old.length ? <span>أكثر من 90 يوماً <Amount value={total(old)} className="font-semibold" /></span> : null}
+        </div>
       </Slab>
 
-      {data.is_admin ? (
-        <Segmented label="المندوب" scroll className="mt-3" value={rep} onChange={pickRep}
-          options={[{ value: '', label: 'الكل' }, ...(data.reps || []).map((r) => ({ value: r.rep || '-', label: r.rep ? <Ltr>{r.rep}</Ltr> : 'بلا مندوب' }))]} />
-      ) : null}
+      <ReviewBlock data={data} list={list} rep={rep} cat={cat} setCat={(v) => { setCat(v); setLimit(PAGE); }} onOpen={() => setSheet('review')} />
 
-      <div className="mt-3 flex flex-col gap-2">
-        {/* المربع الأسود للديون القديمة زر: يعرض عملاءها فقط */}
-        <button type="button" aria-pressed={cat === 'old'} onClick={() => { setCat(cat === 'old' ? '' : 'old'); setLimit(PAGE); }}
-          className={cn('kpi-btn cut-sm flex min-h-11 w-full items-center justify-between gap-3 bg-tile px-4 py-2.5 text-start text-white active:opacity-85', cat === 'old' && 'outline-3 -outline-offset-3 outline-brand')}>
-          <span className="text-sm font-semibold">متأخرة أكثر من 90 يوماً
-            <span className="block font-normal">{old.length ? customersWord(old.length) : 'لا ديون قديمة'}{opening > 0 ? <> · منها افتتاحية <Amount value={opening} /></> : null}</span>
-          </span>
-          <Amount value={total(old)} className="whitespace-nowrap font-display text-lg font-semibold" />
-        </button>
-      </div>
-
-      <div className="mt-3 flex flex-col gap-2">
-        <Segmented label="الفئة حسب التأخر" scroll value={cat} onChange={(v) => { setCat(v); setLimit(PAGE); }} options={catOptions} />
-        <SearchBox placeholder="بحث باسم العميل أو رقم الفاتورة" onChange={(v) => { setQ(norm(v)); setLimit(PAGE); }} />
-      </div>
-
-      <ReviewBlock data={data} list={list} rep={rep} cat={cat} setCat={setCat} reload={() => load(false)} />
-      {data.is_admin && !rep && data.reps && data.reps.length ? <RepSummary data={data} onPick={(code) => { pickRep(code); window.scrollTo(0, 0); }} /> : null}
+      {/* شريط الأدوات الموحّد: المندوب (للمدير) والفئة في لوحتين سفليتين، ثم العدسة */}
+      <ListTools className="mt-3" placeholder="بحث باسم العميل أو رقم الفاتورة" onSearch={(v) => { setQ(norm(v)); setLimit(PAGE); }}>
+        {data.is_admin ? <FilterButton className="rep-btn" label="اختيار المندوب" value={repLabel} active={!!rep} onClick={() => setSheet('rep')} /> : null}
+        <FilterButton className="cat-btn" label="الفئة حسب التأخر" value={catLabel} active={!!cat} onClick={() => setSheet('cat')} />
+      </ListTools>
 
       <section className="mt-4">
         <div className="mb-2 flex items-center justify-between gap-3 border-b border-line-strong pb-2">
-          <h2 className="m-0 text-lg font-bold">{cat ? CATS.find(([v]) => v === cat)![1] : 'كل المدينين'}</h2>
+          <h2 className="m-0 flex items-center gap-2 text-lg font-bold"><span>{cat ? catLabel : 'كل المدينين'}</span>
+            <span className="num min-w-[22px] bg-foreground px-1.5 py-1 text-center text-sm font-semibold leading-none text-background">{items.length}</span></h2>
           <Amount value={total(items)} className="text-sm text-muted" />
         </div>
         {cat ? <p className="mb-2 mt-0 text-sm text-muted">{CAT_NOTE[cat]}</p> : null}
@@ -215,7 +208,30 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
           : data.is_admin ? 'لا أرصدة مفتوحة لهذا الاختيار.' : 'لا رصيد مفتوح على عملائك. إن كان هذا غير صحيح، تأكد مع الإدارة أن حقل «Owner» على عملائك في زوهو يحمل رمزك.'}</Empty>}
         {more > 0 ? <Button className="mt-2.5 w-full py-3" onClick={() => setLimit(limit + PAGE)}>عرض {customersWord(more)} آخرين</Button> : null}
       </section>
-      <p className="mt-4 text-sm text-muted">أيام التأخر تُعدّ من تاريخ استحقاق أقدم فاتورة غير مسدّدة. الرصيد الافتتاحي هو ما نُقل عند بداية زوهو بوكس.</p>
+
+      <Sheet open={sheet === 'rep'} onClose={() => setSheet('')} title="المندوب" action={<Button onClick={() => setSheet('')}>إغلاق</Button>}>
+        {[{ code: '', label: 'كل المندوبين' as React.ReactNode, count: reps.reduce((t, r) => t + r.count, 0), sum: round2(reps.reduce((t, r) => t + r.total, 0)), old: 0 },
+          ...reps.map((r) => ({ code: r.rep || '-', label: r.rep ? <Ltr>{r.rep}</Ltr> : 'بلا مندوب' as React.ReactNode, count: r.count, sum: r.total, old: r.old }))].map((o) => (
+          <SheetOption key={o.code || 'all'} selected={o.code === rep} label={o.label}
+            meta={<><span>{customersWord(o.count)}{o.old ? <> · قديم <Amount value={o.old} /></> : null}</span><Amount value={o.sum} /></>}
+            onClick={() => { setSheet(''); pickRep(o.code); window.scrollTo(0, 0); }} />
+        ))}
+      </Sheet>
+
+      <Sheet open={sheet === 'cat'} onClose={() => setSheet('')} title="الفئة حسب التأخر" action={<Button onClick={() => setSheet('')}>إغلاق</Button>}>
+        {catList.map(({ v, t, of }) => (
+          <SheetOption key={v || 'all'} selected={v === cat} empty={!of.length} label={v ? t : 'كل الفئات'}
+            meta={<><span>{of.length ? customersWord(of.length) : 'لا عملاء'}</span>{of.length ? <Amount value={total(of)} /> : null}</>}
+            onClick={() => { setSheet(''); if (v !== cat) { setCat(v); setLimit(PAGE); window.scrollTo(0, 0); } }} />
+        ))}
+        <p className="m-0 px-4 pb-2 pt-3 text-sm text-muted">أيام التأخر تُعدّ من تاريخ استحقاق أقدم فاتورة غير مسدّدة. الرصيد الافتتاحي هو ما نُقل عند بداية زوهو بوكس.</p>
+      </Sheet>
+
+      {rv && data.is_admin && !rep ? (
+        <Sheet open={sheet === 'review'} onClose={() => setSheet('')} title="مراجعة الأسبوع" action={<Button onClick={() => setSheet('')}>إغلاق</Button>}>
+          <div className="px-4 pb-3"><ReviewDetails data={data} reload={() => load(false)} /></div>
+        </Sheet>
+      ) : null}
 
       {reviewing && rv ? <ReviewDialog data={data} me={me} c={reviewing.c} r={reviewing.r} onClose={() => setReviewing(null)} onSaved={markReviewed} /> : null}
     </>
@@ -265,83 +281,34 @@ function CustomerItem({ c, d, rep, onReview }: { c: Cust; d: CollData; rep: stri
         </div>
         {r && r.note ? <div className="border-s-3 border-s-line-strong bg-surface-alt px-2.5 py-1 text-sm [overflow-wrap:anywhere]">{r.note}</div> : null}
       </div>
-      <span aria-hidden className="-me-2 flex w-8 flex-none items-center justify-center text-soft"><ChevronLeft className="size-4.5" /></span>
     </li>
   );
 }
 
-// ملخص المندوبين للمدير حين يختار «الكل»
-function RepSummary({ data, onPick }: { data: CollData; onPick: (code: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const reps = data.reps || [];
-  return (
-    <Fold open={open} onOpenChange={setOpen} className="mt-3"
-      head={<div className="flex items-center justify-between gap-3"><span className="font-bold">حسب المندوب</span><span className="text-sm text-muted">{reps.length} مندوبين</span></div>}>
-      <ul className={LIST_BOX}>
-        {reps.map((r) => (
-          <li key={r.rep || '-'} role="button" tabIndex={0} onClick={() => onPick(r.rep || '-')}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(r.rep || '-'); } }}
-            className="flex min-h-[60px] cursor-pointer items-center gap-1 bg-raised px-3.5 py-2 active:bg-surface-alt">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-start justify-between gap-3"><span className="font-semibold">{r.rep ? <Ltr>{r.rep}</Ltr> : 'بلا مندوب'}</span><Amount value={r.total} className="font-display font-semibold" /></div>
-              <div className="text-sm text-muted">{customersWord(r.count)} · أكثر من 90 يوماً <Amount value={r.old} /></div>
-            </div>
-            <ChevronLeft aria-hidden className="size-4.5 text-soft" />
-          </li>
-        ))}
-      </ul>
-    </Fold>
-  );
-}
-
-// المراجعة الأسبوعية: جدول المندوبين للمدير، وشريط التقدّم للمندوب
-function ReviewBlock({ data, list, rep, cat, setCat, reload }: { data: CollData; list: Cust[]; rep: string; cat: string; setCat: (v: string) => void; reload: () => void }) {
+// المراجعة الأسبوعية: للمدير سطر واحد يفتح التفاصيل في لوحة سفلية، وللمندوب شريط التقدّم
+function ReviewBlock({ data, list, rep, cat, setCat, onOpen }: { data: CollData; list: Cust[]; rep: string; cat: string; setCat: (v: string) => void; onOpen: () => void }) {
   const rv = data.review;
-  const [notesOpen, setNotesOpen] = useState(false);
   if (!rv) return null;
   const deadline = `الأجل الخميس ${fmtDeadline(rv.deadline)} الساعة 12:00`;
   const past = Date.now() > rv.deadline;
   if (data.is_admin && !rep) {
     const prog = rv.progress || [];
-    const pending = <Unsent list={rv.unsent} reload={reload} />;
-    if (!prog.length) return pending;
-    const notes = rv.notes || [];
+    const unsent = rv.unsent || [];
+    if (!prog.length && !unsent.length) return null;
+    const done = prog.reduce((t, p) => t + p.done, 0);
+    const need = prog.reduce((t, p) => t + p.need, 0);
+    const late = past && done < need;
     return (
-      <section className="mt-4">
-        <div className="mb-2 flex items-center justify-between gap-3"><h2 className="m-0 text-lg font-bold">مراجعة الأسبوع</h2><span className="text-sm text-muted">{deadline}</span></div>
-        <div className="overflow-x-auto border border-line bg-surface">
-          <table className="w-full border-collapse text-base">
-            <thead><tr>{['المندوب', 'راجع', 'آخر مراجعة', 'الحالة'].map((t) => <th key={t} className="whitespace-nowrap bg-brand px-2.5 py-1.5 text-start font-semibold text-white">{t}</th>)}</tr></thead>
-            <tbody>
-              {prog.map((p) => (
-                <tr key={p.rep} className="even:[&>td]:bg-surface-alt">
-                  <td className="border-b border-line px-2.5 py-1.5"><Ltr>{p.rep}</Ltr></td>
-                  <td className="border-b border-line px-2.5 py-1.5"><Num>{`${p.done}/${p.need}`}</Num></td>
-                  <td className="border-b border-line px-2.5 py-1.5">{p.last ? fmtDateTime(p.last).slice(0, 16) : 'لا شيء'}</td>
-                  <td className="border-b border-line px-2.5 py-1.5">
-                    <span className={p.done === p.need ? 'font-semibold' : past ? 'font-semibold text-danger' : 'text-muted'}>{p.done === p.need ? 'أنهى ✓' : past ? 'لم يُنهِ في الأجل' : 'جارية'}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {notes.length ? (
-          <Fold open={notesOpen} onOpenChange={setNotesOpen} className="mt-2"
-            head={<div className="flex items-center justify-between gap-3"><span className="font-bold">ملاحظات المراجعة</span><span className="text-sm text-muted">{notes.length} ملاحظة</span></div>}>
-            <ul className="m-0 flex list-none flex-col gap-2 p-0">
-              {notes.map((n, i) => (
-                <li key={i} className="border border-line bg-raised px-3 py-2">
-                  <div className="flex justify-between gap-3"><Ltr className="font-semibold">{n.name}</Ltr><Ltr className="text-sm text-muted">{n.rep}</Ltr></div>
-                  <p className="my-1 text-base [overflow-wrap:anywhere]">{n.note + (n.late ? ' (بعد الأجل)' : '')}</p>
-                  <div className="text-sm text-muted">{timeOf(n.at)}</div>
-                </li>
-              ))}
-            </ul>
-          </Fold>
-        ) : null}
-        {pending}
-      </section>
+      <button type="button" onClick={onOpen} aria-haspopup="dialog"
+        className="review-btn mt-3 flex min-h-11 w-full items-center gap-2 border-b border-line py-2 text-start active:bg-surface-alt">
+        <span className="min-w-0 flex-1">
+          <span className="block text-base font-semibold">مراجعة الأسبوع: <Num>{`${done}/${need}`}</Num>
+            {late ? <span className="text-danger"> · انتهى الأجل</span> : done === need && need ? ' ✓' : null}</span>
+          <span className="block text-sm text-muted">{deadline}</span>
+          {unsent.length ? <span className="block text-sm font-semibold text-warning">لم تصل إلى زوهو: {unsent.length}</span> : null}
+        </span>
+        <ChevronLeft aria-hidden className="size-4.5 flex-none text-soft" />
+      </button>
     );
   }
   const need = list.filter(needsReview);
@@ -351,20 +318,66 @@ function ReviewBlock({ data, list, rep, cat, setCat, reload }: { data: CollData;
   const left = need.length - done;
   const text = all ? `${rv.can_review ? 'أنهيت' : 'أنهى'} مراجعة كل المدينين القدامى ✓`
     : past ? `انتهى الأجل، وبقي ${customersWord(left)} دون مراجعة.`
-      : rv.can_review ? `راجعت ${done} من ${need.length}. اتصل بكل عميل، ثم اضغط «راجعت» بجانبه.` : `راجع ${done} من ${need.length}.`;
+      : `${rv.can_review ? 'راجعت' : 'راجع'} ${done} من ${need.length}.`;
   const pct = Math.round((done / need.length) * 100);
   return (
-    <section className={cn('mt-3 border border-line border-s-3 bg-surface px-3.5 py-3', all ? 'border-s-foreground' : past ? 'border-s-brand' : 'border-s-warning')}>
-      <div className="flex flex-wrap items-baseline justify-between gap-2"><h2 className="m-0 text-base font-bold">مراجعة الأسبوع</h2><span className="text-sm text-muted">{deadline}</span></div>
-      <div role="progressbar" aria-valuemin={0} aria-valuemax={need.length} aria-valuenow={done} className="my-2.5 h-2 bg-surface-alt">
-        <div className={cn('h-full transition-[width] duration-150', all ? 'bg-foreground' : 'bg-warning')} style={{ width: `${pct}%` }} />
+    <section className="mt-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className={cn('m-0 text-base font-bold', past && !all && 'text-danger')}>مراجعة الأسبوع: {text}</h2>
+        <span className="text-sm text-muted">{deadline}</span>
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className={cn('m-0 flex-[1_1_180px] text-sm', all && 'font-semibold', past && !all && 'font-semibold text-danger')}>{text}</p>
-        {!all ? <Button size="sm" className={cn(cat === 'rev' && 'border-foreground')} aria-pressed={cat === 'rev'} onClick={() => setCat(cat === 'rev' ? '' : 'rev')}>
-          {cat === 'rev' ? 'اعرض الكل' : `اعرض من بقي (${left})`}</Button> : null}
+      <div role="progressbar" aria-label="تقدّم المراجعة" aria-valuemin={0} aria-valuemax={need.length} aria-valuenow={done} className="my-2 h-1.5 bg-surface-alt">
+        <div className={cn('h-full transition-[width] duration-200', all ? 'bg-foreground' : past ? 'bg-brand' : 'bg-warning')} style={{ width: `${pct}%` }} />
       </div>
+      {!all ? (
+        <Button size="sm" className={cn('w-full', cat === 'rev' && 'border-foreground')} aria-pressed={cat === 'rev'} onClick={() => setCat(cat === 'rev' ? '' : 'rev')}>
+          {cat === 'rev' ? 'اعرض كل المدينين' : `اعرض من بقي دون مراجعة (${left})`}</Button>
+      ) : null}
     </section>
+  );
+}
+
+// تفاصيل المراجعة للمدير في اللوحة السفلية: تقدّم كل مندوب، والملاحظات، وما لم يصل إلى زوهو
+function ReviewDetails({ data, reload }: { data: CollData; reload: () => void }) {
+  const rv = data.review!;
+  const [notesOpen, setNotesOpen] = useState(false);
+  const past = Date.now() > rv.deadline;
+  const prog = rv.progress || [];
+  const notes = rv.notes || [];
+  return (
+    <>
+      <Unsent list={rv.unsent} reload={reload} />
+      {prog.length ? (
+        <ul className={cn(LIST_BOX, 'mt-2')}>
+          {prog.map((p) => (
+            <li key={p.rep} className="flex min-h-[52px] items-center justify-between gap-3 px-3.5 py-2">
+              <span className="min-w-0">
+                <Ltr className="block font-semibold">{p.rep}</Ltr>
+                <span className="block text-sm text-muted">{p.last ? 'آخر مراجعة ' + timeOf(p.last) : 'لم يراجع أحداً بعد'}</span>
+              </span>
+              <span className="flex flex-none flex-col items-end">
+                <Num className="font-display font-semibold">{`${p.done}/${p.need}`}</Num>
+                <span className={cn('text-sm', p.done === p.need ? 'font-semibold' : past ? 'font-semibold text-danger' : 'text-muted')}>{p.done === p.need ? 'أنهى ✓' : past ? 'لم يُنهِ في الأجل' : 'جارية'}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {notes.length ? (
+        <Fold open={notesOpen} onOpenChange={setNotesOpen} className="mt-2"
+          head={<div className="flex items-center justify-between gap-3"><span className="font-bold">ملاحظات المراجعة</span><span className="text-sm text-muted">{notes.length} ملاحظة</span></div>}>
+          <ul className={LIST_BOX}>
+            {notes.map((n, i) => (
+              <li key={i} className="px-3 py-2">
+                <div className="flex justify-between gap-3"><Ltr className="font-semibold">{n.name}</Ltr><Ltr className="text-sm text-muted">{n.rep}</Ltr></div>
+                <p className="my-1 text-base [overflow-wrap:anywhere]">{n.note + (n.late ? ' (بعد الأجل)' : '')}</p>
+                <div className="text-sm text-muted">{timeOf(n.at)}</div>
+              </li>
+            ))}
+          </ul>
+        </Fold>
+      ) : null}
+    </>
   );
 }
 
@@ -485,7 +498,7 @@ function CustomerPage({ data, id, me, onBack, onReview, onCancelled }: {
   const [cancelling, setCancelling] = useState(false);
   // رأس الصفحة: لوح أحمر ملاصق للشريط العلوي، كما في صفحة الشيك
   const top = <Slab><SlabTop onBack={onBack} /><h1 className="m-0 text-lg font-bold">رصيد العميل</h1></Slab>;
-  if (!data) return <>{top}<p className="mt-4 text-muted">جارٍ التحميل…</p></>;
+  if (!data) return <>{top}<SkeletonList rows={3} /></>;
   if (!c) return <>{top}<div className="mt-4"><Empty>لم يعد لهذا العميل رصيد مفتوح، أو ليس من عملائك.</Empty></div></>;
 
   const msg = `السلام عليكم، معك ${me.user.display_name} من ELONAC. نتصل بخصوص رصيدك عندنا، ${fmtAmount(c.balance).replace(' DA', '')} دج. متى يناسبك أن نسوّيه؟`;
@@ -564,8 +577,10 @@ function CustomerPage({ data, id, me, onBack, onReview, onCancelled }: {
               {c.invoices.map((i) => (
                 <li key={i.number} className="border-b border-line py-2 text-base last:border-b-0">
                   <div className="flex flex-wrap items-baseline justify-between gap-2.5"><Ltr className="font-semibold">{i.number}</Ltr><Amount value={i.balance} className="font-semibold" /></div>
-                  <div className="text-sm text-muted">بتاريخ <Num>{fmtDate(i.date)}</Num> · الاستحقاق <Num>{fmtDate(i.due)}</Num>
-                    {i.late ? <span className={i.late > 90 ? 'font-semibold text-danger' : ''}> · متأخرة {daysWord(i.late)}</span> : <span> · لم يحن موعدها</span>}</div>
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-2.5 text-sm text-muted">
+                    <span>بتاريخ <Num>{fmtDate(i.date)}</Num> · الاستحقاق <Num>{fmtDate(i.due)}</Num></span>
+                    <span className={cn('whitespace-nowrap', i.late > 90 && 'font-semibold text-danger')}>{i.late ? 'متأخرة ' + daysWord(i.late) : 'لم يحن موعدها'}</span>
+                  </div>
                 </li>
               ))}
             </ul>

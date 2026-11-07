@@ -5,10 +5,11 @@ import { useEffect, useRef, useState } from 'react';
 import { Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/input';
+import { DateField } from '@/components/ui/datefield';
 import { Modal, ModalActions } from '@/components/ui/dialog';
 import { Segmented } from '@/components/ui/segmented';
 import { Amount, Num } from '@/components/ltr';
-import { Empty, ErrorBox, FormError, Note } from '@/components/shell';
+import { Empty, ErrorBox, FormError, Note, SkeletonList } from '@/components/shell';
 import { toast } from '@/components/toast';
 import { api, errText, isCutOff } from '@/lib/api';
 import { useFixedBottom } from '@/lib/layout';
@@ -25,11 +26,11 @@ const LOC_FROM_LABEL: Record<string, string> = { 'الجزائر': 'ALGER', 'ا�
 type Options = { can_register: boolean; reader: boolean; destinations: string[]; locations: { key: string; label: string }[] };
 type Preview = { lines: Line[]; unused: number; vendor?: { lines: Line[]; unused: number } };
 
-// خطوة مرقّمة: تظهر علامة ✓ حين تكتمل، فيرى الموظف ما بقي بنظرة
+// خطوة مرقّمة: تظهر علامة ✓ حين تكتمل، فيرى الموظف ما بقي بنظرة. الخطوات مسطحة يفصلها خط رفيع، لا صناديق
 function Step({ n, title, done, children }: { n: number; title: string; done: boolean; children: React.ReactNode }) {
   return (
-    <section className="border border-line bg-surface px-3.5 pb-3 pt-1">
-      <h2 className="-mx-3.5 mb-1 mt-0 flex items-center gap-2.5 border-b border-line px-3.5 pb-2 pt-2.5 text-base font-bold">
+    <section className="step border-b border-line pb-4 last:border-b-0">
+      <h2 className="mb-1 mt-0 flex items-center gap-2.5 text-lg font-bold">
         <span aria-hidden className={cn('num inline-flex size-6 flex-none items-center justify-center text-sm', done ? 'bg-selected text-selected-ink' : 'border border-line-strong text-muted')}>
           {done ? <Check className="size-4" strokeWidth={3} /> : n}
         </span>
@@ -38,6 +39,17 @@ function Step({ n, title, done, children }: { n: number; title: string; done: bo
       </h2>
       {children}
     </section>
+  );
+}
+
+// مؤشر التقدّم أعلى الشاشة: أربع خطوات، والمكتملة بلون «المختار»
+function StepsProgress({ done }: { done: boolean[] }) {
+  const n = done.filter(Boolean).length;
+  return (
+    <div>
+      <div className="mb-1.5 text-sm text-muted">{n === done.length ? 'الخطوات كلها مكتملة' : `أكملت ${n} من ${done.length} خطوات`}</div>
+      <div aria-hidden className="flex gap-1">{done.map((d, i) => <span key={i} className={cn('h-1 flex-1 transition-colors duration-200', d ? 'bg-selected' : 'bg-line-strong')} />)}</div>
+    </div>
   );
 }
 
@@ -67,7 +79,7 @@ export function RegisterPage({ onDone }: { onDone: (pid: string) => void }) {
     api<Options>('/api/m/cheques/register/options').then(setOpts).catch((e) => setLoadError(errText(e)));
   }, []);
 
-  useFixedBottom(64, !!opts && opts.can_register);
+  useFixedBottom(92, !!opts && opts.can_register);
 
   async function onFile(f: File) {
     let shot: string;
@@ -95,7 +107,7 @@ export function RegisterPage({ onDone }: { onDone: (pid: string) => void }) {
   }
 
   if (loadError) return <ErrorBox>{loadError}</ErrorBox>;
-  if (!opts) return <p className="text-muted">جارٍ التحميل…</p>;
+  if (!opts) return <SkeletonList className="mt-0" rows={4} />;
   if (!opts.can_register) return <Empty>ليست لديك صلاحية تسجيل الشيكات.</Empty>;
 
   const endorsed = destination === 'Autre Fournisseur';
@@ -138,7 +150,8 @@ export function RegisterPage({ onDone }: { onDone: (pid: string) => void }) {
   };
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
+      <StepsProgress done={[!!image, !!customer, !!parseAmount(amount) && number.replace(/\D/g, '').length === 7 && !!date, !!location && (!endorsed || !!vendor)]} />
       <Step n={1} title="صورة الشيك" done={!!image}>
         {image ? <img src={image} alt="صورة الشيك" className="mt-1 block max-h-[260px] w-full border border-line bg-surface-alt object-contain" /> : null}
         <PhotoButtons first={!image} disabled={reading} onFile={onFile} shootLabel={image ? 'إعادة التصوير' : 'تصوير الشيك'} />
@@ -154,9 +167,7 @@ export function RegisterPage({ onDone }: { onDone: (pid: string) => void }) {
           <Field label="المبلغ (دج)"><Input inputMode="decimal" dir="ltr" placeholder="0.00" autoComplete="off" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
           <Field label="رقم الشيك"><Input inputMode="numeric" dir="ltr" maxLength={7} placeholder="7 أرقام" autoComplete="off" value={number} onChange={(e) => setNumber(e.target.value)} /></Field>
         </div>
-        <Field label="تاريخ الاستلام" hint="غيّره إن استُلم الشيك قبل اليوم. لا يُقبل إيداع قبل هذا التاريخ.">
-          <Input type="date" dir="ltr" value={date} max={today} required onChange={(e) => setDate(e.target.value)} />
-        </Field>
+        <DateField label="تاريخ الاستلام" value={date} max={today} onChange={setDate} hint="لا يُقبل إيداع الشيك قبل هذا التاريخ." />
       </Step>
 
       <Step n={4} title="الوجهة والموقع" done={!!location && (!endorsed || !!vendor)}>
@@ -172,11 +183,11 @@ export function RegisterPage({ onDone }: { onDone: (pid: string) => void }) {
       <div ref={errRef}>{error ? <FormError>{error}</FormError> : null}</div>
 
       {/* شريط ثابت فوق شريط التنقل: ما ينقص، وزر «مراجعة وتسجيل» الباهت حتى تكتمل البيانات */}
-      <div className="formbar fixed inset-x-0 z-[21] flex items-center justify-between gap-2.5 border-t-3 border-t-brand bg-surface px-4 py-2.5 bottom-[calc(60px+env(safe-area-inset-bottom))]">
+      <div className="formbar fixed inset-x-0 z-[21] flex flex-col gap-1.5 border-t border-line-strong bg-surface px-4 pb-2.5 pt-2 bottom-[calc(60px+env(safe-area-inset-bottom))]">
         <div aria-live="polite" className={cn('min-w-0 text-sm leading-snug', loud && missing.length ? 'font-semibold text-danger' : 'text-muted')}>
           {missing.length ? 'ينقص: ' + missing.join('، ') : 'البيانات كاملة. راجعها ثم سجّل.'}
         </div>
-        <Button variant="primary" className="flex-none px-4 py-2.5" blocked={missing.length > 0} disabled={checking} onClick={submit}>
+        <Button variant="primary" className="w-full py-2.5" blocked={missing.length > 0} disabled={checking} onClick={submit}>
           {checking ? 'جارٍ حساب التوزيع…' : 'مراجعة وتسجيل'}
         </Button>
       </div>

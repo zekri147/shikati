@@ -1,3 +1,5 @@
+import { clearCaches } from './cache';
+
 // طلبات الخادم. لا إعادة تلقائية لأي طلب كتابة: الخطأ يصل كما هو إلى الشاشة.
 export class ApiError extends Error {
   constructor(message: string, public status: number) {
@@ -38,6 +40,7 @@ export type Me = {
 };
 
 export async function logout() {
+  clearCaches();
   try { await api('/api/logout', { method: 'POST', body: {}, noRedirect: true }); } catch { /* نكمل */ }
   location.href = '/login';
 }

@@ -91,9 +91,9 @@ export function KV({ label, children, after }: { label: string; children: React.
 
 export function Block({ title, children, className, id }: { title: string; children: React.ReactNode; className?: string; id?: string }) {
   return (
-    <section id={id} className={'scroll-mt-16 border border-line bg-surface px-3.5 pb-3 pt-1 ' + (className || '')}>
-      <h2 className="-mx-3.5 mb-2 mt-0 border-b border-line px-3.5 pb-2 pt-2.5 text-base font-bold">{title}</h2>
-      {children}
+    <section id={id} className={'scroll-mt-16 ' + (className || '')}>
+      <h2 className="mb-1.5 mt-0 text-sm font-semibold text-muted">{title}</h2>
+      <div className="border border-line bg-surface px-3.5 py-1.5">{children}</div>
     </section>
   );
 }

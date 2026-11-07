@@ -1,21 +1,22 @@
 // قسم «الشيكات»: ثلاث شاشات (الإيداع، كل الشيكات، التنبيهات)، والتسجيل، وصفحة تفاصيل لكل شيك.
 // العنوان بعد # يحدد الشاشة: #cheques و#cheques/all و#cheques/alerts و#cheques/new و#cheques/c/<معرّف الدفعة>
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Bell, ChevronDown, Landmark, List, RefreshCw, Search, SquarePlus, X } from 'lucide-react';
-import { SearchBox } from '@/components/search';
+import { Bell, Landmark, List, SquarePlus } from 'lucide-react';
+import { FilterButton, ListTools } from '@/components/search';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Modal, ModalActions, Sheet } from '@/components/ui/dialog';
+import { DateField } from '@/components/ui/datefield';
+import { Modal, ModalActions, Sheet, SheetOption } from '@/components/ui/dialog';
 import { Segmented } from '@/components/ui/segmented';
 import { Amount, Num } from '@/components/ltr';
-import { Empty, ErrorBox, FormError, RefreshButton, Slab } from '@/components/shell';
+import { Empty, ErrorBox, FormError, RefreshButton, SkeletonList, Slab } from '@/components/shell';
 import { toast } from '@/components/toast';
 import { api, errText, isCutOff, type Me } from '@/lib/api';
 import { useFixedBottom } from '@/lib/layout';
+import { readCache, writeCache } from '@/lib/cache';
 import { load as loadKey, save as saveKey } from '@/lib/storage';
 import { cn } from '@/lib/utils';
-import { chequeWord, fmtAmount, norm, relTime, sum, todayIso } from '@/lib/format';
-import { CardList, ChequeCard, ChequeSection, SectionHead } from './ui';
+import { chequeWord, fmtAmount, isoAddDays, norm, sum, todayIso } from '@/lib/format';
+import { CardList, ChequeCard, ChequeSection, SectionHead, URGENT_DAYS } from './ui';
 import { Fold } from '@/components/ui/collapsible';
 import { ChequeImage } from './media';
 import { DetailPage } from './detail';
@@ -36,16 +37,24 @@ const STATUS_FILTERS: [string, string][] = [['', 'كل الحالات'], ['في 
 // text: سطر السبب تحت البطاقة. «متأخر» و«تحصيل متأخر» تظهر في شارة البطاقة نفسها، فلا سطر لهما.
 // quiet: لا يُحسب في عدد التبويب.
 type Tier = 'urgent' | 'follow' | 'info';
-const REASONS: Record<AlertKind, { rank: number; tier: Tier; text: (t?: string) => string | null; quiet?: boolean }> = {
-  unknown_lock: { rank: 0, tier: 'urgent', text: () => 'بانتظار التحقق: انقطع الرد بعد محاولة الإيداع. تحقق في زوهو، ثم حرّر القفل من صفحة الإدارة.' },
+// admin: المدير يرى التفصيل كما في زوهو، والموظف يرى جملة تقول ما يفعل
+const REASONS: Record<AlertKind, { rank: number; tier: Tier; text: (t: string | undefined, admin: boolean) => string | null; quiet?: boolean }> = {
+  unknown_lock: { rank: 0, tier: 'urgent', text: (_t, admin) => admin
+    ? 'بانتظار التحقق: انقطع الرد بعد محاولة الإيداع. تحقق في زوهو، ثم حرّر القفل من صفحة الإدارة.'
+    : 'انقطع الرد أثناء إيداعه، فلا نعرف هل سُجّل. لا تعد إيداعه، وأبلغ المدير.' },
   rejected: { rank: 1, tier: 'urgent', text: () => 'تابعه مع العميل.' },
   endorse_incomplete: { rank: 2, tier: 'urgent', text: () => 'تظهير غير مكتمل: لم تُنشأ دفعة المورد. افتح الشيك وأتمّ التظهير.' },
   collect_late: { rank: 3, tier: 'follow', text: () => null },
   late: { rank: 4, tier: 'follow', text: () => null },
-  wrong_account: { rank: 5, tier: 'follow', text: (t) => 'حساب غير صحيح في زوهو' + (t ? ': ' + t : '.') },
-  box: { rank: 6, tier: 'follow', text: (t) => 'صندوق غير مطابق' + (t ? ': ' + t : '.') },
+  wrong_account: { rank: 5, tier: 'follow', text: (t, admin) => admin && t ? t + '.' : 'سُجّل في حساب خطأ في زوهو. أبلغ المدير ليصحّحه.' },
+  box: { rank: 6, tier: 'follow', text: (t, admin) => admin && t ? 'الصندوق غير مطابق: ' + t.replace(/\s*\|\s*/g, ' · ') : 'الصندوق المسجّل لا يطابق من استلم الشيك. أبلغ المدير.' },
   fiscal: { rank: 7, tier: 'info', text: (t) => 'الملف الجبائي للعميل ناقص' + (t ? ': ' + t : '.'), quiet: true },
 };
+// التأخر بعد 14 يوماً عاجل، كما يرسمه شريط البطاقة الأحمر
+function reasonOf(kind: AlertKind, c: Cheque): { rank: number; tier: Tier } {
+  const late = kind === 'late' ? c.days : kind === 'collect_late' ? c.deposit_days || 0 : 0;
+  return late > URGENT_DAYS ? { rank: 2.5, tier: 'urgent' } : REASONS[kind];
+}
 const TIERS: { id: Tier; title: string; tone: 'alert' | 'warn' | 'info' }[] = [
   { id: 'urgent', title: 'عاجل', tone: 'alert' },
   { id: 'follow', title: 'للمتابعة', tone: 'warn' },
@@ -63,15 +72,34 @@ function parseRoute(hash: string): { view: View; id?: string } {
   return { view: 'deposit' };
 }
 
+// فواصل زمنية في «كل الشيكات» بتاريخ الاستلام (القائمة مرتبة من الأحدث). الأسبوع يبدأ السبت
+function weekGroups(items: Cheque[]): { title: string; items: Cheque[] }[] {
+  const today = todayIso();
+  const [y, m, d] = today.split('-').map(Number);
+  const sinceSat = (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 1) % 7;
+  const thisWeek = isoAddDays(today, -sinceSat);
+  const lastWeek = isoAddDays(thisWeek, -7);
+  const groups = [{ title: 'هذا الأسبوع', items: [] as Cheque[] }, { title: 'الأسبوع الماضي', items: [] as Cheque[] }, { title: 'أقدم', items: [] as Cheque[] }];
+  for (const c of items) {
+    const day = String(c.date || '').slice(0, 10);
+    groups[day >= thisWeek ? 0 : day >= lastWeek ? 1 : 2].items.push(c);
+  }
+  return groups.filter((g) => g.items.length);
+}
+
 const byStatus = (c: Cheque, s: string) => !s || (s === 'other' ? !MAIN_STATUSES.includes(c.status) : c.status === s);
 const learned = () => loadKey(HINT_KEY) === '1';
 
 export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   const isAdmin = me.user.role === 'admin';
   const route = useMemo(() => parseRoute(hash), [hash]);
-  const [data, setData] = useState<ChequesData | null>(null);
+  // آخر بيانات على الهاتف تُعرض فوراً، ثم تُحدَّث. الإيداع ينتظر البيانات الجديدة (fresh)
+  const cacheKey = 'cheques:' + me.user.username;
+  const [cached] = useState(() => readCache<ChequesData>(cacheKey));
+  const [data, setData] = useState<ChequesData | null>(cached ? cached.data : null);
+  const [fresh, setFresh] = useState(false);
   const [error, setError] = useState('');
-  const [loadedAt, setLoadedAt] = useState(0);
+  const [loadedAt, setLoadedAt] = useState(cached ? cached.at : 0);
   const [busy, setBusy] = useState(false);
   const [, tick] = useState(0);
   const [loc, setLoc] = useState(() => loadKey(LOC_KEY));
@@ -81,7 +109,6 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   const [selected, setSelected] = useState<Map<string, Cheque>>(new Map());
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [sheet, setSheet] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
   const [depositing, setDepositing] = useState<Cheque[] | null>(null);
   const [, setLearnedTick] = useState(0);
   const busyRef = useRef(false);
@@ -98,14 +125,16 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
       const d = await api<ChequesData>('/api/m/cheques' + (refresh ? '?refresh=1' : ''));
       setData(d);
       setLoadedAt(Date.now());
+      setFresh(true);
       setError('');
+      writeCache(cacheKey, d);
     } catch (e) {
       setData((old) => { if (old) toast(errText(e), 'err'); else setError(errText(e)); return old; });
     } finally {
       busyRef.current = false;
       setBusy(false);
     }
-  }, []);
+  }, [cacheKey]);
 
   useEffect(() => { load(false); }, [load]);
   useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 30_000); return () => clearInterval(t); }, []);
@@ -130,6 +159,9 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     else window.scrollTo(0, scroll.current[next] || 0);
     return () => { if (next !== 'detail' && next !== 'new') scroll.current[next] = window.scrollY; };
   }, [route.view, route.id]);
+
+  // البحث يُمسح عند تغيير الشاشة، لأن حقله يُغلق معها: لا تصفية خفية
+  useEffect(() => { setQ(''); }, [route.view]);
 
   const isList = route.view === 'deposit' || route.view === 'all' || route.view === 'alerts';
   useFixedBottom(60, route.view !== 'detail');
@@ -199,20 +231,23 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     // ما أُودع اليوم: من تاريخ الإيداع في زوهو، فيشمل ما أودعته دالة رسائل البنك أيضاً
     const today = todayIso();
     const doneToday = pick(data.all.filter((c) => c.deposit_date && c.deposit_date.slice(0, 10) === today));
-    const lateCount = waiting.filter((c) => c.days > 7).length;
-    // اللوح الأحمر ملاصق للشريط العلوي: ما ينتظر الإيداع، ثم سطر هادئ بالأرقام الثلاثة
+    const lateCount = agb.filter((c) => c.days > 7).length;
+    const others = [...rost, ...noDest];
+    // اللوح الأحمر ملاصق للشريط العلوي: رقم واحد هو ما يؤخذ إلى بنك AGB، وهو مجموع القائمة تحته نفسها.
+    // ما في الحوزة لغير AGB سطر صغير، حتى لا يختلف الرقم الكبير عن مجموع القائمة
     summary = (
       <Slab>
         <div className="flex items-center justify-between gap-3 text-sm">
-          <span className="font-semibold">تنتظر الإيداع{loc ? ` — ${loc}` : ''}</span>
+          <span className="font-semibold">للإيداع في بنك AGB{loc ? ` — ${loc}` : ''}</span>
           {refresh(true)}
         </div>
-        <Amount value={sum(waiting)} className="block font-display text-3xl font-semibold leading-tight tracking-tight [overflow-wrap:anywhere] max-[360px]:text-2xl" />
+        <Amount value={sum(agb)} className="block font-display text-3xl font-semibold leading-tight tracking-tight [overflow-wrap:anywhere] max-[360px]:text-2xl" />
         <div className="mt-1.5 flex flex-wrap gap-x-3 text-sm" aria-live="polite">
-          <span><span className="font-semibold">{waiting.length}</span> في الحوزة</span>
+          <span>{agb.length ? chequeWord(agb.length) : 'لا شيكات'}</span>
           {lateCount ? <span><span className="font-semibold">{lateCount}</span> متأخرة</span> : null}
           <span>{doneToday.length ? <>أُودع اليوم <span className="font-semibold">{doneToday.length}</span> · <Amount value={sum(doneToday)} /></> : 'لم يُودَع شيء اليوم بعد'}</span>
         </div>
+        {others.length ? <div className="mt-0.5 text-sm opacity-90">وفي الحوزة لغير AGB: {chequeWord(others.length)} · <Amount value={sum(others)} /></div> : null}
       </Slab>
     );
     const opts = { selected: false, onToggle: toggle, link: true };
@@ -223,9 +258,9 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
         <section className="mt-4">
           <div className="mb-2 border-b border-line-strong pb-2">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="m-0 flex items-center gap-2 text-lg font-bold"><span>للإيداع في بنك AGB</span>
+              <h2 className="m-0 flex items-center gap-2 text-lg font-bold"><span>في الحوزة لبنك AGB</span>
                 <span className="num min-w-[22px] bg-foreground px-1.5 py-1 text-center text-sm font-semibold leading-none text-background">{agb.length}</span></h2>
-              {agb.length ? <Amount value={sum(agb)} className="whitespace-nowrap text-sm text-muted" /> : null}
+              {agb.length > 1 ? <span className="text-sm text-muted">الأقدم أولاً</span> : null}
             </div>
           </div>
           {agb.length ? (
@@ -255,11 +290,14 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     statusText = items.length ? <><span className="font-semibold text-foreground">{chequeWord(items.length)}</span> · <Amount value={sum(items)} /></> : 'لا نتائج';
     body = (
       <>
-        {items.length ? (
-          <CardList className="mt-3">
-            {shown.map((c) => <ChequeCard key={c.id} c={c} o={{ link: true, showStatus: !status || status === 'other', ageInHandOnly: true, lateOnly: true }} />)}
-          </CardList>
-        ) : <div className="mt-3"><Empty>لا شيك يطابق البحث أو التصفية.</Empty></div>}
+        {items.length ? weekGroups(shown).map((g) => (
+          <section key={g.title}>
+            <h2 className="mb-1.5 mt-4 flex justify-between gap-3 text-sm font-semibold text-muted"><span>{g.title}</span><span>{chequeWord(g.items.length)}</span></h2>
+            <CardList>
+              {g.items.map((c) => <ChequeCard key={c.id} c={c} o={{ link: true, showStatus: !status || status === 'other', ageInHandOnly: true, lateOnly: true }} />)}
+            </CardList>
+          </section>
+        )) : <div className="mt-3"><Empty>لا شيك يطابق البحث أو التصفية.</Empty></div>}
         {more > 0 ? <Button className="mt-2.5 w-full py-3" onClick={() => setLimit(limit + PAGE)}>عرض المزيد ({more})</Button> : null}
       </>
     );
@@ -275,26 +313,25 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     );
     statusText = alertCount ? <>تحتاج متابعة: <span className="font-semibold text-foreground">{chequeWord(alertCount)}</span></> : 'لا شيك يحتاج متابعة.';
     // كل شيك مرة واحدة: أسبابه كلها، وأعجلها يحدد مجموعته وترتيبه
-    const groups = new Map<string, { c: Cheque; kinds: { kind: AlertKind; text?: string }[]; rank: number }>();
+    const groups = new Map<string, { c: Cheque; kinds: { kind: AlertKind; text?: string }[]; rank: number; tier: Tier }>();
     for (const x of data.alerts) {
-      const def = REASONS[x.kind];
       const c = byId.get(x.id);
-      if (!def || !c || !matches(c)) continue;
-      const g = groups.get(x.id) || { c, kinds: [], rank: 99 };
+      if (!REASONS[x.kind] || !c || !matches(c)) continue;
+      const def = reasonOf(x.kind, c);
+      const g = groups.get(x.id) || { c, kinds: [], rank: 99, tier: 'info' as Tier };
       if (!g.kinds.some((k) => k.kind === x.kind)) g.kinds.push({ kind: x.kind, text: x.text });
-      g.rank = Math.min(g.rank, def.rank);
+      if (def.rank < g.rank) { g.rank = def.rank; g.tier = def.tier; }
       groups.set(x.id, g);
     }
     const sorted = [...groups.values()].sort((a, b) => a.rank - b.rank || b.c.days - a.c.days);
-    const tierOf = (rank: number) => (Object.values(REASONS).find((r) => r.rank === rank) || REASONS.fiscal).tier;
     const parts = TIERS.map((t) => {
-      const list = sorted.filter((g) => tierOf(g.rank) === t.id);
+      const list = sorted.filter((g) => g.tier === t.id);
       if (!list.length) return null;
       const cards = (
         <CardList>
           {list.map((g) => {
             const reasons = g.kinds.sort((a, b) => REASONS[a.kind].rank - REASONS[b.kind].rank)
-              .map((k) => ({ tone: REASONS[k.kind].tier === 'urgent' ? 'alert' as const : REASONS[k.kind].tier === 'follow' ? 'warn' as const : 'info' as const, text: REASONS[k.kind].text(k.text) }))
+              .map((k) => ({ tone: REASONS[k.kind].tier === 'urgent' ? 'alert' as const : REASONS[k.kind].tier === 'follow' ? 'warn' as const : 'info' as const, text: REASONS[k.kind].text(k.text, isAdmin) }))
               .filter((r): r is { tone: 'alert' | 'warn' | 'info'; text: string } => !!r.text);
             return <ChequeCard key={g.c.id} c={g.c} o={{ link: true, showStatus: true, lateOnly: true, ageInHandOnly: true, reasons }} />;
           })}
@@ -329,7 +366,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     <>
       {isList ? (
         <>
-          {onDeposit && !data ? <Slab><div className="pt-2 text-sm font-semibold">تنتظر الإيداع</div></Slab> : summary}
+          {onDeposit && !data ? <Slab><div className="pt-2 text-sm font-semibold">للإيداع في بنك AGB</div></Slab> : summary}
           {/* سطر الحالة: معلومة قصيرة يميناً، وزر التحديث بوقته يساراً. في الإيداع صار في اللوح الأحمر */}
           {!onDeposit ? (
             <div className={cn('flex min-h-11 items-center justify-between gap-3', summary && 'mt-2')}>
@@ -337,29 +374,18 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
               {refresh(false)}
             </div>
           ) : null}
-          <div className={cn('flex flex-col gap-2', onDeposit ? 'mt-3' : 'mt-2')}>
-            <div className="flex gap-2">
-              <Segmented label="الموقع" className="min-w-0 flex-1" value={loc} options={LOCATIONS} onChange={(v) => { setLoc(v); saveKey(LOC_KEY, v); setLimit(PAGE); }} />
-              {route.view === 'all' ? (
-                <Button className={cn('status-btn cut-sm max-w-[45%] flex-none justify-between gap-1 border-0 bg-chip pe-2 ps-3 text-muted', status && 'bg-selected text-selected-ink hover:bg-selected')}
-                  aria-haspopup="dialog" aria-label={'تصفية بالحالة: ' + statusDef[1]} onClick={() => { if (data) setSheet(true); }}>
-                  <span className="truncate">{statusDef[1]}</span><ChevronDown aria-hidden className="size-4.5" />
-                </Button>
-              ) : null}
-              {onDeposit ? (
-                // في الإيداع يُفتح البحث بزر العدسة، لأن الموظف يلمس الشيكات أكثر مما يبحث
-                <Button aria-label={searchOpen ? 'إغلاق البحث' : 'بحث'} aria-expanded={searchOpen} className={cn('cut-sm w-11 flex-none border-0 bg-chip px-0', searchOpen && 'bg-selected text-selected-ink hover:bg-selected')}
-                  onClick={() => { if (searchOpen) { setQ(''); setLimit(PAGE); } setSearchOpen(!searchOpen); }}>
-                  {searchOpen ? <X aria-hidden className="size-5" /> : <Search aria-hidden className="size-5" />}
-                </Button>
-              ) : null}
-            </div>
-            {!onDeposit || searchOpen ? <SearchBox autoFocus={onDeposit} placeholder="بحث باسم العميل أو رقم الشيك أو الفاتورة" onChange={(v) => { setQ(norm(v)); setLimit(PAGE); }} /> : null}
-          </div>
-          {error && !data ? <ErrorBox>{error}</ErrorBox> : !data ? <p className="mt-4 text-muted">جارٍ التحميل…</p> : <div aria-live="polite">{body}</div>}
+          {/* شريط الأدوات الموحّد: الموقع، والحالة في «كل الشيكات»، ثم العدسة */}
+          <ListTools key={route.view} className={onDeposit ? 'mt-3' : 'mt-2'} placeholder="بحث باسم العميل أو رقم الشيك أو الفاتورة"
+            onSearch={(v) => { setQ(norm(v)); setLimit(PAGE); }}>
+            <Segmented label="الموقع" className="min-w-0 flex-[2]" value={loc} options={LOCATIONS} onChange={(v) => { setLoc(v); saveKey(LOC_KEY, v); setLimit(PAGE); }} />
+            {route.view === 'all' ? (
+              <FilterButton className="status-btn max-w-[38%]" label={'تصفية بالحالة: ' + statusDef[1]} value={statusDef[1]} active={!!status} onClick={() => { if (data) setSheet(true); }} />
+            ) : null}
+          </ListTools>
+          {error && !data ? <ErrorBox>{error}</ErrorBox> : !data ? <SkeletonList rows={route.view === 'deposit' ? 5 : 8} /> : <div aria-live="polite">{body}</div>}
         </>
       ) : route.view === 'detail' && route.id ? (
-        <DetailPage id={route.id} isAdmin={isAdmin} onBack={() => { if (fromList.current) history.back(); else location.hash = '#cheques'; }} />
+        <DetailPage id={route.id} isAdmin={isAdmin} preview={data?.all.find((c) => c.id === route.id)} onBack={() => { if (fromList.current) history.back(); else location.hash = '#cheques'; }} />
       ) : route.view === 'new' ? (
         <RegisterPage onDone={(pid) => { load(true); location.hash = '#cheques/c/' + pid; }} />
       ) : null}
@@ -373,7 +399,11 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
               <Amount value={sum(selItems)} className="font-display text-base font-semibold" />
             </div>
             <div className="flex gap-1.5">
-              <Button variant="primary" className="px-4 py-2.5" onClick={() => { dialogRef.current = true; setDepositing(selItems); }}>أودعت المحدد</Button>
+              <Button variant="primary" className="px-4 py-2.5" blocked={!fresh} onClick={() => {
+                // البيانات المعروضة من آخر فتح: لا إيداع قبل وصول الجديدة، فقد يكون الشيك تغيّر
+                if (!fresh) { toast(busy ? 'انتظر لحظة حتى يكتمل التحديث، ثم أودع.' : 'البيانات قديمة. حدّث الشاشة أولاً، ثم أودع.', 'warn'); return; }
+                dialogRef.current = true; setDepositing(selItems);
+              }}>أودعت المحدد</Button>
               <Button className="border-white/35 bg-transparent px-2.5 py-2.5 text-white hover:bg-white/10 active:bg-white/10" onClick={() => setSelected(new Map())}>إلغاء التحديد</Button>
             </div>
           </div>
@@ -391,16 +421,9 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
           const items = data.all.filter((c) => matches(c) && byStatus(c, value));
           const on = value === status;
           return (
-            <button key={value || 'all'} type="button" aria-pressed={on}
-              className={cn('sheet-opt flex min-h-[52px] w-full items-center justify-between gap-3 border-b border-line px-4 py-2 text-start text-base font-semibold last:border-b-0 active:bg-surface-alt',
-                on && 'bg-selected text-selected-ink active:bg-selected', !items.length && !on && 'font-normal text-muted')}
-              onClick={() => { setSheet(false); if (value !== status) { setStatus(value); setLimit(PAGE); window.scrollTo(0, 0); } }}>
-              <span>{on ? '✓ ' : ''}{label}</span>
-              <span className={cn('flex flex-col items-end text-sm font-normal leading-snug', on ? 'text-selected-ink' : 'text-muted')}>
-                <span>{items.length ? chequeWord(items.length) : 'لا شيكات'}</span>
-                {items.length ? <Amount value={sum(items)} /> : null}
-              </span>
-            </button>
+            <SheetOption key={value || 'all'} selected={on} empty={!items.length} label={label}
+              meta={<><span>{items.length ? chequeWord(items.length) : 'لا شيكات'}</span>{items.length ? <Amount value={sum(items)} /> : null}</>}
+              onClick={() => { setSheet(false); if (value !== status) { setStatus(value); setLimit(PAGE); window.scrollTo(0, 0); } }} />
           );
         }) : null}
       </Sheet>
@@ -512,11 +535,7 @@ function DepositDialog({ items, onClosed }: { items: Cheque[]; onClosed: (r: { d
           <span>المجموع</span><Amount value={sum(items)} className="font-display text-lg font-semibold" />
         </div>
       ) : null}
-      <label className="block py-2">
-        <span className="mb-1.5 block text-base font-semibold">تاريخ الإيداع</span>
-        <Input type="date" dir="ltr" value={date} max={today} min={minDate} required disabled={phase !== 'ready'} onChange={(e) => setDate(e.target.value)} />
-        <span className="mt-1 block text-sm text-muted">غيّره إن لم يكن الإيداع اليوم.</span>
-      </label>
+      <DateField label="تاريخ الإيداع" value={date} max={today} min={minDate || undefined} disabled={phase !== 'ready'} onChange={setDate} />
       <p className="text-sm text-muted">تأكد أن هذه الشيكات سُلِّمت فعلاً للبنك، وطابقها مع صورها. سيُسجَّل الإيداع في زوهو باسمك.</p>
       {message ? (message.tone === 'err' ? <FormError>{message.text}</FormError>
         : <div className="mt-2.5 border-s-3 border-s-warning bg-warning-tint px-3 py-2 text-base">{message.text}</div>) : null}

@@ -7,7 +7,7 @@ import { Modal, ModalActions } from '@/components/ui/dialog';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/dropdown';
 import { Badge } from '@/components/ui/badge';
 import { Amount, Num } from '@/components/ltr';
-import { ErrorBox, FormError, Note, Slab, SlabTop } from '@/components/shell';
+import { ErrorBox, FormError, Note, SkeletonList, Slab, SlabTop } from '@/components/shell';
 import { toast } from '@/components/toast';
 import { api, errText, isCutOff } from '@/lib/api';
 import { navigate } from '@/lib/back';
@@ -18,7 +18,7 @@ import { DEST_LABELS, StatusBadge } from './ui';
 import { ChequeImage } from './media';
 import { AllocList, Block, KV, PartyPicker, type Party } from './pickers';
 import { EditPanel } from './edit';
-import type { Line } from './types';
+import type { Cheque, Line } from './types';
 
 const LOCK_TEXT: Record<string, string> = {
   pending: 'الإيداع قيد التنفيذ الآن', done: 'سجّل التطبيق إيداعه',
@@ -36,7 +36,8 @@ const ACTION_TEXT: Record<string, string> = {
 
 export type Detail = any;
 
-export function DetailPage({ id, isAdmin, onBack }: { id: string; isAdmin: boolean; onBack: () => void }) {
+// preview: الشيك من القائمة، فيظهر رأسه فوراً قبل وصول التفاصيل
+export function DetailPage({ id, isAdmin, onBack, preview }: { id: string; isAdmin: boolean; onBack: () => void; preview?: Cheque }) {
   const [d, setD] = useState<Detail | null>(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
@@ -62,7 +63,21 @@ export function DetailPage({ id, isAdmin, onBack }: { id: string; isAdmin: boole
   // رأس الصفحة: لوح أحمر ملاصق للشريط العلوي، فيه الرجوع ثم العميل والمبلغ والحالة والوجهة
   const backRow = (extra?: React.ReactNode) => <SlabTop onBack={onBack} extra={extra} />;
   if (error && !d) return <><Slab>{backRow()}<h1 className="m-0 text-lg font-bold">تفاصيل الشيك</h1></Slab><ErrorBox>{error}</ErrorBox></>;
-  if (!d) return <><Slab>{backRow()}<h1 className="m-0 text-lg font-bold">تفاصيل الشيك</h1></Slab><p className="mt-4 text-muted">جارٍ التحميل…</p></>;
+  if (!d) {
+    return (
+      <>
+        {preview ? (
+          <Slab>
+            {backRow(preview.cheque_number ? <>شيك <Num>{preview.cheque_number}</Num></> : null)}
+            <h1 className="m-0 text-lg font-bold leading-snug [overflow-wrap:anywhere]">{preview.customer}</h1>
+            <Amount value={preview.amount} className="mt-0.5 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
+            <div className="mt-2.5 flex flex-wrap gap-2"><Badge tone={preview.status === 'في الحوزة' || preview.status === 'مرفوض' ? 'dark' : 'inverse'}>{preview.status || 'بلا حالة'}</Badge></div>
+          </Slab>
+        ) : <Slab>{backRow()}<h1 className="m-0 text-lg font-bold">تفاصيل الشيك</h1></Slab>}
+        <SkeletonList rows={4} />
+      </>
+    );
+  }
 
   const en = d.app.endorsement;
   const lock = d.app.lock;
@@ -83,7 +98,7 @@ export function DetailPage({ id, isAdmin, onBack }: { id: string; isAdmin: boole
         {editing && d.edit ? <EditPanel d={d} onSaved={reload} onCancel={() => setEditing(false)} /> : null}
         {en && en.state === 'unknown' ? <Note tone="alert">بانتظار التحقق: انقطع الرد بعد إرسال دفعة المورد لهذا الشيك. تحقق في زوهو قبل أي محاولة جديدة.</Note> : null}
         {d.can_endorse ? <EndorsePanel d={d} reload={reload} innerRef={endorseRef} /> : null}
-        {d.wrong_account ? <Note tone="warn">حساب غير صحيح: {d.wrong_account}</Note> : null}
+        {d.wrong_account ? <Note tone="warn">{isAdmin ? d.wrong_account + '.' : 'سُجّل هذا الشيك في حساب خطأ في زوهو. أبلغ المدير ليصحّحه قبل إيداعه.'}</Note> : null}
         {d.box_alert ? <Note tone="alert">صندوق غير مطابق: {d.box_alert}</Note> : null}
         {lock && lock.state === 'unknown' ? <Note tone="alert">بانتظار التحقق: انقطع الرد بعد محاولة إيداع هذا الشيك. تحقق في صفحة الإدارة قبل أي محاولة جديدة.</Note> : null}
 
@@ -102,15 +117,17 @@ export function DetailPage({ id, isAdmin, onBack }: { id: string; isAdmin: boole
           </div>
         </div>
 
-        {/* بيانات الشيك في مربعات من عمودين */}
-        <dl className="m-0 grid grid-cols-2 gap-2">
-          <Fact label="رقم الشيك">{d.cheque_number ? <Num>{d.cheque_number}</Num> : ''}</Fact>
-          <Fact label="تاريخ الاستلام"><Num>{fmtDate(d.date)}</Num></Fact>
-          {d.deposit_date ? <Fact label="تاريخ الإيداع"><Num>{fmtDate(d.deposit_date)}</Num></Fact> : null}
-          <Fact label="الموقع">{d.location}</Fact>
-          <Fact label="سجّله">{d.created_by}</Fact>
-          <Fact label="الوجهة">{d.destination ? DEST_LABELS[d.destination] || d.destination : 'غير محددة'}</Fact>
-        </dl>
+        {/* بيانات الشيك: سطور «عنوان وقيمة» في مجموعة واحدة، لا مربع لكل معلومة */}
+        <Block title="بيانات الشيك">
+          <dl className="m-0 flex flex-col">
+            <KV label="رقم الشيك">{d.cheque_number ? <Num>{d.cheque_number}</Num> : ''}</KV>
+            <KV label="تاريخ الاستلام"><Num>{fmtDate(d.date)}</Num></KV>
+            {d.deposit_date ? <KV label="تاريخ الإيداع"><Num>{fmtDate(d.deposit_date)}</Num></KV> : null}
+            <KV label="الوجهة">{d.destination ? DEST_LABELS[d.destination] || d.destination : 'غير محددة'}</KV>
+            <KV label="الموقع">{d.location}</KV>
+            <KV label="سجّله">{d.created_by}</KV>
+          </dl>
+        </Block>
 
         {/* بيانات المحاسبة في زوهو للمدير وحده */}
         {isAdmin ? (
@@ -155,7 +172,7 @@ export function DetailPage({ id, isAdmin, onBack }: { id: string; isAdmin: boole
         </Block>
 
         <Block title="سجل العمليات">
-          {d.log.length ? <ol className="m-0 ps-5 text-base">{d.log.map((l: string, i: number) => <li key={i} className="py-0.5 [overflow-wrap:anywhere]">{l}</li>)}</ol>
+          {d.log.length ? <ul className="m-0 list-none p-0">{d.log.map((l: string, i: number) => <LogLine key={i} line={l} />)}</ul>
             : <p className="text-sm text-muted">لا توجد عمليات مسجّلة بعد.</p>}
         </Block>
 
@@ -218,14 +235,13 @@ export function DetailPage({ id, isAdmin, onBack }: { id: string; isAdmin: boole
   );
 }
 
-// مربع بيانات: العنوان بلون خافت، والقيمة تحته
-function Fact({ label, children }: { label: string; children: React.ReactNode }) {
-  const empty = children === '' || children === null || children === undefined;
+// سطر من سجل الدفعة في زوهو: «2026-11-01 — نص». التاريخ يُعرض يوم/شهر/سنة في سطر صغير فوق النص
+function LogLine({ line }: { line: string }) {
+  const m = line.match(/^(\d{4}-\d{2}-\d{2})(?:[ T]\d{2}:\d{2}(?::\d{2})?)?\s*[—–-]\s*(.*)$/);
   return (
-    <div className="min-w-0 border border-line bg-surface px-3 py-2">
-      <dt className="text-sm text-muted">{label}</dt>
-      <dd className="m-0 font-semibold [overflow-wrap:anywhere]">{empty ? <span className="font-normal text-muted">—</span> : children}</dd>
-    </div>
+    <li className="border-b border-line py-2 text-base last:border-b-0 [overflow-wrap:anywhere]">
+      {m ? <><Num className="block text-sm text-muted">{fmtDate(m[1])}</Num><span>{m[2]}</span></> : line}
+    </li>
   );
 }
 

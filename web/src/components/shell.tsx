@@ -15,15 +15,16 @@ export function Logo() {
 export type MenuLink = { href: string; label: string };
 
 // الشريط العلوي: الشعار يميناً، وزر «القائمة» يساراً. القائمة: الاسم، والروابط، والوضع، والخروج مفصولاً بخط.
-export function TopBar({ name, links = [], themeOnly, showLogout = true }: {
-  name?: string; links?: MenuLink[]; themeOnly?: boolean; showLogout?: boolean;
+// bare: الشعار وحده، لصفحتي الدخول والإعداد
+export function TopBar({ name, links = [], themeOnly, bare, showLogout = true }: {
+  name?: string; links?: MenuLink[]; themeOnly?: boolean; bare?: boolean; showLogout?: boolean;
 }) {
   const theme = useTheme();
   const themeLabel = theme === 'dark' ? 'الوضع الفاتح' : 'الوضع الداكن';
   return (
     <header className="sticky top-0 z-30 flex min-h-[52px] items-center justify-between gap-3 bg-brand pe-2 ps-4 pt-[env(safe-area-inset-top)] text-white [&_:focus-visible]:outline-white">
       <Logo />
-      {themeOnly ? (
+      {bare ? null : themeOnly ? (
         <Button variant="ghost" className="text-white hover:bg-black/15 active:bg-black/15" onClick={toggleTheme} aria-label={theme === 'dark' ? 'التبديل إلى الوضع الفاتح' : 'التبديل إلى الوضع الداكن'}>{themeLabel}</Button>
       ) : (
         <Menu dir="rtl" modal={false}>
@@ -58,6 +59,21 @@ export function Footer() {
 
 export function Main({ children, className }: { children: React.ReactNode; className?: string }) {
   return <main className={'mx-auto max-w-[760px] px-4 pt-4 pb-[calc(16px+var(--fixed-bottom,0px)+env(safe-area-inset-bottom))] ' + (className || '')}>{children}</main>;
+}
+
+// هياكل رمادية مكان القائمة أثناء أول تحميل: يرى الموظف شكل الشاشة فوراً بدل نص الانتظار
+export function SkeletonList({ rows = 6, className }: { rows?: number; className?: string }) {
+  return (
+    <div role="status" aria-busy="true" className={cn('mt-4 border border-line bg-surface motion-safe:animate-pulse', className)}>
+      <span className="sr-only">جارٍ التحميل…</span>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} aria-hidden className="flex min-h-[60px] flex-col justify-center gap-2 border-line px-3.5 py-2.5 [&:not(:first-child)]:border-t">
+          <div className="flex justify-between gap-6"><span className="h-3.5 bg-surface-alt" style={{ width: `${44 + ((i * 17) % 28)}%` }} /><span className="h-3.5 w-[24%] bg-surface-alt" /></div>
+          <span className="h-3 bg-surface-alt" style={{ width: `${36 + ((i * 11) % 20)}%` }} />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function ErrorBox({ children }: { children: React.ReactNode }) {

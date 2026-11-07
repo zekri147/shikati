@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalActions } from '@/components/ui/dialog';
-import { ErrorBox, Footer, Main, Note, TopBar, type MenuLink } from '@/components/shell';
+import { ErrorBox, Footer, Main, Note, SkeletonList, TopBar, type MenuLink } from '@/components/shell';
 import { api, errText, type Me } from '@/lib/api';
 import { useHash } from '@/lib/hash';
 import { load, save } from '@/lib/storage';
+import { readCache, writeCache } from '@/lib/cache';
 import { ChequesModule } from '@/features/cheques/ChequesModule';
 import { CollModule } from '@/features/coll/CollModule';
 
@@ -14,9 +15,12 @@ const MODULES: Record<string, React.ComponentType<{ me: Me; hash: string }>> = {
 // الهيكل العام: يقرأ المستخدم والأقسام المتاحة له، ويعرض القسم المطلوب بحسب العنوان بعد #
 export function AppPage() {
   const hash = useHash();
-  const [me, setMe] = useState<Me | null>(null);
+  // المستخدم من آخر فتح: تظهر الشاشة فوراً، ويُتحقق من الجلسة في الخلفية (الجلسة المنتهية تعيد إلى الدخول)
+  const [me, setMe] = useState<Me | null>(() => readCache<Me>('me')?.data || null);
   const [error, setError] = useState('');
-  useEffect(() => { api<Me>('/api/me').then(setMe).catch((e) => setError(errText(e))); }, []);
+  useEffect(() => {
+    api<Me>('/api/me').then((m) => { setMe(m); writeCache('me', m); }).catch((e) => setMe((old) => { if (!old) setError(errText(e)); return old; }));
+  }, []);
 
   const available = me ? me.modules.filter((m) => MODULES[m.id]) : [];
   const wanted = hash.slice(1).split('/')[0];
@@ -36,7 +40,7 @@ export function AppPage() {
       <TopBar name={me?.user.display_name} links={links} />
       <Main>
         {error ? <ErrorBox>{error}</ErrorBox>
-          : !me ? <p className="text-muted">جارٍ التحميل…</p>
+          : !me ? <SkeletonList className="mt-0" />
             : !Mod ? <p className="text-muted">لا توجد أقسام متاحة لحسابك.</p>
               : <Mod key={mod!.id} me={me} hash={hash} />}
       </Main>

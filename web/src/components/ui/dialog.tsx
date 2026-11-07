@@ -60,4 +60,18 @@ export function Sheet({ open, onClose, title, children, action }: {
   );
 }
 
+// خيار في اللوحة السفلية: الاسم يميناً، والعدد والمجموع يساراً. المختار بلون «المختار» مع ✓
+export function SheetOption({ selected, empty, label, meta, onClick }: {
+  selected: boolean; empty?: boolean; label: React.ReactNode; meta?: React.ReactNode; onClick: () => void;
+}) {
+  return (
+    <button type="button" aria-pressed={selected} onClick={onClick}
+      className={cn('sheet-opt flex min-h-[52px] w-full items-center justify-between gap-3 border-b border-line px-4 py-2 text-start text-base font-semibold last:border-b-0 active:bg-surface-alt',
+        selected && 'bg-selected text-selected-ink active:bg-selected', empty && !selected && 'font-normal text-muted')}>
+      <span className="flex items-center gap-2">{selected ? <span aria-hidden>✓</span> : null}{label}</span>
+      {meta ? <span className={cn('flex flex-col items-end text-sm font-normal leading-snug', selected ? 'text-selected-ink' : 'text-muted')}>{meta}</span> : null}
+    </button>
+  );
+}
+
 export const DialogClose = D.Close;
