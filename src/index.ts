@@ -3,7 +3,7 @@ import { NO_RETRY_DEPOSITOR, NO_RETRY_PREFIX } from './modules/constants';
 import { assertSameOrigin, errorResponse, HttpError, json } from './http';
 import { currentUser, login, logout, requireUser } from './auth';
 import { handleAdmin } from './admin';
-import { modules } from './modules';
+import { canUse, modules } from './modules';
 import { handleSetup, setupAvailable } from './setup';
 
 async function handleApi(req: Request, env: Env, path: string): Promise<Response> {
@@ -16,8 +16,8 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
   if (path === '/api/me' && req.method === 'GET') {
     const user = await requireUser(req, env);
     return json({
-      user: { username: user.username, display_name: user.display_name, role: user.role },
-      modules: modules.filter((m) => m.roles.includes(user.role)).map((m) => ({ id: m.id, title: m.title })),
+      user: { username: user.username, display_name: user.display_name, role: user.role, rep_code: user.rep_code || null },
+      modules: modules.filter((m) => canUse(m, user)).map((m) => ({ id: m.id, title: m.title })),
     });
   }
 
@@ -31,6 +31,7 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
     const mod = modules.find((x) => x.id === m[1]);
     if (!mod) throw new HttpError(404, 'غير موجود.');
     const user = await requireUser(req, env, mod.roles);
+    if (!canUse(mod, user)) throw new HttpError(403, 'ليست لديك صلاحية لهذا القسم.');
     try {
       return await mod.handle(req, env, user, m[2] || '');
     } catch (e) {

@@ -27,6 +27,9 @@
 //
 // تسجيل شيك جديد (POST /customerpayments) حسب آخر رقم في رقم الشيك:
 //   4 ينقطع الرد بعد الإرسال    7 زوهو يرفض التسجيل    غير ذلك: نجاح
+// قسم التحصيل: GET /contacts دون بحث يعيد العملاء المدينين بحقل «Owner» (cf_owner)،
+// وGET /invoices?status=unpaid يعيد كل الفواتير غير المسدّدة. المندوبون: AMINE وZAKARIA وSMAIL،
+// وعميل بلا مندوب، وعميل برصيد افتتاحي فقط، وآخر بفواتير ورصيد افتتاحي معاً.
 // ودفعة المورد عند التظهير (POST /vendorpayments) حسب آخر رقم في رقم الشيك:
 //   8 زوهو يرفض دفعة المورد     6 ينقطع الرد بعد الإرسال
 // ويقلّد أيضاً واجهة كلود (POST /v1/messages) فيعيد قراءة ثابتة لصورة الشيك،
@@ -134,6 +137,36 @@ for (const c of CONTACTS.filter((x) => x.contact_type === 'customer')) {
     { invoice_id: `${c.contact_id}2`, invoice_number: `BL-26/${c.contact_id.slice(-2)}02`, date: day(-20), balance: 300000, customer_id: c.contact_id },
   ];
 }
+// العملاء المدينون لقسم التحصيل: [الاسم، المندوب، الهاتف، الرصيد الافتتاحي، الفواتير [أيام قبل الاستحقاق، الرصيد]]
+const COLL = [
+  ['SARL VM SOUDAGE', 'AMINE', '+213-0561765718', 0, [[-130, 400000], [-60, 250000], [10, 120000]]],
+  ['ABDELKARIM ADRAR', 'SMAIL', '+213661460848', 0, [[-95, 1100000]]],
+  ['EMAD ALIBRAHIM', 'ZAKARIA', '+213-0556198025', 0, [[-12, 856050], [5, 400000]]],
+  ['SARL NSA EQUIPEMENTS', 'AMINE', '0550112233', 0, [[23, 832518]]],
+  ['GUESSMI LAKHDAR', 'AMINE', '', 0, [[-45, 500]]],
+  ['EURL OUEST METAL', 'AMINE', '0770445566', 185000, []],
+  ['SARL INOX CONSTANTINE', 'ZAKARIA', '0661778899', 90000, [[-35, 210000]]],
+  ['ETS BENALI SOUDURE', 'AMINE', '0551223344', 0, [[-8, 64500], [-3, 30000]]],
+  ['CLIENT SANS OWNER', '', '0555000111', 0, [[-200, 75000]]],
+  ['SARL TECHNO SUD', 'SMAIL', '0699887766', 0, [[-20, 318000]]],
+];
+const DEBTORS = [];
+const COLL_INVOICES = [];
+COLL.forEach(([name, owner, mobile, opening, invs], i) => {
+  const id = `74184000002000${String(i + 1).padStart(2, '0')}`;
+  let bal = opening;
+  invs.forEach(([dueIn, b], k) => {
+    bal += b;
+    COLL_INVOICES.push({ invoice_id: `${id}${k}`, invoice_number: `BL-26/${900 + i * 3 + k}`, customer_id: id, customer_name: name,
+      date: day(dueIn - 30), due_date: day(dueIn), balance: b, status: dueIn < 0 ? 'overdue' : 'sent', location_name: i % 2 ? 'EL EULMA' : 'ALGER' });
+  });
+  DEBTORS.push({ contact_id: id, contact_name: name, contact_type: 'customer', outstanding_receivable_amount: bal, mobile, phone: '',
+    cf_owner: owner, custom_field_hash: { cf_owner: owner } });
+});
+DEBTORS.sort((a, b) => b.outstanding_receivable_amount - a.outstanding_receivable_amount);
+// عميل بلا رصيد في آخر القائمة، كما يعيده زوهو
+DEBTORS.push({ contact_id: '7418400000200099', contact_name: 'SARL PAYE', contact_type: 'customer', outstanding_receivable_amount: 0, cf_owner: 'AMINE' });
+
 let newSeq = 100;
 // فواتير غير مدفوعة لكل مورد
 const BILLS = {};
@@ -194,6 +227,10 @@ http.createServer((req, res) => {
     }
     if (req.headers.authorization !== `Zoho-oauthtoken ${TOKEN}`) return send({ code: 57, message: 'not authorized' }, 401);
 
+    if (path === '/books/v3/contacts' && req.method === 'GET' && !url.searchParams.get('search_text')) {
+      const page = Number(url.searchParams.get('page') || 1);
+      return send({ code: 0, contacts: page === 1 ? DEBTORS : [], page_context: { page, has_more_page: false } });
+    }
     if (path === '/books/v3/contacts' && req.method === 'GET') {
       const q = (url.searchParams.get('search_text') || '').toLowerCase();
       const words = q.split(/\s+/).filter((w) => w.length > 1 && !['sarl', 'eurl', 'spa'].includes(w));
@@ -223,6 +260,9 @@ http.createServer((req, res) => {
       log.push(`DELETE VENDORPAY ${m[1]}`);
       delete vendorPayments[m[1]];
       return send({ code: 0, message: 'The payment has been deleted.' });
+    }
+    if (path === '/books/v3/invoices' && req.method === 'GET' && url.searchParams.get('status') === 'unpaid') {
+      return send({ code: 0, invoices: COLL_INVOICES, page_context: { page: 1, has_more_page: false } });
     }
     if (path === '/books/v3/invoices' && req.method === 'GET') {
       return send({ code: 0, invoices: INVOICES[url.searchParams.get('customer_id')] || [] });

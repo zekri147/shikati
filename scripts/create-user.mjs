@@ -31,8 +31,11 @@ const username = (await ask('اسم الدخول (أحرف لاتينية صغي
 if (!/^[a-z0-9._-]{3,32}$/.test(username)) { console.error('اسم غير صالح'); process.exit(1); }
 const display = (await ask('الاسم الظاهر: ')).trim();
 if (!display || display.length > 60) { console.error('الاسم الظاهر مطلوب'); process.exit(1); }
-const role = ((await ask('الدور (admin أو depositor) [admin]: ')).trim() || 'admin');
-if (!['admin', 'depositor'].includes(role)) { console.error('دور غير صالح'); process.exit(1); }
+const role = ((await ask('الدور (admin أو depositor أو rep) [admin]: ')).trim() || 'admin');
+if (!['admin', 'depositor', 'rep'].includes(role)) { console.error('دور غير صالح'); process.exit(1); }
+// رمز المندوب كما في حقل «Owner» على العميل في زوهو. إجباري للمندوب، واختياري لغيره
+const repCode = role === 'rep' ? (await ask('رمز المندوب (مثل AMINE): ')).trim().toUpperCase() : '';
+if (role === 'rep' && !/^[A-Z][A-Z0-9 _-]{1,31}$/.test(repCode)) { console.error('رمز مندوب غير صالح'); process.exit(1); }
 const pw = await askHidden('الرمز السري: ');
 const pw2 = await askHidden('أعد كتابة الرمز السري: ');
 rl.close();
@@ -45,7 +48,7 @@ const salt = randomBytes(16);
 const hash = pbkdf2Sync(pw, salt, ITER, 32, 'sha256');
 
 const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
-const sql = `INSERT INTO users (username, display_name, role, pw_hash, pw_salt, pw_iter) VALUES (${q(username)}, ${q(display)}, ${q(role)}, ${q(hash.toString('base64'))}, ${q(salt.toString('base64'))}, ${ITER});`;
+const sql = `INSERT INTO users (username, display_name, role, rep_code, pw_hash, pw_salt, pw_iter) VALUES (${q(username)}, ${q(display)}, ${q(role)}, ${repCode ? q(repCode) : 'NULL'}, ${q(hash.toString('base64'))}, ${q(salt.toString('base64'))}, ${ITER});`;
 
 execFileSync('npx', ['wrangler', 'd1', 'execute', 'shikati', target, '--command', sql], { stdio: 'inherit' });
 console.log(`تم إنشاء المستخدم ${username}`);
