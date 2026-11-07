@@ -13,7 +13,8 @@ export function applyTheme(t: Theme) {
   root.classList.toggle('dark', t === 'dark');
   root.setAttribute('data-theme', t);
   // لون شريط المتصفح يطابق الشريط العلوي الأحمر في الوضعين
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#d73237');
+  const brand = getComputedStyle(root).getPropertyValue('--brand').trim();
+  if (brand) document.querySelector('meta[name="theme-color"]')?.setAttribute('content', brand);
 }
 
 export function toggleTheme() {

@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Modal, ModalActions, Sheet } from '@/components/ui/dialog';
 import { Segmented } from '@/components/ui/segmented';
 import { Amount, Num } from '@/components/ltr';
-import { Empty, ErrorBox, FormError, Slab } from '@/components/shell';
+import { Empty, ErrorBox, FormError, RefreshButton, Slab } from '@/components/shell';
 import { toast } from '@/components/toast';
 import { api, errText, isCutOff, type Me } from '@/lib/api';
 import { useFixedBottom } from '@/lib/layout';
@@ -185,14 +185,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
 
   // ——— الشاشات ———
   // زر التحديث بوقته: في اللوح الأحمر في شاشة الإيداع، وفي سطر الحالة في غيرها
-  const refresh = (onRed: boolean) => (
-    <Button variant="ghost" size="sm" disabled={busy} onClick={() => load(true)}
-      className={cn('flex-none gap-1.5 font-normal', onRed ? '-me-2 text-white hover:bg-black/15 active:bg-black/15 disabled:opacity-80' : 'text-muted')}
-      aria-label={busy ? 'جارٍ التحديث…' : 'تحديث. آخر تحديث ' + (loadedAt ? relTime(loadedAt) : '')}>
-      <RefreshCw aria-hidden className={cn('size-4.5', onRed ? 'text-white' : 'text-foreground', busy && 'animate-spin')} />
-      <span className="whitespace-nowrap">{busy ? 'جارٍ التحديث…' : loadedAt ? relTime(loadedAt) : 'تحديث'}</span>
-    </Button>
-  );
+  const refresh = (onRed: boolean) => <RefreshButton busy={busy} loadedAt={loadedAt} onClick={() => load(true)} onRed={onRed} />;
   const onDeposit = route.view === 'deposit';
   let summary: React.ReactNode = null;
   let statusText: React.ReactNode = null;
@@ -336,7 +329,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     <>
       {isList ? (
         <>
-          {onDeposit && !data ? <Slab><div className="pt-2 text-sm">تنتظر الإيداع</div></Slab> : summary}
+          {onDeposit && !data ? <Slab><div className="pt-2 text-sm font-semibold">تنتظر الإيداع</div></Slab> : summary}
           {/* سطر الحالة: معلومة قصيرة يميناً، وزر التحديث بوقته يساراً. في الإيداع صار في اللوح الأحمر */}
           {!onDeposit ? (
             <div className={cn('flex min-h-11 items-center justify-between gap-3', summary && 'mt-2')}>
@@ -432,7 +425,7 @@ function BottomNav({ view, alerts }: { view: View; alerts: number }) {
             className={cn('tab relative flex min-h-[60px] flex-1 flex-col items-center justify-center gap-0.5 text-sm font-semibold text-muted no-underline active:bg-surface-alt',
               on && 'text-foreground')}>
             {/* علامة حمراء مائلة فوق التبويب الحالي */}
-            {on ? <span aria-hidden className="absolute -top-px h-[5px] w-10 bg-brand [clip-path:polygon(3px_0,100%_0,100%_calc(100%-3px),calc(100%-3px)_100%,0_100%,0_3px)]" /> : null}
+            {on ? <span aria-hidden className="cut-xs absolute -top-px h-1 w-10 bg-brand" /> : null}
             <span className="relative inline-flex">
               <Icon aria-hidden className="size-5.5" />
               {id === 'alerts' && alerts ? <span className="num absolute -end-4 -top-1.5 min-w-5 bg-brand px-1.5 py-0.5 text-center text-sm leading-none text-white">{alerts}</span> : null}

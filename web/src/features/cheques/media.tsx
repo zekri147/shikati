@@ -94,8 +94,8 @@ export function ChequeImage({ id, hasImage, v, size }: { id: string; hasImage: b
   }, [src0, hasImage]);
 
   const box = size === 'thumb' ? 'h-14' : size === 'mid' ? 'h-[72px]' : 'max-h-[280px]';
-  if (!hasImage) return <div className={cn('flex items-center justify-center bg-surface-alt p-1.5 text-center text-sm text-soft', size === 'big' ? 'p-4.5' : 'h-14')}>لا صورة</div>;
-  if (failed) return <div className={cn('flex items-center justify-center bg-warning-tint p-1.5 text-center text-sm text-foreground', size === 'big' ? 'p-4.5' : 'h-14')}>تعذّر تحميل الصورة</div>;
+  if (!hasImage) return <div className={cn('flex items-center justify-center bg-surface-alt p-1.5 text-center text-sm text-soft', size === 'big' ? 'p-4' : size === 'mid' ? 'h-[72px]' : 'h-14')}>لا صورة</div>;
+  if (failed) return <div className={cn('flex items-center justify-center bg-warning-tint p-1.5 text-center text-sm text-foreground', size === 'big' ? 'p-4' : size === 'mid' ? 'h-[72px]' : 'h-14')}>تعذّر تحميل الصورة</div>;
   return (
     <>
       <a href={src} title="تكبير الصورة" className="block" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setView(src); }}>

@@ -7,7 +7,7 @@ import { Modal, ModalActions } from '@/components/ui/dialog';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/dropdown';
 import { Badge } from '@/components/ui/badge';
 import { Amount, Num } from '@/components/ltr';
-import { ErrorBox, FormError, Note, Slab, SlabBack } from '@/components/shell';
+import { ErrorBox, FormError, Note, Slab, SlabTop } from '@/components/shell';
 import { toast } from '@/components/toast';
 import { api, errText, isCutOff } from '@/lib/api';
 import { navigate } from '@/lib/back';
@@ -60,12 +60,7 @@ export function DetailPage({ id, isAdmin, onBack }: { id: string; isAdmin: boole
   useFixedBottom(68, hasBar);
 
   // رأس الصفحة: لوح أحمر ملاصق للشريط العلوي، فيه الرجوع ثم العميل والمبلغ والحالة والوجهة
-  const backRow = (extra?: React.ReactNode) => (
-    <div className="flex items-center justify-between gap-3">
-      <SlabBack onClick={onBack} />
-      {extra}
-    </div>
-  );
+  const backRow = (extra?: React.ReactNode) => <SlabTop onBack={onBack} extra={extra} />;
   if (error && !d) return <><Slab>{backRow()}<h1 className="m-0 text-lg font-bold">تفاصيل الشيك</h1></Slab><ErrorBox>{error}</ErrorBox></>;
   if (!d) return <><Slab>{backRow()}<h1 className="m-0 text-lg font-bold">تفاصيل الشيك</h1></Slab><p className="mt-4 text-muted">جارٍ التحميل…</p></>;
 
@@ -76,7 +71,7 @@ export function DetailPage({ id, isAdmin, onBack }: { id: string; isAdmin: boole
   return (
     <>
       <Slab>
-        {backRow(d.cheque_number ? <span className="text-sm">شيك <Num>{d.cheque_number}</Num></span> : null)}
+        {backRow(d.cheque_number ? <>شيك <Num>{d.cheque_number}</Num></> : null)}
         <h1 className="m-0 text-lg font-bold leading-snug [overflow-wrap:anywhere]">{d.customer}</h1>
         <Amount value={d.amount} className="mt-0.5 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
         <div className="mt-2.5 flex flex-wrap gap-2">
@@ -255,13 +250,12 @@ function ChequePath({ d }: { d: Detail }) {
     steps.push({ label: 'حُصّل', when: '', state: st === 'محصّل' ? 'now' : 'todo' });
   }
   return (
-    <section aria-label="مسار الشيك">
-      <h2 className="mb-2 mt-0 text-sm font-bold text-muted">مسار الشيك</h2>
+    <Block title="مسار الشيك">
       <ol className="m-0 list-none p-0">
         {steps.map((s, i) => (
           <li key={i} className="flex items-stretch gap-3" aria-current={s.state === 'now' ? 'step' : undefined}>
             <div className="flex w-4 flex-none flex-col items-center">
-              <span aria-hidden className={cn('mt-1 size-3.5 flex-none [clip-path:polygon(4px_0,100%_0,100%_calc(100%-4px),calc(100%-4px)_100%,0_100%,0_4px)]',
+              <span aria-hidden className={cn('cut-xs mt-1 size-4 flex-none',
                 s.state === 'done' ? 'bg-foreground' : s.state === 'now' ? 'bg-brand' : 'bg-line-strong')} />
               {i < steps.length - 1 ? <span aria-hidden className={cn('w-0.5 flex-1', s.state === 'done' ? 'bg-foreground' : 'bg-line')} /> : null}
             </div>
@@ -272,7 +266,7 @@ function ChequePath({ d }: { d: Detail }) {
           </li>
         ))}
       </ol>
-    </section>
+    </Block>
   );
 }
 

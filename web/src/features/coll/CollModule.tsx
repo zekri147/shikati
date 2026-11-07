@@ -11,7 +11,7 @@ import { Segmented } from '@/components/ui/segmented';
 import { Fold } from '@/components/ui/collapsible';
 import { SearchBox } from '@/components/search';
 import { Amount, Ltr, Num } from '@/components/ltr';
-import { Empty, ErrorBox, FormError, Note, Slab, SlabBack } from '@/components/shell';
+import { Empty, ErrorBox, FormError, Note, RefreshButton, Slab, SlabTop } from '@/components/shell';
 import { toast } from '@/components/toast';
 import { api, errText, type Me } from '@/lib/api';
 import { useFixedBottom } from '@/lib/layout';
@@ -143,8 +143,8 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
     );
   }
 
-  if (error && !data) return <ErrorBox>{error}</ErrorBox>;
-  if (!data) return <p className="text-muted">جارٍ تحميل أرصدة العملاء…</p>;
+  if (error && !data) return <><Slab><div className="pt-2 text-sm font-semibold">التحصيل</div></Slab><ErrorBox>{error}</ErrorBox></>;
+  if (!data) return <><Slab><div className="pt-2 text-sm font-semibold">التحصيل</div></Slab><p className="mt-4 text-muted">جارٍ تحميل أرصدة العملاء…</p></>;
 
   const list = data.customers;
   const rv = data.review;
@@ -171,11 +171,7 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
       <Slab>
         <div className="flex items-center justify-between gap-3 text-sm">
           <span className="font-semibold">{who ? `مجموع ديون ${who}` : <>مجموع ديون عملاء <Ltr>{rep}</Ltr></>}</span>
-          <Button variant="ghost" size="sm" className="-me-2 gap-1.5 font-normal text-white hover:bg-black/15 active:bg-black/15 disabled:opacity-80" disabled={busy} onClick={() => load(true)}
-            aria-label={busy ? 'جارٍ التحديث…' : 'تحديث. آخر تحديث ' + (loadedAt ? relTime(loadedAt) : '')}>
-            <RefreshCw aria-hidden className={cn('size-4.5 text-white', busy && 'animate-spin')} />
-            <span>{busy ? 'جارٍ التحديث…' : loadedAt ? relTime(loadedAt) : 'تحديث'}</span>
-          </Button>
+          <RefreshButton busy={busy} loadedAt={loadedAt} onClick={() => load(true)} onRed />
         </div>
         <Amount value={total(list)} className="block font-display text-3xl font-semibold leading-tight tracking-tight max-[360px]:text-2xl" />
         <div className="mt-1.5 text-sm">{list.length ? `على ${customersWord(list.length)}` : 'لا رصيد مفتوح'} · الأرصدة من زوهو بوكس</div>
@@ -488,7 +484,7 @@ function CustomerPage({ data, id, me, onBack, onReview, onCancelled }: {
   useFixedBottom(68, !!c);
   const [cancelling, setCancelling] = useState(false);
   // رأس الصفحة: لوح أحمر ملاصق للشريط العلوي، كما في صفحة الشيك
-  const top = <Slab><SlabBack onClick={onBack} /><h1 className="m-0 text-lg font-bold">رصيد العميل</h1></Slab>;
+  const top = <Slab><SlabTop onBack={onBack} /><h1 className="m-0 text-lg font-bold">رصيد العميل</h1></Slab>;
   if (!data) return <>{top}<p className="mt-4 text-muted">جارٍ التحميل…</p></>;
   if (!c) return <>{top}<div className="mt-4"><Empty>لم يعد لهذا العميل رصيد مفتوح، أو ليس من عملائك.</Empty></div></>;
 
@@ -512,7 +508,7 @@ function CustomerPage({ data, id, me, onBack, onReview, onCancelled }: {
   return (
     <>
       <Slab>
-        <SlabBack onClick={onBack} />
+        <SlabTop onBack={onBack} />
         <h1 className="m-0"><Ltr className="block text-lg font-bold leading-snug [overflow-wrap:anywhere]">{c.name}</Ltr></h1>
         <Amount value={c.balance} className="mt-0.5 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
         <div className="mt-2.5 flex flex-wrap gap-2">

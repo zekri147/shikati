@@ -1,5 +1,7 @@
 import * as React from 'react';
-import { Menu as MenuIcon } from 'lucide-react';
+import { Menu as MenuIcon, RefreshCw } from 'lucide-react';
+import { relTime } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '@/components/ui/dropdown';
 import { toggleTheme, useTheme } from '@/lib/theme';
@@ -82,6 +84,28 @@ export function FormError({ children }: { children?: React.ReactNode }) {
 // بعرض الشاشة كاملاً، وتُقطع زاويته السفلية اليمنى وحدها (هوية إيلوناك). يوضع أول عنصر داخل Main.
 export function Slab({ children, className }: { children: React.ReactNode; className?: string }) {
   return <div className={'slab cut-br -mx-4 -mt-4 bg-brand px-4 pb-6 pt-1 text-white [&_:focus-visible]:outline-white ' + (className || '')}>{children}</div>;
+}
+
+// صف أعلى اللوح في صفحات التفاصيل: الرجوع يميناً، ومعلومة قصيرة اختيارية يساراً
+export function SlabTop({ onBack, extra }: { onBack: () => void; extra?: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <SlabBack onClick={onBack} />
+      {extra ? <span className="text-sm">{extra}</span> : null}
+    </div>
+  );
+}
+
+// زر التحديث بوقت آخر تحديث: على اللوح الأحمر (onRed) أو في سطر الحالة. مساحة لمسه 44 بكسل
+export function RefreshButton({ busy, loadedAt, onClick, onRed }: { busy: boolean; loadedAt: number; onClick: () => void; onRed?: boolean }) {
+  return (
+    <Button variant="ghost" disabled={busy} onClick={onClick}
+      className={cn('flex-none gap-1.5 px-2 text-sm font-normal', onRed ? '-me-2 text-white hover:bg-black/15 active:bg-black/15 disabled:opacity-80' : 'text-muted')}
+      aria-label={busy ? 'جارٍ التحديث…' : 'تحديث. آخر تحديث ' + (loadedAt ? relTime(loadedAt) : '')}>
+      <RefreshCw aria-hidden className={cn('size-4.5', onRed ? 'text-white' : 'text-foreground', busy && 'animate-spin')} />
+      <span className="whitespace-nowrap">{busy ? 'جارٍ التحديث…' : loadedAt ? relTime(loadedAt) : 'تحديث'}</span>
+    </Button>
+  );
 }
 
 // زر الرجوع على اللوح الأحمر

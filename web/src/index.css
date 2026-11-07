@@ -113,6 +113,10 @@
 @utility cut-br {
   clip-path: polygon(0 0, 100% 0, 100% calc(100% - 28px), calc(100% - 28px) 100%, 0 100%);
 }
+/* قطع 4 بكسل للعلامات الصغيرة: علامة التبويب الحالي، ونقاط مسار الشيك */
+@utility cut-xs {
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+}
 @utility cut-sm {
   clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
 }
