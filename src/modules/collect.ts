@@ -1,5 +1,6 @@
 import type { Env, User } from '../env';
-import { HttpError, json, nowSec } from '../http';
+import { HttpError, json, nowSec, readJson } from '../http';
+import { audit } from '../audit';
 import { cacheGet, cachePut, zohoGet } from '../zoho';
 import { todayAlgiers } from './constants';
 import type { AppModule } from './types';
@@ -8,7 +9,7 @@ import type { AppModule } from './types';
 // نقل من تبويب «التحصيل» في قائمة الاتصال، لكن الأرقام هنا حيّة بدل سكربت الصباح.
 // العميل ينسب إلى مندوبه بالحقل المخصص «Owner» (cf_owner) على العميل في زوهو.
 // المندوب يرى عملاءه فقط، والتصفية في الخادم. المدير يرى الكل ويختار المندوب.
-// لا كتابة في زوهو في هذا الملف.
+// لا كتابة في زوهو في هذا الملف. المراجعة الأسبوعية تُحفظ في قاعدة شيكاتي فقط (الجدول coll_reviews).
 
 const CACHE_KEY = 'coll_snapshot';
 const TTL = 600;            // عشر دقائق
@@ -146,6 +147,87 @@ async function getSnapshot(env: Env, refresh: boolean): Promise<Snapshot> {
 }
 
 const isOld = (c: CollCustomer) => c.late === null || c.late > 90;
+// من يحتاج مراجعة هذا الأسبوع: دين متأخر أكثر من 90 يوماً، أو رصيد افتتاحي (ولو مع فواتير حديثة)
+export const needsReview = (c: CollCustomer) => isOld(c) || c.opening > 0;
+
+// ——— المراجعة الأسبوعية: الأسبوع من السبت إلى الخميس، والأجل الخميس 12:00 بتوقيت الجزائر ———
+
+const NOTE_MAX = 400;
+const ID_RE = /^\d{10,25}$/;
+
+// تاريخ سبت الأسبوع الذي فيه اليوم (بتوقيت الجزائر). الجمعة تتبع الأسبوع الذي بدأ قبلها.
+export function reviewWeek(today: string): string {
+  const d = new Date(today + 'T12:00:00Z');
+  const back = (d.getUTCDay() + 1) % 7; // السبت 0، الأحد 1، ... الجمعة 6
+  d.setUTCDate(d.getUTCDate() - back);
+  return d.toISOString().slice(0, 10);
+}
+// الخميس 12:00 بتوقيت الجزائر (غرينتش +1 طوال السنة) = 11:00 بتوقيت غرينتش
+export function reviewDeadline(week: string): number {
+  return Date.parse(week + 'T11:00:00Z') + 5 * 86_400_000;
+}
+
+interface ReviewRow { customer_id: string; rep: string; customer_name: string; balance: number; note: string; username: string; reviewed_at: string; late: number }
+
+async function weekReviews(env: Env, week: string, rep?: string): Promise<ReviewRow[]> {
+  const sql = 'SELECT customer_id, rep, customer_name, balance, note, username, reviewed_at, late FROM coll_reviews WHERE week = ?' + (rep ? ' AND rep = ?' : '');
+  const stmt = rep ? env.DB.prepare(sql).bind(week, rep) : env.DB.prepare(sql).bind(week);
+  return (await stmt.all<ReviewRow>()).results || [];
+}
+
+// تقدّم المراجعة لكل مندوب: كم يحتاج، وكم راجع، وآخر مراجعة
+function reviewProgress(customers: CollCustomer[], rows: ReviewRow[]) {
+  const done = new Map(rows.map((r) => [r.customer_id, r]));
+  const out = new Map<string, { rep: string; need: number; done: number; last: string; late: number }>();
+  for (const c of customers) {
+    if (!c.owner || !needsReview(c)) continue;
+    const p = out.get(c.owner) || { rep: c.owner, need: 0, done: 0, last: '', late: 0 };
+    p.need++;
+    const r = done.get(c.id);
+    if (r) {
+      p.done++;
+      if (r.late) p.late++;
+      if (r.reviewed_at > p.last) p.last = r.reviewed_at;
+    }
+    out.set(c.owner, p);
+  }
+  return [...out.values()].sort((a, b) => a.rep.localeCompare(b.rep));
+}
+
+// حفظ المراجعة أو تعديل ملاحظتها. المندوب يراجع عملاءه فقط، والعميل يجب أن يكون في قائمة المراجعة الآن.
+async function saveReview(req: Request, env: Env, user: User): Promise<Response> {
+  const b = await readJson<{ customer_id?: string; note?: string }>(req);
+  const id = String(b.customer_id || '');
+  if (!ID_RE.test(id)) throw new HttpError(400, 'العميل غير صالح.');
+  const note = String(b.note ?? '').replace(/\s+/g, ' ').trim().slice(0, NOTE_MAX);
+  const own = normRep(user.rep_code);
+  if (!own) throw new HttpError(403, 'المراجعة للمندوب صاحب العميل فقط.');
+  const snap = await getSnapshot(env, false);
+  const c = snap.customers.find((x) => x.id === id);
+  if (!c || c.owner !== own) throw new HttpError(403, 'هذا العميل ليس من عملائك.');
+  if (!needsReview(c)) throw new HttpError(400, 'هذا العميل لا يحتاج مراجعة هذا الأسبوع.');
+  const now = Date.now();
+  const week = reviewWeek(todayAlgiers(new Date(now)));
+  const late = now > reviewDeadline(week) ? 1 : 0;
+  // الملاحظة تُعدَّل دون تغيير وقت المراجعة الأول ولا علامة التأخر
+  await env.DB.prepare(
+    'INSERT INTO coll_reviews (week, customer_id, rep, customer_name, balance, note, user_id, username, late) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ' +
+    'ON CONFLICT(week, customer_id) DO UPDATE SET note = excluded.note',
+  ).bind(week, id, own, c.name, c.balance, note, user.id, user.username, late).run();
+  await audit(env, user, 'coll.review', 'ok', c.name, note ? 'note' : undefined);
+  return json({ ok: true, week, late: !!late });
+}
+
+async function cancelReview(env: Env, user: User, id: string): Promise<Response> {
+  if (!ID_RE.test(id)) throw new HttpError(400, 'العميل غير صالح.');
+  const own = normRep(user.rep_code);
+  if (!own) throw new HttpError(403, 'المراجعة للمندوب صاحب العميل فقط.');
+  const week = reviewWeek(todayAlgiers());
+  const r = await env.DB.prepare('DELETE FROM coll_reviews WHERE week = ? AND customer_id = ? AND rep = ?').bind(week, id, own).run();
+  if (!r.meta.changes) throw new HttpError(404, 'لا مراجعة لهذا العميل هذا الأسبوع.');
+  await audit(env, user, 'coll.review.cancel', 'ok', id);
+  return json({ ok: true });
+}
 
 function summarize(customers: CollCustomer[]) {
   const reps = new Map<string, { rep: string; total: number; old: number; count: number }>();
@@ -173,6 +255,12 @@ export async function handleCollect(req: Request, env: Env, user: User): Promise
   const customers = rep === ''
     ? (isAdmin ? snap.customers : [])
     : snap.customers.filter((c) => (rep === '-' ? c.owner === '' : c.owner === rep));
+  // المراجعة: أسبوع اليوم، لا أسبوع الصورة المحفوظة
+  const week = reviewWeek(todayAlgiers());
+  const rows = await weekReviews(env, week, isAdmin ? undefined : own);
+  const shown = new Set(customers.map((c) => c.id));
+  const reviews: Record<string, { at: string; note: string; late: boolean; by: string }> = {};
+  for (const r of rows) if (shown.has(r.customer_id)) reviews[r.customer_id] = { at: r.reviewed_at, note: r.note, late: !!r.late, by: r.username };
   return json({
     at: snap.at * 1000,
     today: snap.today,
@@ -181,6 +269,16 @@ export async function handleCollect(req: Request, env: Env, user: User): Promise
     is_admin: isAdmin,
     customers,
     reps: isAdmin ? summarize(snap.customers) : undefined,
+    review: {
+      week,
+      deadline: reviewDeadline(week),
+      can_review: !!own && !isAdmin,
+      items: reviews,
+      // المدير: تقدّم كل مندوب، وكل الملاحظات المكتوبة هذا الأسبوع
+      progress: isAdmin ? reviewProgress(snap.customers, rows) : undefined,
+      notes: isAdmin ? rows.filter((r) => r.note).sort((a, b) => b.reviewed_at.localeCompare(a.reviewed_at))
+        .map((r) => ({ rep: r.rep, name: r.customer_name, note: r.note, at: r.reviewed_at, late: !!r.late })) : undefined,
+    },
   });
 }
 
@@ -192,6 +290,9 @@ export const collectModule: AppModule = {
   allow: (user) => user.role === 'admin' || !!normRep(user.rep_code),
   async handle(req, env, user, subpath) {
     if (req.method === 'GET' && (subpath === '' || subpath === '/')) return handleCollect(req, env, user);
+    if (req.method === 'POST' && subpath === '/review') return saveReview(req, env, user);
+    const m = subpath.match(/^\/review\/(\d{10,25})$/);
+    if (req.method === 'DELETE' && m) return cancelReview(env, user, m[1]);
     throw new HttpError(404, 'غير موجود.');
   },
 };

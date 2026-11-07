@@ -40,6 +40,9 @@ const SCREENS = [
   { name: 'coll', path: '/#coll', act: async (p) => { try { localStorage.removeItem('shikati-coll-rep'); } catch {} await p.evaluate(() => { try { localStorage.removeItem('shikati-coll-rep'); } catch {} }); } },
   { name: 'coll-old', path: '/#coll', act: async (p) => { await p.locator('.kpi-btn').click(); } },
   { name: 'coll-customer', path: '/#coll/c/7418400000200001', full: false },
+  // المراجعة الأسبوعية: لمسة «راجعت» على أول عميل لم يُراجَع (للمندوب فقط)، وبطاقة عميل لم يُراجَع
+  { name: 'coll-review', path: '/#coll', act: async (p) => { const b = p.locator('.rev-btn:not(.on)').first(); if (await b.count()) await b.click(); } },
+  { name: 'coll-customer-new', path: '/#coll/c/7418400000200006', full: false },
   { name: 'menu', path: '/#coll', act: async (p) => { await p.locator('#menu-btn').click(); }, full: false },
   { name: 'admin', path: '/admin' },
   { name: 'help', path: '/help' },

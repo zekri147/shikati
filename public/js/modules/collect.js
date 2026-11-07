@@ -2,7 +2,7 @@
 // نُقل من تبويب «التحصيل» في قائمة الاتصال. المندوب يرى عملاءه فقط، والمدير يختار المندوب.
 // العنوان بعد #: ‎#coll للقائمة، و‎#coll/c/<معرّف العميل> لبطاقة العميل.
 (function () {
-  const { api, toast, el, ltr, fmtAmount, fmtDate } = window.Shikati;
+  const { api, toast, el, ltr, fmtAmount, fmtDate, fmtDateTime } = window.Shikati;
   const { relTime, norm } = window.ShikatiChequesUI;
   const STALE_MS = 5 * 60_000;
   const PAGE = 40;
@@ -11,6 +11,7 @@
   // الفئات حسب تأخر أقدم فاتورة غير مسدّدة، كما في قائمة الاتصال
   const CATS = [
     ['', 'الكل'],
+    ['rev', 'للمراجعة'],
     ['old', 'أكثر من 90 يوماً'],
     ['d90', 'من 31 إلى 90'],
     ['d30', 'حتى 30 يوماً'],
@@ -18,6 +19,7 @@
     ['open', 'أرصدة افتتاحية'],
   ];
   const CAT_NOTE = {
+    rev: 'عملاء عليهم دين قديم ولم تراجعهم هذا الأسبوع. اتصل بكل واحد، ثم اضغط «راجعت».',
     old: 'أقدم فاتورة غير مسدّدة تأخرت أكثر من ثلاثة أشهر. ابدأ بهم.',
     d90: 'أقدم فاتورة غير مسدّدة تأخرت بين شهر وثلاثة أشهر.',
     d30: 'أقدم فاتورة غير مسدّدة تأخرت شهراً على الأكثر.',
@@ -26,6 +28,14 @@
   };
   const catOf = (c) => (c.late === null ? 'open' : c.late > 90 ? 'old' : c.late > 30 ? 'd90' : c.late > 0 ? 'd30' : 'due');
   const isOld = (c) => c.late === null || c.late > 90;
+  // المراجعة الأسبوعية: كل عميل دينه متأخر أكثر من 90 يوماً أو عليه رصيد افتتاحي
+  const needsReview = (c) => isOld(c) || c.opening > 0;
+  // الأجل بتوقيت الجزائر: الخميس 13/11 الساعة 12:00
+  function fmtDeadline(ms) {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Algiers', day: '2-digit', month: '2-digit' })
+      .formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+    return `${p.day}/${p.month}`;
+  }
   const total = (list) => Math.round(list.reduce((t, c) => t + c.balance, 0) * 100) / 100;
 
   // صيغ العدد بالعربية
@@ -110,6 +120,8 @@
     function drawCats(list) {
       const counts = {};
       for (const c of list) { const k = catOf(c); counts[k] = (counts[k] || 0) + 1; }
+      const rv = st.data.review;
+      if (rv && (rv.can_review || st.rep)) counts.rev = list.filter((c) => needsReview(c) && !rv.items[c.id]).length;
       // الفئة القديمة تشمل الافتتاحية في المربع، لكن الفئات تفصل بينهما
       catRow.replaceChildren(...CATS.filter(([v]) => !v || counts[v] || (v === 'old' && st.cat === 'old')).map(([v, t]) => {
         const n = v ? (v === 'old' ? (counts.old || 0) + (counts.open || 0) : counts[v] || 0) : list.length;
@@ -121,15 +133,33 @@
       catNote.classList.toggle('hidden', !st.cat);
     }
 
+    // زر «راجعت» بجانب العميل: لمسة تسجّل المراجعة، ولمسة ثانية تلغيها
+    function reviewToggle(c, r) {
+      const b = el('button', { type: 'button', class: 'rev-btn' + (r ? ' on' : ''), 'aria-pressed': String(!!r),
+        'aria-label': r ? 'ألغِ مراجعة ' + c.name : 'راجعت ' + c.name },
+      el('span', { class: 'rev-mark', 'aria-hidden': 'true' }), el('span', { text: r ? 'راجعته' : 'راجعت' }));
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (r && r.note) { toast('في المراجعة ملاحظة. افتح بطاقة العميل لإلغائها.', 'warn'); return; }
+        if (r) cancelReview(c, b); else saveReview(c, '', b);
+      });
+      return b;
+    }
+
     function customerItem(c, d) {
-      const facts = [el('span', { text: lateText(c) })];
+      const rv = d.review || { items: {} };
+      const r = needsReview(c) ? rv.items[c.id] : null;
+      const facts = [el('span', { text: r ? 'راجعته ' + timeOf(r.at) + (r.late ? ' (بعد الأجل)' : '') : lateText(c) })];
       if (c.invoices.length > 1) facts.push(el('span', { class: 'dot', 'aria-hidden': 'true', text: '·' }), el('span', { text: invoicesWord(c.invoices.length) }));
       if (d.is_admin && !st.rep) facts.push(el('span', { class: 'dot', 'aria-hidden': 'true', text: '·' }), c.owner ? ltr(c.owner) : el('span', { text: 'بلا مندوب' }));
       const mark = isOld(c) ? el('span', { class: 'age late', text: c.late === null ? 'افتتاحي' : '+90 يوماً' }) : null;
-      const li = el('li', { class: 'item linkable', tabindex: '0', role: 'link', 'aria-label': `${c.name}، ${fmtAmount(c.balance)}، ${lateText(c)}` },
+      const toggle = rv.can_review && needsReview(c) ? reviewToggle(c, r) : null;
+      const li = el('li', { class: 'item linkable' + (toggle ? ' has-rev' : '') + (r ? ' reviewed' : ''), tabindex: '0', role: 'link', 'aria-label': `${c.name}، ${fmtAmount(c.balance)}، ${lateText(c)}` },
+        toggle,
         el('div', { class: 'item-body' },
           el('div', { class: 'item-main' }, el('div', { class: 'customer' }, ltr(c.name)), ltr(fmtAmount(c.balance), 'amount')),
-          el('div', { class: 'item-sub' }, el('div', { class: 'facts' }, facts), mark)),
+          el('div', { class: 'item-sub' }, el('div', { class: 'facts' }, facts), r ? null : mark),
+          r && r.note ? el('div', { class: 'item-note rev-note', text: r.note }) : null),
         el('span', { class: 'go', 'aria-hidden': 'true' }, el('span', { class: 'ico ico-chevron' })));
       const open = () => { location.hash = '#coll/c/' + c.id; };
       li.addEventListener('click', open);
@@ -159,12 +189,96 @@
       return det;
     }
 
+    // وقت المراجعة بتوقيت الجزائر، مختصراً
+    const timeOf = (at) => { const t = fmtDateTime(at); return 'يوم ' + t.slice(0, 5) + ' الساعة ' + t.slice(11); };
+
+    // ——— المراجعة الأسبوعية ———
+
+    function reviewBlock(d, list) {
+      const rv = d.review;
+      if (!rv) return null;
+      const deadline = `الأجل الخميس ${fmtDeadline(rv.deadline)} الساعة 12:00`;
+      const past = Date.now() > rv.deadline;
+      // المدير على «الكل»: جدول التقدّم لكل مندوب والملاحظات
+      if (d.is_admin && !st.rep) {
+        const prog = rv.progress || [];
+        if (!prog.length) return null;
+        const rows = prog.map((p) => el('tr', {},
+          el('td', {}, ltr(p.rep)),
+          el('td', { class: 'num' }, ltr(`${p.done}/${p.need}`)),
+          el('td', { text: p.last ? fmtDateTime(p.last).slice(0, 16) : 'لا شيء' }),
+          el('td', {}, el('span', { class: p.done === p.need ? 'rev-ok' : past ? 'rev-no' : 'muted',
+            text: p.done === p.need ? 'أنهى ✓' : past ? 'لم يُنهِ في الأجل' : 'جارية' }))));
+        const notes = rv.notes || [];
+        return el('section', { class: 'block rev-admin' },
+          el('div', { class: 'block-head' }, el('h2', { text: 'مراجعة الأسبوع' }), el('span', { class: 'meta', text: deadline })),
+          el('div', { class: 'table-wrap' }, el('table', { class: 'tbl' },
+            el('thead', {}, el('tr', {}, ['المندوب', 'راجع', 'آخر مراجعة', 'الحالة'].map((t) => el('th', { text: t })))),
+            el('tbody', {}, rows))),
+          notes.length ? el('details', { class: 'fold' },
+            el('summary', {}, el('div', { class: 'block-head' }, el('h2', { text: 'ملاحظات المراجعة' }), el('span', { class: 'meta', text: `${notes.length} ملاحظة` }))),
+            el('ul', { class: 'list' }, notes.map((n) => el('li', { class: 'item' }, el('div', { class: 'item-body' },
+              el('div', { class: 'item-main' }, el('div', { class: 'customer' }, ltr(n.name)), ltr(n.rep, 'muted small')),
+              el('div', { class: 'rev-text', text: n.note + (n.late ? ' (بعد الأجل)' : '') }),
+              el('div', { class: 'muted small', text: timeOf(n.at) })))))) : null);
+      }
+      // المندوب، أو المدير على مندوب واحد: شريط التقدّم
+      const need = list.filter(needsReview);
+      if (!need.length || (!rv.can_review && !st.rep)) return null;
+      const done = need.filter((c) => rv.items[c.id]).length;
+      const all = done === need.length;
+      const left = need.length - done;
+      const state = all ? 'done' : past ? 'late' : '';
+      const text = all ? `${rv.can_review ? 'أنهيت' : 'أنهى'} مراجعة كل المدينين القدامى ✓`
+        : past ? `انتهى الأجل، وبقي ${customersWord(left)} دون مراجعة.`
+          : rv.can_review ? `راجعت ${done} من ${need.length}. اتصل بكل عميل، ثم اضغط «راجعت» بجانبه.` : `راجع ${done} من ${need.length}.`;
+      const showLeft = !all ? el('button', { type: 'button', class: 'btn-plain rev-left', 'aria-pressed': String(st.cat === 'rev'),
+        text: st.cat === 'rev' ? 'اعرض الكل' : `اعرض من بقي (${left})` }) : null;
+      if (showLeft) showLeft.addEventListener('click', () => setCat(st.cat === 'rev' ? '' : 'rev'));
+      return el('section', { class: 'rev ' + state },
+        el('div', { class: 'rev-h' }, el('h2', { text: 'مراجعة الأسبوع' }), el('span', { class: 'meta', text: deadline })),
+        el('div', { class: 'rev-bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(need.length), 'aria-valuenow': String(done) },
+          el('i', { style: `width:${Math.round((done / need.length) * 100)}%` })),
+        el('div', { class: 'rev-foot' }, el('p', { class: 'rev-st', text }), showLeft));
+    }
+
+    async function saveReview(c, note, btn) {
+      if (btn) btn.disabled = true;
+      try {
+        const r = await api('/api/m/coll/review', { method: 'POST', body: { customer_id: c.id, note } });
+        const items = st.data.review.items;
+        const prev = items[c.id];
+        items[c.id] = { at: prev ? prev.at : new Date().toISOString().slice(0, 19).replace('T', ' '), note, late: prev ? prev.late : r.late, by: me.user.username };
+        toast(prev ? 'حُفظت الملاحظة' : 'سُجّلت المراجعة ✓');
+        draw();
+        return true;
+      } catch (e) {
+        toast(e.message, 'err');
+        if (btn) btn.disabled = false;
+        return false;
+      }
+    }
+
+    async function cancelReview(c, btn) {
+      if (btn) btn.disabled = true;
+      try {
+        await api('/api/m/coll/review/' + encodeURIComponent(c.id), { method: 'DELETE' });
+        delete st.data.review.items[c.id];
+        toast('أُلغيت المراجعة');
+        draw();
+      } catch (e) {
+        toast(e.message, 'err');
+        if (btn) btn.disabled = false;
+      }
+    }
+
     function drawList(d) {
       const list = d.customers;
       drawReps(d);
       drawKpis(d, list);
       drawCats(list);
-      const inCat = (c) => !st.cat || (st.cat === 'old' ? isOld(c) : catOf(c) === st.cat);
+      const items0 = d.review ? d.review.items : {};
+      const inCat = (c) => !st.cat || (st.cat === 'old' ? isOld(c) : st.cat === 'rev' ? needsReview(c) && !items0[c.id] : catOf(c) === st.cat);
       const match = (c) => !st.q || norm(c.name).includes(st.q) || c.invoices.some((i) => norm(i.number).includes(st.q));
       const items = list.filter((c) => inCat(c) && match(c));
       const shown = items.slice(0, st.limit);
@@ -173,6 +287,8 @@
       if (moreBtn) moreBtn.addEventListener('click', () => { st.limit += PAGE; draw(); });
       const title = st.cat ? CATS.find(([v]) => v === st.cat)[1] : 'كل المدينين';
       const parts = [];
+      const rb = reviewBlock(d, list);
+      if (rb) parts.push(rb);
       if (d.is_admin && !st.rep && d.reps && d.reps.length) parts.push(repSummary(d));
       parts.push(el('section', { class: 'block primary' },
         el('div', { class: 'block-head' }, el('h2', { text: title }), el('span', { class: 'meta' }, ltr(fmtAmount(total(items)), 'num'))),
@@ -227,7 +343,30 @@
         c.phone
           ? el('a', { class: 'btn btn-plain', href: `https://wa.me/${c.phone}?text=${encodeURIComponent(msg)}`, target: '_blank', rel: 'noopener', text: 'واتساب' })
           : el('button', { type: 'button', class: 'btn-plain is-blocked', text: 'واتساب', onclick: () => toast('لا رقم هاتف لهذا العميل في زوهو.', 'warn') }));
-      detailBox.replaceChildren(top, el('div', { class: 'detail' }, head, facts, invs, bar));
+      detailBox.replaceChildren(top, el('div', { class: 'detail' }, head, reviewCard(c), facts, invs, bar));
+    }
+
+    // المراجعة في بطاقة العميل: ملاحظة اختيارية، ثم «سجّل المراجعة»
+    function reviewCard(c) {
+      const rv = st.data.review;
+      if (!rv || !needsReview(c)) return null;
+      const r = rv.items[c.id];
+      if (!rv.can_review) {
+        if (!r) return el('div', { class: 'note warn', text: 'لم يُراجَع هذا العميل هذا الأسبوع.' });
+        return el('section', { class: 'd-block' }, el('h2', { text: 'مراجعة الأسبوع' }),
+          el('p', { class: 'rev-text', text: r.note || 'رُوجع دون ملاحظة.' }),
+          el('p', { class: 'muted small', text: `${r.by} · ${timeOf(r.at)}${r.late ? ' (بعد الأجل)' : ''}` }));
+      }
+      const area = el('textarea', { rows: '2', maxlength: '400', class: 'rev-area', 'aria-label': 'ملاحظة المراجعة', placeholder: 'اختياري. مثال: وعد بالدفع يوم الخميس' });
+      area.value = r ? r.note : '';
+      const save = el('button', { type: 'button', class: 'btn-plain', text: r ? 'حفظ الملاحظة' : 'سجّل المراجعة' });
+      save.addEventListener('click', async () => { if (await saveReview(c, area.value.trim(), save)) { /* الرسم يعيد البطاقة */ } });
+      const cancel = r ? el('button', { type: 'button', class: 'btn-plain', text: 'إلغاء المراجعة' }) : null;
+      if (cancel) cancel.addEventListener('click', () => cancelReview(c, cancel));
+      return el('section', { class: 'd-block rev-card' + (r ? ' on' : '') },
+        el('h2', { text: r ? `راجعته ${timeOf(r.at)}${r.late ? ' (بعد الأجل)' : ''}` : 'مراجعة الأسبوع: لم تراجعه بعد' }),
+        el('label', { class: 'field' }, el('span', { class: 'muted small', text: 'ماذا قال العميل؟' }), area),
+        el('div', { class: 'rev-actions' }, save, cancel));
     }
 
     // ——— التوجيه والتحميل ———
