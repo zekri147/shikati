@@ -56,10 +56,11 @@ export function AppPage() {
   );
 }
 
-// تذكير المراجعة الأسبوعية للمندوب: كم بقي من عملائه المدينين، لسطر التذكير فوق شريط التنقل.
+// تذكير المراجعة الأسبوعية لصاحب رمز المندوب (المندوب، والمدير إن كان له رمز): كم بقي من عملائه المدينين، لسطر التذكير فوق شريط التنقل.
 // يُطلب عند الفتح، وعند العودة إلى التطبيق بعد خمس دقائق. قسم التحصيل يحدّثه بعد كل مراجعة.
 function useReviewReminder(me: Me | null, hasColl: boolean) {
-  const rep = !!me && hasColl && me.user.role !== 'admin';
+  // كل من له رمز مندوب، والمدير منهم إن كان له عملاء
+  const rep = !!me && hasColl && !!me.user.rep_code;
   useEffect(() => {
     if (!rep) { setReviewLeft({ left: 0, deadline: 0 }); return; }
     let at = 0;
