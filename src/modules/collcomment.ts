@@ -43,7 +43,7 @@ export function commentText(r: ReviewForComment): string {
   return `مراجعة التحصيل لأسبوع ${ddmm(r.week)}: راجعه ${r.rep} يوم ${t.date} الساعة ${t.time}${r.late ? ' (بعد الأجل)' : ''}. `
     + `الرصيد ${fmtAmount(r.balance)}. `
     + (r.note ? `الملاحظة: ${r.note}` : 'دون ملاحظة.')
-    + ' — من تطبيق شيكاتي';
+    + ' — من تطبيق ميداني';
 }
 
 export async function postReviewComment(env: Env, r: ReviewForComment): Promise<CommentResult> {

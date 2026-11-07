@@ -146,7 +146,7 @@ export async function endorseCheque(
     date: todayAlgiers(),
     reference_number: chq,
     paid_through_account_id: ACCOUNT_ENDORSED,
-    description: `تظهير شيك ${chq} — ${p.customer_name ?? ''} — من تطبيق شيكاتي (${user.display_name})`,
+    description: `تظهير شيك ${chq} — ${p.customer_name ?? ''} — من تطبيق ميداني (${user.display_name})`,
     bills: lines.map((l) => ({ bill_id: l.bill_id, amount_applied: l.applied })),
     custom_fields: customFields,
   };
@@ -177,7 +177,7 @@ export async function endorseCheque(
   // 4. حالة الشيك وسجله. فشلها لا يلغي التظهير.
   const cf = p.custom_field_hash || {};
   const logOld = String(cf.cf_fffaad || '').trim();
-  const logLine = `${todayAlgiers()} — تظهير للمورد ${vendorName} من تطبيق شيكاتي (${user.display_name})`;
+  const logLine = `${todayAlgiers()} — تظهير للمورد ${vendorName} من تطبيق ميداني (${user.display_name})`;
   let warning: string | undefined;
   try {
     const up = await zohoRequest(env, 'PUT', `/customerpayments/${pid}`, {

@@ -186,7 +186,7 @@ export async function undoForDetail(env: Env, user: User, p: Payment): Promise<(
 }
 
 function logLine(user: User, text: string): string {
-  return `${todayAlgiers()} — ${text} من تطبيق شيكاتي (${user.display_name})`;
+  return `${todayAlgiers()} — ${text} من تطبيق ميداني (${user.display_name})`;
 }
 
 async function setStatus(env: Env, p: Payment, user: User, text: string, clearDepositDate = false): Promise<boolean> {

@@ -222,7 +222,7 @@ export async function handleEdit(req: Request, env: Env, user: User): Promise<Re
   // الفواتير الحالية كما هي («المبلغ أكبر من باقي الفواتير»)، ويُبقي التوزيع إن لم تُرسل.
   if (fieldChanges.length) {
     const logOld = str(cf.cf_fffaad);
-    const logLine = `${todayAlgiers()} — تعديل من تطبيق شيكاتي (${user.display_name}): ${fieldChanges.map((c) => `${c.label} ${c.from} ← ${c.to}`).join('، ')}`;
+    const logLine = `${todayAlgiers()} — تعديل من تطبيق ميداني (${user.display_name}): ${fieldChanges.map((c) => `${c.label} ${c.from} ← ${c.to}`).join('، ')}`;
     const oldChq = r.old.chq;
     let description = str(p.description);
     if (oldChq && chq !== oldChq && description.includes(oldChq)) description = description.split(oldChq).join(chq);

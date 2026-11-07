@@ -218,7 +218,7 @@ export async function handleRegister(req: Request, env: Env, user: User): Promis
 
   // 4. إنشاء الدفعة. بعد هذا الطلب لا إعادة تلقائية أبداً.
   // تاريخ الدفعة هو تاريخ الاستلام، فيصير تاريخ ترحيلها وتطبيقها على الفواتير أيضاً
-  const logLine = `${today} — تسجيل الشيك${date !== today ? ` (استُلم ${date})` : ''} من تطبيق شيكاتي (${user.display_name})`;
+  const logLine = `${today} — تسجيل الشيك${date !== today ? ` (استُلم ${date})` : ''} من تطبيق ميداني (${user.display_name})`;
   const payment = {
     customer_id: customerId,
     payment_mode: 'Check',
@@ -227,7 +227,7 @@ export async function handleRegister(req: Request, env: Env, user: User): Promis
     reference_number: chq,
     account_id: dest === 'Autre Fournisseur' ? ACCOUNT_ENDORSED : ACCOUNT_CHEQUES_IN_HAND,
     location_id: loc.id,
-    description: `شيك ${chq} — سجّله ${user.display_name} من تطبيق شيكاتي`,
+    description: `شيك ${chq} — سجّله ${user.display_name} من تطبيق ميداني`,
     custom_fields: [
       { api_name: 'cf_n_cheque', value: chq },
       { api_name: 'cf_d_pos_vers', value: dest },
