@@ -16,7 +16,8 @@ import { api, errText, type Me } from '@/lib/api';
 import { fmtDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
-const ROLE: Record<string, string> = { admin: 'مدير', depositor: 'مودِع', rep: 'مندوب' };
+// دوران فقط منذ 7/11/2026: كل مستخدم غير المدير مندوب، يرى كل الشيكات ويسجّل ويودع
+const ROLE: Record<string, string> = { admin: 'مدير', rep: 'مندوب' };
 const ACTION: Record<string, string> = {
   login: 'دخول', 'user.create': 'إنشاء مستخدم', 'user.disable': 'إيقاف مستخدم', 'user.enable': 'تفعيل مستخدم',
   'user.password': 'تغيير رمز سري', 'user.rep': 'تغيير رمز المندوب', 'coll.review': 'مراجعة عميل', 'coll.review.cancel': 'إلغاء مراجعة',
@@ -96,7 +97,7 @@ function UserActions({ u, self, setAsk, refresh }: { u: any; self: boolean; setA
         run: async (p) => { await post('password', { password: p }); toast('حُفظ الرمز السري الجديد'); await refresh(); } })}>رمز سري جديد</Button>
       {/* رمز المندوب: يربط المستخدم بعملائه في زوهو (حقل «Owner») فيرى تحصيلهم */}
       <Button onClick={() => setAsk({ title: 'رمز المندوب لـ ' + u.display_name,
-        text: u.role === 'rep' ? 'اكتبه كما في حقل «Owner» على العميل في زوهو. يرى المندوب عملاء هذا الرمز فقط.' : 'اكتبه كما في حقل «Owner» في زوهو ليرى قسم التحصيل لعملائه. اتركه فارغاً لإزالته.',
+        text: u.role === 'rep' ? 'اكتبه كما في حقل «Owner» على العميل في زوهو. يرى المندوب في التحصيل عملاء هذا الرمز فقط.' : 'اكتبه كما في حقل «Owner» في زوهو ليرى قسم التحصيل لعملائه. اتركه فارغاً لإزالته.',
         okText: 'حفظ الرمز', field: { label: 'رمز المندوب', value: u.rep_code || '', placeholder: 'AMINE' },
         run: async (code) => { await post('rep', { rep_code: code }); toast('حُفظ رمز المندوب'); await refresh(); } })}>رمز المندوب{u.rep_code ? <> (<Ltr>{u.rep_code}</Ltr>)</> : null}</Button>
       {/* حذف أجهزة البصمة: لهاتف ضاع أو تغيّر. يبقى الدخول بالرمز السري */}
@@ -124,7 +125,7 @@ export function AdminPage() {
   const [tab, setTab] = useState(() => load(TAB_KEY) || 'users');
   const [userSheet, setUserSheet] = useState<any | null>(null);
   const [adding, setAdding] = useState(false);
-  const [nu, setNu] = useState({ display_name: '', username: '', role: 'depositor', rep_code: '', password: '' });
+  const [nu, setNu] = useState({ display_name: '', username: '', role: 'rep', rep_code: '', password: '' });
   const [nuError, setNuError] = useState('');
   const [rec, setRec] = useState<any>(null);
   const [recBusy, setRecBusy] = useState(false);
@@ -143,7 +144,7 @@ export function AdminPage() {
     setNuError('');
     try {
       await api('/api/admin/users', { method: 'POST', body: { ...nu, display_name: nu.display_name.trim(), username: nu.username.trim(), rep_code: nu.rep_code.trim() } });
-      setNu({ display_name: '', username: '', role: 'depositor', rep_code: '', password: '' });
+      setNu({ display_name: '', username: '', role: 'rep', rep_code: '', password: '' });
       toast('أُضيف المستخدم');
       setAdding(false);
       await refresh();
@@ -181,7 +182,7 @@ export function AdminPage() {
                       <span className={cn('block font-semibold', !u.active && 'text-muted')}>{u.display_name}</span>
                       <span className="flex flex-wrap items-center gap-x-1 text-sm text-muted">
                         <Ltr>{u.username}</Ltr><span aria-hidden>·</span><span>{u.active ? 'نشط' : 'موقوف'}</span>
-                        {u.rep_code ? <><span aria-hidden>·</span><span>مندوب <Ltr>{u.rep_code}</Ltr></span></> : null}
+                        {u.rep_code ? <><span aria-hidden>·</span><span>الرمز <Ltr>{u.rep_code}</Ltr></span></> : u.role === 'rep' ? <><span aria-hidden>·</span><span className="text-warning">بلا رمز، فلا يرى التحصيل</span></> : null}
                       </span>
                     </span>
                     <Badge tone={u.active ? 'neutral' : 'warn'}>{ROLE[u.role] || u.role}</Badge>
@@ -272,7 +273,7 @@ export function AdminPage() {
               <Field label="الدور">
                 <span className="relative block">
                   <select className="block min-h-11 w-full appearance-none border border-line-strong bg-surface pe-9 ps-3 py-2 text-foreground" value={nu.role} onChange={(e) => setNu({ ...nu, role: e.target.value })}>
-                    <option value="depositor">مودِع</option><option value="rep">مندوب</option><option value="admin">مدير</option>
+                    <option value="rep">مندوب</option><option value="admin">مدير</option>
                   </select>
                   <ChevronDown aria-hidden className="pointer-events-none absolute end-3 top-1/2 size-4.5 -translate-y-1/2 text-muted" />
                 </span>

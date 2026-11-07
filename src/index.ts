@@ -41,7 +41,7 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
     try {
       return await mod.handle(req, env, user, m[2] || '');
     } catch (e) {
-      // انقطاع الرد بعد كتابة: النص المحفوظ في السجل يبقى للمدير، والمودِع يصله نص بلا زوهو
+      // انقطاع الرد بعد كتابة: النص المحفوظ في السجل يبقى للمدير، والمندوب يصله نص بلا زوهو
       if (user.role !== 'admin' && e instanceof HttpError && e.status === 504 && e.publicMessage.startsWith(NO_RETRY_PREFIX)) {
         throw new HttpError(504, NO_RETRY_DEPOSITOR);
       }

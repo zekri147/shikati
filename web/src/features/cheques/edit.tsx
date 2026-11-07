@@ -99,7 +99,7 @@ export function EditPanel({ d, onSaved, onCancel }: { d: Detail; onSaved: () => 
         <Segmented label="الموقع" value={location} onChange={setLocation} options={[{ value: 'ALGER', label: 'الجزائر' }, { value: 'EL EULMA', label: 'العلمة' }]} />
       </GroupField>
       <GroupField label="الوجهة">
-        <Segmented label="الوجهة" value={destination} onChange={setDestination} options={Object.entries(DEST_LABELS).map(([value, label]) => ({ value, label }))} />
+        <Segmented label="الوجهة" value={destination} onChange={setDestination} options={(e?.destinations || Object.keys(DEST_LABELS)).map((value: string) => ({ value, label: DEST_LABELS[value] || value }))} />
       </GroupField>
       <GroupField label="الصورة">
         <PhotoButtons onFile={onFile} shootLabel="الكاميرا" />

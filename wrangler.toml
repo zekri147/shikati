@@ -25,8 +25,8 @@ ZOHO_ORG_ID = "904099546"
 ZOHO_API_BASE = "https://www.zohoapis.com/books/v3"
 ZOHO_ACCOUNTS_URL = "https://accounts.zoho.com"
 SESSION_HOURS = "12"
-# من يستطيع تسجيل الإيداع: "admin" للتجربة الأولى، ثم "admin,depositor" لأمين
-DEPOSIT_ROLES = "admin,depositor"
+# من يستطيع تسجيل الإيداع: "admin,rep" أي المدير وكل المندوبين. القيمة "admin" تعطّل الإيداع لغير المدير
+DEPOSIT_ROLES = "admin,rep"
 
 # الأسرار لا تُكتب هنا أبداً. تُضاف بالأوامر:
 #   npx wrangler secret put ZOHO_CLIENT_ID
@@ -34,4 +34,4 @@ DEPOSIT_ROLES = "admin,depositor"
 #   npx wrangler secret put ZOHO_REFRESH_TOKEN
 #   npx wrangler secret put SETUP_TOKEN   (مؤقت، لصفحة /setup فقط)
 #   npx wrangler secret put ANTHROPIC_API_KEY   (قراءة صورة الشيك بكلود)
-# من يستطيع تسجيل شيك جديد: REGISTER_ROLES، والافتراضي في الشيفرة "admin,depositor"
+# من يستطيع تسجيل شيك جديد: REGISTER_ROLES، والافتراضي في الشيفرة "admin,rep"

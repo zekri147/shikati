@@ -10,6 +10,7 @@ import { ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, CACHE_KEY, DEST, STATUS, tod
 import { handleBillsPreview, handleEndorse, searchVendors } from './endorse';
 import { handleUndo } from './undo';
 import { handleEdit, handleEditPreview } from './edit';
+import { custodyMap, custodyPeople, handleCustody, type CustodyInfo } from './custody';
 import { chequeNumber, wrongAccountText } from './fields';
 import { COLLECT_LATE_DAYS, fieldDate, fillDepositDates } from './depositdate';
 
@@ -67,6 +68,8 @@ export interface Cheque {
   has_image?: boolean;
   // حالة قفل الإيداع في التطبيق، إن وُجد
   lock?: string;
+  // العهدة: من يحمل الشيك، للشيكات في الحوزة. تُضاف في كل طلب، لا تُخزَّن
+  custody?: CustodyInfo;
   // تاريخ الإيداع في البنك، للشيكات المودعة
   deposit_date?: string;
   // أيام منذ الإيداع دون تحصيل
@@ -80,7 +83,7 @@ interface Section {
 }
 
 // التنبيهات تعوّض ما كان يصل عبر تيليجرام. كل تنبيه يشير إلى شيك في قائمة all.
-export type AlertKind = 'rejected' | 'late' | 'collect_late' | 'endorse_incomplete' | 'wrong_account' | 'unknown_lock' | 'box' | 'fiscal';
+export type AlertKind = 'rejected' | 'late' | 'collect_late' | 'endorse_incomplete' | 'wrong_account' | 'unknown_lock' | 'box' | 'fiscal' | 'handover';
 export interface ChequeAlert {
   kind: AlertKind;
   id: string;
@@ -242,8 +245,8 @@ async function getView(env: Env, refresh: boolean): Promise<ChequesView> {
 
 export const chequesModule: AppModule = {
   id: 'cheques',
-  title: 'شيكاتي',
-  roles: ['admin', 'depositor'],
+  title: 'الشيكات',
+  roles: ['admin', 'rep'],
   async handle(req, env, user, subpath) {
     if (req.method === 'GET' && (subpath === '' || subpath === '/')) {
       const refresh = new URL(req.url).searchParams.get('refresh') === '1';
@@ -260,10 +263,25 @@ export const chequesModule: AppModule = {
       for (const [id, state] of Object.entries(locks)) {
         if (state === 'unknown' && byId.has(id)) view.alerts.push({ kind: 'unknown_lock', id });
       }
+      // العهدة للشيكات في الحوزة، وتنبيه لمن سُلّم إليه شيك ينتظر تأكيده
+      const custody = await custodyMap(env, user);
+      const inHand = [...view.agb_in_hand.items, ...view.rostomia_in_hand.items, ...view.no_destination.items, ...view.all];
+      for (const c of inHand) {
+        const k = c.status === STATUS.IN_HAND ? custody.get(c.id) : undefined;
+        if (k) c.custody = k;
+      }
+      for (const c of view.all) {
+        if (c.custody?.incoming) view.alerts.push({ kind: 'handover', id: c.id, text: c.custody.from || undefined });
+      }
       const alerts = user.role === 'admin' ? view.alerts : view.alerts.filter((a) => !ADMIN_ONLY.includes(a.kind));
       return json({ ...view, alerts, role: user.role, can_deposit: canDeposit(env, user), can_register: canRegister(env, user) });
     }
     if (req.method === 'POST' && subpath === '/deposit') return handleDeposit(req, env, user);
+    // العهدة: من يحمل الشيك. قاعدة التطبيق وحدها، لا زوهو
+    if (req.method === 'GET' && subpath === '/custody/people') return custodyPeople(env, user);
+    if (req.method === 'POST' && subpath === '/custody') {
+      return handleCustody(req, env, user, async (pid) => (await getView(env, false)).all.some((c) => c.id === pid && c.status === STATUS.IN_HAND));
+    }
     // تسجيل شيك جديد
     if (req.method === 'GET' && subpath === '/register/options') return registerOptions(env, user);
     if (req.method === 'GET' && subpath === '/register/vendors') {

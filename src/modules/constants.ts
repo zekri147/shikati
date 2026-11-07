@@ -1,3 +1,5 @@
+import type { Role } from '../env';
+
 // ثوابت زوهو بوكس المشتركة بين قسم الشيكات ووحدة الإيداع
 
 export const ACCOUNT_CHEQUES_IN_HAND = '7418406000000000358';
@@ -16,11 +18,22 @@ export const STATUS = {
 export const DEST = { AGB: 'ELONAC', ROSTOMIA: 'ROSTOMIA' } as const;
 
 // رسائل انقطاع الرد بعد طلب كتابة تبدأ كلها بهذه العبارة. نصها للمدير يذكر التحقق في زوهو،
-// والمودِع لا يفتح زوهو، فيصله بدلها نص واحد يقول له ماذا يفعل (index.ts).
+// والمندوب لا يفتح زوهو، فيصله بدلها نص واحد يقول له ماذا يفعل (index.ts).
 export const NO_RETRY_PREFIX = 'لم يصل رد واضح من زوهو بعد';
 export const NO_RETRY_DEPOSITOR = 'لم يصل رد واضح، فلا نعرف هل سُجّلت العملية. لا تعد المحاولة: أخبر المدير باسم العميل ورقم الشيك.';
 
 export const CACHE_KEY = 'cheques_v2';
+
+// قراءة قائمة أدوار من متغير مثل DEPOSIT_ROLES. القيمة القديمة depositor تعني المندوب.
+export function parseRoles(value: string | undefined, fallback: string): Role[] {
+  const out = new Set<Role>();
+  for (const raw of String(value || fallback).split(',')) {
+    const r = raw.trim();
+    if (r === 'admin') out.add('admin');
+    else if (r === 'rep' || r === 'depositor') out.add('rep');
+  }
+  return [...out];
+}
 
 // تاريخ اليوم بتوقيت الجزائر بصيغة YYYY-MM-DD
 export function todayAlgiers(now = new Date()): string {

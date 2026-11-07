@@ -1,12 +1,13 @@
 import type { Env, User } from '../env';
 import { HttpError, json } from '../http';
-import { zohoRequest, ZohoTimeout } from '../zoho';
+import { cacheGet, cachePut, zohoRequest, ZohoTimeout } from '../zoho';
 import { chequeNumber, isoDate, wrongAccountText } from './fields';
-import { endorseBlocker } from './endorse';
-import { canRegister } from './register';
+import { canEndorse as endorseAllowed, endorseBlocker } from './endorse';
 import { undoForDetail } from './undo';
 import { editForDetail } from './edit';
 import { depositDateFor } from './depositdate';
+import { custodyForDetail } from './custody';
+import { STATUS } from './constants';
 
 // صفحة تفاصيل الشيك: قراءة فقط. تُقرأ الدفعة من زوهو مباشرة في كل مرة،
 // ثم يُضاف إليها ما سجّله التطبيق نفسه (قفل الإيداع وسجل العمليات).
@@ -18,6 +19,32 @@ const DRIVE_RE = /^https:\/\/(drive|docs)\.google\.com\/[^\s"'<>]+$/;
 // السطر الآلي الذي كان البوت يضعه في أول سجل العمليات، مثل [END|123|456]
 const BOT_TAG_RE = /^\[(PEND|END|NONE)(\|[^\]]*)?\]$/;
 const STALE_PENDING_SEC = 300;
+const OWNER_TTL = 6 * 3600;
+const REP_RE = /^[A-Z][A-Z0-9 _-]{1,31}$/;
+
+// مندوب العميل: الحقل «Owner» (cf_owner) على العميل في زوهو، محفوظ ست ساعات.
+// يُعرض باسم المستخدم الذي له الرمز نفسه في التطبيق، وإلا بالرمز. أي خطأ لا يمنع عرض الصفحة.
+async function customerRep(env: Env, customerId: string): Promise<string> {
+  if (!/^\d{10,25}$/.test(customerId)) return '';
+  const key = `owner:${customerId}`;
+  let code = await cacheGet(env, key);
+  if (code === null) {
+    try {
+      const r = await zohoRequest<{ code?: number; contact?: { cf_owner?: string; custom_field_hash?: Record<string, string> } }>(env, 'GET', `/contacts/${customerId}`);
+      if (!r.data || r.data.code !== 0 || !r.data.contact) return '';
+      const c = r.data.contact;
+      code = str(c.cf_owner ?? c.custom_field_hash?.cf_owner).trim().toUpperCase();
+      if (!REP_RE.test(code)) code = '';
+      await cachePut(env, key, code, OWNER_TTL);
+    } catch {
+      return '';
+    }
+  }
+  if (!code) return '';
+  const u = await env.DB.prepare('SELECT display_name FROM users WHERE rep_code = ? AND active = 1 ORDER BY id LIMIT 1')
+    .bind(code).first<{ display_name: string }>();
+  return u?.display_name || code;
+}
 
 interface ZohoDetail {
   payment_id: string;
@@ -69,7 +96,7 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
     "SELECT state, vendor, display_name, vendor_payment_id, message, started_at FROM endorsements WHERE payment_id = ?",
   ).bind(pid).first<{ state: string; vendor: string | null; display_name: string | null; vendor_payment_id: string | null; message: string | null; started_at: string }>();
   // إتمام التظهير: الشيك في حساب الشيكات المظهّرة ووجهته «مورد آخر» وحالته «في الحوزة»، ولا تظهير معلّق
-  const canEndorse = canRegister(env, user) && !endorseBlocker(p)
+  const canEndorse = endorseAllowed(user) && !endorseBlocker(p)
     && !(endorsement && ['pending', 'done', 'unknown'].includes(endorsement.state));
   const { results: history } = await env.DB.prepare(
     "SELECT at, username, action, result, details FROM audit_log WHERE target = ? OR target LIKE ? ORDER BY id DESC LIMIT 20",
@@ -82,10 +109,13 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
     : '';
   const undo = await undoForDetail(env, user, p as Parameters<typeof undoForDetail>[2]);
   const edit = await editForDetail(env, user, p as Parameters<typeof editForDetail>[2]);
+  const rep = await customerRep(env, str(p.customer_id));
+  const custody = await custodyForDetail(env, user, pid, str(cf.cf_5d7197) === STATUS.IN_HAND);
   return json({
     id: p.payment_id,
     number: str(p.payment_number),
     customer: str(p.customer_name),
+    rep,
     amount: Number(p.amount) || 0,
     unused_amount: Number(p.unused_amount) || 0,
     date: isoDate(p.date),
@@ -125,6 +155,7 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
       endorsement: endorsement || null,
     },
     can_endorse: canEndorse,
+    custody,
     undo,
     edit,
   });

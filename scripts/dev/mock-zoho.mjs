@@ -240,6 +240,14 @@ http.createServer((req, res) => {
       if (String(j.description).includes('#قطع')) { req.socket.destroy(); return; }
       return send({ code: 0, message: 'Comment added.', contact_comment: { comment_id: `9${Date.now()}`, description: j.description } }, 201);
     }
+    // عميل واحد: مندوبه في الحقل «Owner». العملاء من 01 إلى 04 لأمين وزكرياء، والباقي بلا مندوب
+    if ((m = path.match(/^\/books\/v3\/contacts\/(\d+)$/)) && req.method === 'GET') {
+      const c = CONTACTS.find((x) => x.contact_id === m[1]) || DEBTORS.find((x) => x.contact_id === m[1]);
+      if (!c) return send({ code: 1002, message: 'Contact does not exist.' }, 404);
+      const n = Number(m[1].slice(-2));
+      const owner = c.cf_owner ?? (n <= 2 ? 'AMINE' : n <= 4 ? 'ZAKARIA' : '');
+      return send({ code: 0, contact: { ...c, cf_owner: owner, custom_field_hash: { cf_owner: owner } } });
+    }
     if (path === '/books/v3/contacts' && req.method === 'GET' && !url.searchParams.get('search_text')) {
       const page = Number(url.searchParams.get('page') || 1);
       return send({ code: 0, contacts: page === 1 ? DEBTORS : [], page_context: { page, has_more_page: false } });

@@ -4,7 +4,7 @@ import { zohoRequest, ZohoTimeout } from '../zoho';
 import { audit } from '../audit';
 import { DEPOSIT_DATE_FIELD } from './depositdate';
 import { bankCollectedDate, showDate } from './banksms';
-import { ACCOUNT_CHEQUES_IN_HAND, CACHE_KEY, DEST, STATUS, todayAlgiers } from './constants';
+import { ACCOUNT_CHEQUES_IN_HAND, CACHE_KEY, DEST, parseRoles, STATUS, todayAlgiers } from './constants';
 
 // تسجيل إيداع شيك في بنك AGB، بنفس طريقة دالة deposer_agb في زوهو.
 // كل خطوة بعد إرسال طلب الإيداع لا تُعاد تلقائياً أبداً.
@@ -16,10 +16,7 @@ const PAYMENT_ID_RE = /^\d{10,25}$/;
 export type DepositState = 'pending' | 'done' | 'failed' | 'unknown';
 
 export function depositRoles(env: Env): Role[] {
-  return String(env.DEPOSIT_ROLES || 'admin')
-    .split(',')
-    .map((r) => r.trim())
-    .filter((r): r is Role => r === 'admin' || r === 'depositor');
+  return parseRoles(env.DEPOSIT_ROLES, 'admin');
 }
 
 export function canDeposit(env: Env, user: User): boolean {
@@ -195,7 +192,7 @@ export async function handleDeposit(req: Request, env: Env, user: User): Promise
     to_account_id: ACCOUNT_AGB,
     date: depositDate,
     currency_id: p.currency_id,
-    description: `إيداع شيك ${chq} في AGB — دفعة ${p.payment_number ?? ''} — من تطبيق شيكاتي (${user.display_name})`,
+    description: `إيداع شيك ${chq} في AGB — دفعة ${p.payment_number ?? ''} — من تطبيق ميداني (${user.display_name})`,
     line_items: [{
       from_account_id: ACCOUNT_CHEQUES_IN_HAND,
       amount: p.amount,
@@ -258,7 +255,7 @@ export async function handleDeposit(req: Request, env: Env, user: User): Promise
   // إن كان البنك قد أكّد التحصيل برسالة من قبل، فالشيك محصّل لا «مودع» فقط، حتى لا يضيع أثر التحصيل
   const collected = bankCollectedDate(logOld);
   const newStatus = collected ? STATUS.COLLECTED : STATUS.DEPOSITED;
-  const logLine = `${today} — إيداع في AGB${depositDate !== today ? ` بتاريخ ${depositDate}` : ''} من تطبيق شيكاتي (${user.display_name})` +
+  const logLine = `${today} — إيداع في AGB${depositDate !== today ? ` بتاريخ ${depositDate}` : ''} من تطبيق ميداني (${user.display_name})` +
     (collected ? `، والبنك أكّد التحصيل برسالة يوم ${showDate(collected)}` : '');
   let updated = false;
   try {

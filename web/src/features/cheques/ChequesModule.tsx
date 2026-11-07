@@ -25,12 +25,14 @@ import { ChequeImage } from './media';
 import { DetailPage } from './detail';
 import { RegisterPage } from './register';
 import { DepositDialog } from './deposit';
+import { byCustody, CUSTODY_FILTERS } from './custody';
 import type { AlertKind, Cheque, ChequesData } from './types';
 
 const MAX_BATCH = 15;
 const STALE_MS = 60_000;
 const PAGE = 60;
 const LOC_KEY = 'shikati-location';
+const CUSTODY_KEY = 'shikati-custody';
 // التلميح في شريط الإيداع يظهر حتى أول إيداع على هذا الجهاز
 const HINT_KEY = 'shikati-deposit-learned';
 const LOCATIONS = [{ value: '', label: 'الكل' }, { value: 'الجزائر', label: 'الجزائر' }, { value: 'العلمة', label: 'العلمة' }];
@@ -48,6 +50,8 @@ const REASONS: Record<AlertKind, { rank: number; tier: Tier; text: (t: string | 
     : 'انقطع الرد أثناء إيداعه، فلا نعرف هل سُجّل. لا تعد إيداعه، وأبلغ المدير.' },
   rejected: { rank: 1, tier: 'urgent', text: () => 'تابعه مع العميل.' },
   endorse_incomplete: { rank: 2, tier: 'urgent', text: () => 'تظهير غير مكتمل: لم تُنشأ دفعة المورد. افتح الشيك وأتمّ التظهير.' },
+  // سُلّم إليك شيك: أكّد استلامه من صفحته (العهدة)
+  handover: { rank: 2.9, tier: 'follow', text: (t) => `سلّمه إليك ${t || 'زميل'}. افتح الشيك وأكّد استلامه أو ارفضه.` },
   collect_late: { rank: 3, tier: 'follow', text: () => null },
   late: { rank: 4, tier: 'follow', text: () => null },
   wrong_account: { rank: 5, tier: 'follow', text: (t, admin) => admin && t ? t + '.' : 'سُجّل في حساب خطأ في زوهو. أبلغ المدير ليصحّحه.' },
@@ -113,6 +117,8 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   const [selected, setSelected] = useState<Map<string, Cheque>>(new Map());
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [sheet, setSheet] = useState(false);
+  const [custody, setCustody] = useState(() => loadKey(CUSTODY_KEY));
+  const [custodySheet, setCustodySheet] = useState(false);
   const [depositing, setDepositing] = useState<Cheque[] | null>(null);
   // بعد الإيداع: الشيكات المودَعة تنطوي (leaving) ثم تُخفى (gone) حتى تصل البيانات الجديدة
   const [leaving, setLeaving] = useState<Set<string>>(new Set());
@@ -160,7 +166,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     const next = route.view;
     fromList.current = next === 'detail' && prev !== 'detail' ? true : next === 'detail' ? fromList.current : false;
     prevView.current = next;
-    document.title = 'شيكاتي';
+    document.title = 'ميداني';
     window.scrollTo(0, next === 'detail' || next === 'new' ? 0 : savedScroll(hash));
   }, [route.view, route.id]);
 
@@ -236,9 +242,11 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   let body: React.ReactNode = null;
 
   if (data && route.view === 'deposit') {
-    const agb = pick(data.agb_in_hand.items).filter((c) => !gone.has(c.id));
-    const rost = pick(data.rostomia_in_hand.items);
-    const noDest = pick(data.no_destination.items);
+    // العهدة تصفّي ما في الحوزة وحده
+    const held = (items: Cheque[]) => pick(items).filter((c) => byCustody(c.custody, custody));
+    const agb = held(data.agb_in_hand.items).filter((c) => !gone.has(c.id));
+    const rost = held(data.rostomia_in_hand.items);
+    const noDest = held(data.no_destination.items);
     const waiting = [...agb, ...rost, ...noDest];
     // ما أُودع اليوم: من تاريخ الإيداع في زوهو، فيشمل ما أودعته دالة رسائل البنك أيضاً
     const today = todayIso();
@@ -275,7 +283,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
             <CardList>
               {agb.map((c) => <ChequeCard key={c.id} c={c} o={{ ...opts, selectable: data.can_deposit, link: !data.can_deposit, selected: selected.has(c.id), leaving: leaving.has(c.id) }} />)}
             </CardList>
-          ) : <Empty>{q || loc ? 'لا شيك يطابق البحث أو الموقع.' : 'لا شيكات تنتظر الإيداع في بنك AGB.'}</Empty>}
+          ) : <Empty>{q || loc || custody ? 'لا شيك يطابق البحث أو التصفية.' : 'لا شيكات تنتظر الإيداع في بنك AGB.'}</Empty>}
         </section>
         <div className="mt-6 flex flex-col gap-2">
           {rejected.length ? <ChequeSection title="شيكات مرفوضة" items={rejected} opts={opts} collapsible note="تحتاج متابعة مع العميل." noteTone="alert"
@@ -369,6 +377,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   }
 
   const statusDef = STATUS_FILTERS.find(([v]) => v === status) || STATUS_FILTERS[0];
+  const custodyDef = CUSTODY_FILTERS.find(([v]) => v === custody) || CUSTODY_FILTERS[0];
 
   return (
     <>
@@ -387,6 +396,9 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
           <ListTools key={route.view} className={onDeposit ? 'mt-3' : 'mt-2'} placeholder="بحث باسم العميل أو رقم الشيك أو الفاتورة"
             onSearch={(v) => { setQ(norm(v)); setLimit(PAGE); }}>
             <Segmented label="الموقع" className="min-w-0 flex-[2]" value={loc} options={LOCATIONS} onChange={(v) => { setLoc(v); saveKey(LOC_KEY, v); setLimit(PAGE); }} />
+            {route.view === 'deposit' ? (
+              <FilterButton className="custody-btn max-w-[38%]" label={'تصفية بالعهدة: ' + custodyDef[1]} value={custodyDef[1]} active={!!custody} onClick={() => { if (data) setCustodySheet(true); }} />
+            ) : null}
             {route.view === 'all' ? (
               <FilterButton className="status-btn max-w-[38%]" label={'تصفية بالحالة: ' + statusDef[1]} value={statusDef[1]} active={!!status} onClick={() => { if (data) setSheet(true); }} />
             ) : null}
@@ -435,6 +447,18 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
             <SheetOption key={value || 'all'} selected={on} empty={!items.length} label={label}
               meta={<><span>{items.length ? chequeWord(items.length) : 'لا شيكات'}</span>{items.length ? <Amount value={sum(items)} /> : null}</>}
               onClick={() => { setSheet(false); if (value !== status) { setStatus(value); setLimit(PAGE); window.scrollTo(0, 0); } }} />
+          );
+        }) : null}
+      </Sheet>
+
+      <Sheet open={custodySheet} onClose={() => setCustodySheet(false)} title="تصفية بالعهدة" action={<Button onClick={() => setCustodySheet(false)}>إغلاق</Button>}>
+        {data ? CUSTODY_FILTERS.map(([value, label]) => {
+          const items = data.agb_in_hand.items.filter((c) => matches(c) && byCustody(c.custody, value));
+          const on = value === custody;
+          return (
+            <SheetOption key={value || 'all'} selected={on} empty={!items.length} label={label}
+              meta={<><span>{items.length ? chequeWord(items.length) + ' لبنك AGB' : 'لا شيكات لبنك AGB'}</span>{items.length ? <Amount value={sum(items)} /> : null}</>}
+              onClick={() => { setCustodySheet(false); setCustody(value); saveKey(CUSTODY_KEY, value); window.scrollTo(0, 0); }} />
           );
         }) : null}
       </Sheet>

@@ -35,7 +35,7 @@ export const isCutOff = (e: unknown) => e instanceof ApiError && (e.status === 5
 export const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export type Me = {
-  user: { username: string; display_name: string; role: 'admin' | 'depositor' | 'rep'; rep_code: string | null };
+  user: { username: string; display_name: string; role: 'admin' | 'rep'; rep_code: string | null };
   modules: { id: string; title: string }[];
 };
 

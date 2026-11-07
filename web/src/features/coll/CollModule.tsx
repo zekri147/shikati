@@ -439,7 +439,7 @@ function previewText(data: CollData, c: Cust, note: string, late: boolean) {
     .formatToParts(new Date()).map((x) => [x.type, x.value]));
   const wk = `${rv.week.slice(8, 10)}/${rv.week.slice(5, 7)}`;
   return `مراجعة التحصيل لأسبوع ${wk}: راجعه ${data.own_rep} يوم ${now.day}/${now.month} الساعة ${now.hour}:${now.minute}${late ? ' (بعد الأجل)' : ''}. `
-    + `الرصيد ${fmtAmount(c.balance).replace(' DA', ' دج')}. ` + (note ? `الملاحظة: ${note}` : 'دون ملاحظة.') + ' — من تطبيق شيكاتي';
+    + `الرصيد ${fmtAmount(c.balance).replace(' DA', ' دج')}. ` + (note ? `الملاحظة: ${note}` : 'دون ملاحظة.') + ' — من تطبيق ميداني';
 }
 
 // بطاقة التأكيد: الملاحظة، ونص التعليق كما سيُكتب، ثم «سجّل في زوهو». لا رجوع بعد الإرسال.
