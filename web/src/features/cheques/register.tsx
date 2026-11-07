@@ -17,7 +17,7 @@ import { fmtDate, newRequestId, parseAmount, todayIso } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { DEST_LABELS } from './ui';
 import { rotateDataUrl, shrink } from './media';
-import { AllocList, KV, PartyPicker, type Party } from './pickers';
+import { AllocList, Block, KV, PartyPicker, type Party } from './pickers';
 import { GroupField, PhotoButtons } from './edit';
 import type { Line } from './types';
 
@@ -28,16 +28,15 @@ type Preview = { lines: Line[]; unused: number; vendor?: { lines: Line[]; unused
 // خطوة مرقّمة: تظهر علامة ✓ حين تكتمل، فيرى الموظف ما بقي بنظرة
 function Step({ n, title, done, children }: { n: number; title: string; done: boolean; children: React.ReactNode }) {
   return (
-    <section className="border border-line bg-surface px-3 pb-3 pt-1">
-      <h2 className="-mx-3 mb-1 mt-0 flex items-center gap-2 border-b border-line px-3 pb-2 pt-2 text-base font-bold">
+    <Block title={<>
         <span aria-hidden className={cn('num inline-flex size-6 flex-none items-center justify-center text-sm', done ? 'bg-selected text-selected-ink' : 'border border-line-strong text-muted')}>
           {done ? <Check className="size-4" strokeWidth={3} /> : n}
         </span>
         <span>{title}</span>
         {done ? <span className="sr-only">(مكتملة)</span> : null}
-      </h2>
+      </>}>
       {children}
-    </section>
+    </Block>
   );
 }
 

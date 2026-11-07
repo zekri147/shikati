@@ -13,7 +13,7 @@ import { api, errText, isCutOff } from '@/lib/api';
 import { parseAmount, todayIso } from '@/lib/format';
 import { DEST_LABELS } from './ui';
 import { rotateDataUrl, shrink } from './media';
-import { AllocList } from './pickers';
+import { AllocList, Block } from './pickers';
 import type { Detail } from './detail';
 
 export function GroupField({ label, children }: { label: string; children: React.ReactNode }) {
@@ -88,8 +88,7 @@ export function EditPanel({ d, onSaved, onCancel }: { d: Detail; onSaved: () => 
   }
 
   return (
-    <section ref={box} className="scroll-mt-16 border border-line bg-surface px-3 pb-3 pt-1">
-      <h2 className="-mx-3 mb-2 mt-0 border-b border-line px-3 pb-2 pt-2 text-base font-bold">تعديل الشيك</h2>
+    <Block title="تعديل الشيك" innerRef={box}>
       <Field label="رقم الشيك"><Input ref={first} inputMode="numeric" dir="ltr" maxLength={7} autoComplete="off" value={num} onChange={(x) => setNum(x.target.value)} /></Field>
       <Field label="المبلغ" hint="إن تغيّر المبلغ يُعاد توزيعه آلياً على أقدم فواتير العميل.">
         <Input inputMode="decimal" dir="ltr" autoComplete="off" value={amount} onChange={(x) => setAmount(x.target.value)} />
@@ -109,7 +108,7 @@ export function EditPanel({ d, onSaved, onCancel }: { d: Detail; onSaved: () => 
       <Button variant="primary" size="lg" className="mt-2" disabled={checking} onClick={review}>{checking ? 'جارٍ التحقق…' : 'مراجعة التعديل'}</Button>
       <Button size="lg" className="mt-2" onClick={onCancel}>إلغاء</Button>
       {preview ? <EditConfirm d={d} b={preview.body} p={preview.p} onClose={(saved) => { setPreview(null); if (saved) onSaved(); }} /> : null}
-    </section>
+    </Block>
   );
 }
 

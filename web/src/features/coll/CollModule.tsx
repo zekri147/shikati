@@ -243,7 +243,7 @@ function CustomerItem({ c, d, rep, onReview }: { c: Cust; d: CollData; rep: stri
           }}
           className={cn('rev-btn -my-2 me-2 flex w-16 flex-none flex-col items-center justify-center gap-1 self-stretch border-e border-line px-1 py-2 text-sm font-semibold active:bg-surface-alt',
             r ? 'on text-foreground' : 'text-muted')}>
-          <span aria-hidden className={cn('flex size-6 items-center justify-center border-2', r ? 'border-foreground bg-foreground text-background' : 'border-line-strong')}>
+          <span aria-hidden className={cn('flex size-6 items-center justify-center border-2', r ? 'border-selected bg-selected text-selected-ink' : 'border-line-strong')}>
             {r ? <Check className="size-4" strokeWidth={3} /> : null}
           </span>
           <span>{r ? 'راجعته' : 'راجعت'}</span>

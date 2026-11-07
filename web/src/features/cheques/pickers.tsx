@@ -90,10 +90,10 @@ export function KV({ label, children, after }: { label: string; children: React.
 }
 
 // قسم بعنوان وخط تحته: كل أقسام صفحات التفاصيل. innerRef لمن يحتاج التمرير إليه
-export function Block({ title, children, className, id, innerRef }: { title: string; children: React.ReactNode; className?: string; id?: string; innerRef?: React.Ref<HTMLElement> }) {
+export function Block({ title, children, className, id, innerRef }: { title: React.ReactNode; children: React.ReactNode; className?: string; id?: string; innerRef?: React.Ref<HTMLElement> }) {
   return (
     <section id={id} ref={innerRef} className={'scroll-mt-16 border border-line bg-surface px-3 pb-3 pt-1 ' + (className || '')}>
-      <h2 className="-mx-3 mb-2 mt-0 border-b border-line px-3 pb-2 pt-2 text-base font-bold">{title}</h2>
+      <h2 className="-mx-3 mb-2 mt-0 flex items-center gap-2 border-b border-line px-3 pb-2 pt-2 text-base font-bold">{title}</h2>
       {children}
     </section>
   );
