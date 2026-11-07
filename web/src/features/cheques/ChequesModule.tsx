@@ -1,0 +1,479 @@
+// قسم «الشيكات»: ثلاث شاشات (الإيداع، كل الشيكات، التنبيهات)، والتسجيل، وصفحة تفاصيل لكل شيك.
+// العنوان بعد # يحدد الشاشة: #cheques و#cheques/all و#cheques/alerts و#cheques/new و#cheques/c/<معرّف الدفعة>
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Bell, ChevronDown, Landmark, List, RefreshCw, SquarePlus } from 'lucide-react';
+import { SearchBox } from '@/components/search';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Modal, ModalActions, Sheet } from '@/components/ui/dialog';
+import { Segmented } from '@/components/ui/segmented';
+import { Amount, Num } from '@/components/ltr';
+import { Empty, ErrorBox, FormError } from '@/components/shell';
+import { toast } from '@/components/toast';
+import { api, errText, isCutOff, type Me } from '@/lib/api';
+import { useFixedBottom } from '@/lib/layout';
+import { load as loadKey, save as saveKey } from '@/lib/storage';
+import { cn } from '@/lib/utils';
+import { chequeWord, fmtAmount, norm, relTime, sum, todayIso } from '@/lib/format';
+import { CardList, ChequeCard, ChequeSection } from './ui';
+import { ChequeImage } from './media';
+import { DetailPage } from './detail';
+import { RegisterPage } from './register';
+import type { Cheque, ChequesData } from './types';
+
+const MAX_BATCH = 15;
+const STALE_MS = 60_000;
+const PAGE = 60;
+const LOC_KEY = 'shikati-location';
+// التلميح في شريط الإيداع يظهر حتى أول إيداع على هذا الجهاز
+const HINT_KEY = 'shikati-deposit-learned';
+const LOCATIONS = [{ value: '', label: 'الكل' }, { value: 'الجزائر', label: 'الجزائر' }, { value: 'العلمة', label: 'العلمة' }];
+const MAIN_STATUSES = ['في الحوزة', 'مودع في البنك', 'محصّل', 'مظهّر لمورد', 'مرفوض'];
+const STATUS_FILTERS: [string, string][] = [['', 'كل الحالات'], ['في الحوزة', 'في الحوزة'], ['مودع في البنك', 'في البنك'], ['محصّل', 'محصّل'],
+  ['مظهّر لمورد', 'مظهّر'], ['مرفوض', 'مرفوض'], ['other', 'أخرى']];
+// ترتيب التنبيهات وعناوينها. closed: مطوي في البداية. quiet: لا يُحسب في عدد التبويب.
+const ALERTS = [
+  { kind: 'unknown_lock', title: 'بانتظار التحقق', cls: 'alert', note: 'انقطع الرد بعد محاولة الإيداع. تحقق في زوهو، ثم حرّر القفل من صفحة الإدارة.' },
+  { kind: 'rejected', title: 'شيكات مرفوضة', cls: 'alert', note: 'تحتاج متابعة مع العميل.' },
+  { kind: 'endorse_incomplete', title: 'تظهير غير مكتمل', cls: 'alert', note: 'مسجّل لمورد في حساب الشيكات المظهّرة دون دفعة مورد. افتح الشيك وأتمّ التظهير.' },
+  { kind: 'collect_late', title: 'تحصيل متأخر في AGB', cls: 'warn', note: 'أودعت في AGB منذ أكثر من 7 أيام ولم تُحصَّل بعد. تابعها مع البنك.' },
+  { kind: 'late', title: 'لم يودع بعد 7 أيام', cls: 'warn', note: 'في الحوزة منذ أكثر من 7 أيام من الاستلام. أعطها الأولوية في الإيداع.' },
+  { kind: 'wrong_account', title: 'حساب غير صحيح في زوهو', cls: 'warn', withText: true },
+  { kind: 'box', title: 'صندوق غير مطابق', cls: 'warn', withText: true },
+  { kind: 'fiscal', title: 'الملف الجبائي للعميل ناقص', cls: '', withText: true, closed: true, quiet: true },
+] as const;
+
+type View = 'deposit' | 'all' | 'alerts' | 'new' | 'detail';
+function parseRoute(hash: string): { view: View; id?: string } {
+  const h = decodeURIComponent(hash.replace(/^#/, ''));
+  const m = h.match(/^cheques\/c\/(\d{10,25})$/);
+  if (m) return { view: 'detail', id: m[1] };
+  if (h === 'cheques/all') return { view: 'all' };
+  if (h === 'cheques/alerts') return { view: 'alerts' };
+  if (h === 'cheques/new') return { view: 'new' };
+  return { view: 'deposit' };
+}
+
+const byStatus = (c: Cheque, s: string) => !s || (s === 'other' ? !MAIN_STATUSES.includes(c.status) : c.status === s);
+const learned = () => loadKey(HINT_KEY) === '1';
+
+export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
+  const isAdmin = me.user.role === 'admin';
+  const route = useMemo(() => parseRoute(hash), [hash]);
+  const [data, setData] = useState<ChequesData | null>(null);
+  const [error, setError] = useState('');
+  const [loadedAt, setLoadedAt] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [, tick] = useState(0);
+  const [loc, setLoc] = useState(() => loadKey(LOC_KEY));
+  const [q, setQ] = useState('');
+  const [status, setStatus] = useState('');
+  const [limit, setLimit] = useState(PAGE);
+  const [selected, setSelected] = useState<Map<string, Cheque>>(new Map());
+  const [open, setOpen] = useState<Record<string, boolean>>(() => Object.fromEntries(ALERTS.map((a) => ['al-' + a.kind, !('closed' in a && a.closed)])));
+  const [sheet, setSheet] = useState(false);
+  const [depositing, setDepositing] = useState<Cheque[] | null>(null);
+  const [, setLearnedTick] = useState(0);
+  const busyRef = useRef(false);
+  const dialogRef = useRef(false);
+  const scroll = useRef<Record<string, number>>({});
+  const prevView = useRef<View>(route.view);
+  const fromList = useRef(false);
+
+  const load = useCallback(async (refresh: boolean) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      const d = await api<ChequesData>('/api/m/cheques' + (refresh ? '?refresh=1' : ''));
+      setData(d);
+      setLoadedAt(Date.now());
+      setError('');
+    } catch (e) {
+      setData((old) => { if (old) toast(errText(e), 'err'); else setError(errText(e)); return old; });
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }, []);
+
+  useEffect(() => { load(false); }, [load]);
+  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 30_000); return () => clearInterval(t); }, []);
+  // تحديث تلقائي حين يعود الموظف إلى التطبيق، إلا أثناء التأكيد أو التحديد
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState !== 'visible' || dialogRef.current || selected.size) return;
+      if (Date.now() - loadedAt > STALE_MS) load(false);
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, [load, loadedAt, selected.size]);
+
+  // حفظ موضع التمرير لكل شاشة، والرجوع إليه
+  useEffect(() => {
+    const prev = prevView.current;
+    const next = route.view;
+    fromList.current = next === 'detail' && prev !== 'detail' ? true : next === 'detail' ? fromList.current : false;
+    prevView.current = next;
+    document.title = 'شيكاتي';
+    if (next === 'detail' || next === 'new') window.scrollTo(0, 0);
+    else window.scrollTo(0, scroll.current[next] || 0);
+    return () => { if (next !== 'detail' && next !== 'new') scroll.current[next] = window.scrollY; };
+  }, [route.view, route.id]);
+
+  const isList = route.view === 'deposit' || route.view === 'all' || route.view === 'alerts';
+  useFixedBottom(60, route.view !== 'detail');
+
+  const matches = (c: Cheque) =>
+    (!loc || c.location === loc) &&
+    (!q || norm(c.customer).includes(q) || norm(c.cheque_number).includes(q) || norm(c.invoices).includes(q) || norm(c.number) === q);
+  const pick = (items: Cheque[]) => items.filter(matches);
+
+  // عدد التنبيهات في التبويب: الشيكات لا الأسباب، ودون التنبيهات الهادئة
+  const loud = new Set<string>(ALERTS.filter((a) => !('quiet' in a && a.quiet)).map((a) => a.kind));
+  const alertCount = data ? new Set(data.alerts.filter((x) => loud.has(x.kind)).map((x) => x.id)).size : 0;
+
+  // إزالة ما لم يعد قابلاً للإيداع من التحديد
+  useEffect(() => {
+    if (!data) return;
+    const available = new Set(data.agb_in_hand.items.filter((c) => !c.lock).map((c) => c.id));
+    setSelected((s) => {
+      const n = new Map([...s].filter(([id]) => available.has(id)));
+      return n.size === s.size ? s : n;
+    });
+  }, [data]);
+
+  function toggle(c: Cheque) {
+    setSelected((s) => {
+      const n = new Map(s);
+      if (n.has(c.id)) n.delete(c.id);
+      else if (n.size >= MAX_BATCH) { toast(`يمكن تحديد ${MAX_BATCH} شيكاً على الأكثر في المرة الواحدة.`, 'warn'); return s; }
+      else n.set(c.id, c);
+      return n;
+    });
+  }
+
+  const openFold = (id: string, has: boolean) => (q ? has : !!open[id]);
+  const setFold = (id: string) => (v: boolean) => { if (!q) setOpen((o) => ({ ...o, [id]: v })); };
+
+  // ——— الأشرطة الثابتة ———
+  const selItems = route.view === 'deposit' ? [...selected.values()] : [];
+  const hint = route.view === 'deposit' && !selItems.length && !!data && data.can_deposit && !learned() && data.agb_in_hand.items.some((c) => !c.lock);
+  const barShown = selItems.length > 0 || hint;
+  useFixedBottom(selItems.length ? 68 : 44, barShown);
+
+  async function afterDeposit(r: { done: Cheque[]; failed: Cheque[]; attempted: boolean }) {
+    dialogRef.current = false;
+    setDepositing(null);
+    if (!r.attempted) return;
+    if (r.done.length) { saveKey(HINT_KEY, '1'); setLearnedTick((n) => n + 1); }
+    setSelected(new Map());
+    if (r.done.length && !r.failed.length) toast(`تم إيداع ${chequeWord(r.done.length, true)} · ${fmtAmount(sum(r.done))}`);
+    else if (r.done.length) toast(`أُودع ${chequeWord(r.done.length)}، وبقي ${chequeWord(r.failed.length)} دون إيداع`, 'warn');
+    else toast('لم يُسجَّل أي إيداع. راجع الرسائل.', 'err');
+    await load(true);
+  }
+
+  // ——— الشاشات ———
+  let summary: React.ReactNode = null;
+  let statusText: React.ReactNode = null;
+  let body: React.ReactNode = null;
+
+  if (data && route.view === 'deposit') {
+    const agb = pick(data.agb_in_hand.items);
+    const rost = pick(data.rostomia_in_hand.items);
+    const noDest = pick(data.no_destination.items);
+    const waiting = [...agb, ...rost, ...noDest];
+    summary = (
+      <div className="cut bg-brand px-4 py-3 text-white">
+        <div className="flex items-baseline justify-between gap-3 text-sm">
+          <span className="font-semibold">تنتظر الإيداع{loc ? ` — ${loc}` : ''}</span>
+          <span>{chequeWord(waiting.length)} في الحوزة</span>
+        </div>
+        <Amount value={sum(waiting)} className="mt-1 block font-display text-3xl font-semibold tracking-tight [overflow-wrap:anywhere] max-[360px]:text-2xl" />
+      </div>
+    );
+    // ما أُودع اليوم: من تاريخ الإيداع في زوهو، فيشمل ما أودعته دالة رسائل البنك أيضاً
+    const today = todayIso();
+    const doneToday = pick(data.all.filter((c) => c.deposit_date && c.deposit_date.slice(0, 10) === today));
+    statusText = doneToday.length
+      ? <>أُودع اليوم: <span className="font-semibold text-foreground">{chequeWord(doneToday.length)}</span> · <Amount value={sum(doneToday)} /></>
+      : 'لم يُسجَّل إيداع اليوم بعد.';
+    const opts = { selected: false, onToggle: toggle, link: true };
+    const rejected = pick(data.rejected.items);
+    const inBank = pick(data.agb_pending_collection.items);
+    body = (
+      <>
+        <section className="mt-4">
+          <div className="mb-2 border-b border-line-strong pb-2">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="m-0 flex items-center gap-2 text-lg font-bold"><span>للإيداع في بنك AGB</span>
+                <span className="num min-w-[22px] bg-foreground px-1.5 py-1 text-center text-sm font-semibold leading-none text-background">{agb.length}</span></h2>
+              {agb.length ? <Amount value={sum(agb)} className="whitespace-nowrap text-sm text-muted" /> : null}
+            </div>
+          </div>
+          {agb.length ? (
+            <CardList>
+              {agb.map((c) => <ChequeCard key={c.id} c={c} o={{ ...opts, selectable: data.can_deposit, link: !data.can_deposit, selected: selected.has(c.id) }} />)}
+            </CardList>
+          ) : <Empty>{q || loc ? 'لا شيك يطابق البحث أو الموقع.' : 'لا شيكات تنتظر الإيداع في بنك AGB.'}</Empty>}
+        </section>
+        <div className="mt-6 flex flex-col gap-2">
+          {rejected.length ? <ChequeSection title="شيكات مرفوضة" items={rejected} opts={opts} collapsible note="تحتاج متابعة مع العميل." noteTone="alert"
+            open={openFold('rejected', rejected.length > 0)} onOpenChange={setFold('rejected')} /> : null}
+          {noDest.length ? <ChequeSection title="في الحوزة والوجهة غير محددة" items={noDest} opts={opts} collapsible noteTone="warn"
+            note="لا تأخذها إلى البنك قبل أن يحدد المدير وجهتها." open={openFold('nodest', noDest.length > 0)} onOpenChange={setFold('nodest')} /> : null}
+          <ChequeSection title="لبنك الرستمية" items={rost} opts={opts} collapsible note="إيداعها في الرستمية لا يُسجَّل من التطبيق بعد. القائمة للاطلاع فقط."
+            open={openFold('rost', rost.length > 0)} onOpenChange={setFold('rost')} />
+          <ChequeSection title="في بنك AGB بانتظار التحصيل" items={inBank} opts={opts} collapsible
+            open={openFold('pending', inBank.length > 0)} onOpenChange={setFold('pending')} />
+          <ChequeSection title="آخر 5 شيكات أُودعت في بنك AGB" items={pick(data.agb_recent.items)} opts={{ ...opts, showStatus: true, noAge: true }} collapsible hideTotal
+            emptyText="لا توجد إيداعات بعد." open={openFold('recent', pick(data.agb_recent.items).length > 0)} onOpenChange={setFold('recent')} />
+        </div>
+      </>
+    );
+  } else if (data && route.view === 'all') {
+    const items = data.all.filter((c) => byStatus(c, status) && matches(c));
+    const shown = items.slice(0, limit);
+    const more = items.length - shown.length;
+    statusText = items.length ? <><span className="font-semibold text-foreground">{chequeWord(items.length)}</span> · <Amount value={sum(items)} /></> : 'لا نتائج';
+    body = (
+      <>
+        {items.length ? (
+          <CardList className="mt-3">
+            {shown.map((c) => <ChequeCard key={c.id} c={c} o={{ link: true, showStatus: !status || status === 'other', ageInHandOnly: true, lateOnly: true }} />)}
+          </CardList>
+        ) : <div className="mt-3"><Empty>لا شيك يطابق البحث أو التصفية.</Empty></div>}
+        {more > 0 ? <Button className="mt-2.5 w-full py-3" onClick={() => setLimit(limit + PAGE)}>عرض المزيد ({more})</Button> : null}
+      </>
+    );
+  } else if (data && route.view === 'alerts') {
+    const byId = new Map(data.all.map((c) => [c.id, c]));
+    // ما في بنك AGB بانتظار التحصيل: متابعة للمدير، لا عمل يومي للمودِع
+    const inBank = pick(data.agb_pending_collection.items);
+    summary = (
+      <div className="cut-sm flex items-center justify-between gap-3 bg-tile px-4 py-2.5 text-white">
+        <div className="text-sm font-semibold">في بنك AGB بانتظار التحصيل<span className="block font-normal">{chequeWord(inBank.length)}</span></div>
+        <Amount value={sum(inBank)} className="whitespace-nowrap font-display text-lg font-semibold" />
+      </div>
+    );
+    statusText = alertCount ? <>تحتاج متابعة: <span className="font-semibold text-foreground">{chequeWord(alertCount)}</span></> : 'لا شيك يحتاج متابعة.';
+    const parts = ALERTS.map((a) => {
+      const rows = data.alerts.filter((x) => x.kind === a.kind);
+      const texts = new Map(rows.map((x) => [x.id, x.text || null]));
+      const items = pick(rows.map((x) => byId.get(x.id)).filter(Boolean) as Cheque[]);
+      if (!items.length) return null;
+      const id = 'al-' + a.kind;
+      return (
+        <ChequeSection key={id} title={a.title} items={items} collapsible noteTone={a.cls as 'alert' | 'warn' | ''}
+          note={'note' in a ? a.note : null}
+          opts={{ link: true, ageInHandOnly: true, showStatus: a.kind === 'wrong_account' || a.kind === 'box' || a.kind === 'fiscal' }}
+          noteFor={'withText' in a && a.withText ? (c) => texts.get(c.id) || null : undefined}
+          open={openFold(id, true)} onOpenChange={setFold(id)} />
+      );
+    }).filter(Boolean);
+    body = parts.length ? <div className="mt-4 flex flex-col gap-2">{parts}</div>
+      : <div className="mt-4"><Empty>{q || loc ? 'لا تنبيه يطابق البحث أو الموقع.' : 'لا توجد تنبيهات. كل الشيكات في وضع سليم.'}</Empty></div>;
+  }
+
+  const statusDef = STATUS_FILTERS.find(([v]) => v === status) || STATUS_FILTERS[0];
+
+  return (
+    <>
+      {isList ? (
+        <>
+          {summary}
+          {/* سطر الحالة: معلومة قصيرة يميناً، وزر التحديث بوقته يساراً */}
+          <div className={cn('flex min-h-11 items-center justify-between gap-3', summary && 'mt-2')}>
+            <div className="min-w-0 text-sm text-muted" aria-live="polite">{data ? statusText : null}</div>
+            <Button variant="ghost" size="sm" className="flex-none gap-1.5 font-normal text-muted" disabled={busy} onClick={() => load(true)}
+              aria-label={busy ? 'جارٍ التحديث…' : 'تحديث. آخر تحديث ' + (loadedAt ? relTime(loadedAt) : '')}>
+              <RefreshCw aria-hidden className={cn('size-4.5 text-foreground', busy && 'animate-spin')} />
+              <span className="whitespace-nowrap">{busy ? 'جارٍ التحديث…' : loadedAt ? relTime(loadedAt) : 'تحديث'}</span>
+            </Button>
+          </div>
+          <div className="mt-2 flex flex-col gap-2">
+            <div className="flex gap-2">
+              <Segmented label="الموقع" className="min-w-0 flex-1" value={loc} options={LOCATIONS} onChange={(v) => { setLoc(v); saveKey(LOC_KEY, v); setLimit(PAGE); }} />
+              {route.view === 'all' ? (
+                <Button className={cn('status-btn max-w-[45%] flex-none justify-between gap-1 pe-2 ps-3', status && 'border-selected bg-selected text-selected-ink hover:bg-selected')}
+                  aria-haspopup="dialog" aria-label={'تصفية بالحالة: ' + statusDef[1]} onClick={() => { if (data) setSheet(true); }}>
+                  <span className="truncate">{statusDef[1]}</span><ChevronDown aria-hidden className="size-4.5" />
+                </Button>
+              ) : null}
+            </div>
+            <SearchBox placeholder="بحث باسم العميل أو رقم الشيك أو الفاتورة" onChange={(v) => { setQ(norm(v)); setLimit(PAGE); }} />
+          </div>
+          {error && !data ? <ErrorBox>{error}</ErrorBox> : !data ? <p className="mt-4 text-muted">جارٍ التحميل…</p> : <div aria-live="polite">{body}</div>}
+        </>
+      ) : route.view === 'detail' && route.id ? (
+        <DetailPage id={route.id} isAdmin={isAdmin} onBack={() => { if (fromList.current) history.back(); else location.hash = '#cheques'; }} />
+      ) : route.view === 'new' ? (
+        <RegisterPage onDone={(pid) => { load(true); location.hash = '#cheques/c/' + pid; }} />
+      ) : null}
+
+      {/* شريط الإيداع فوق شريط التنقل: المحدد والمجموع والزران، أو شرح المس والإيداع قبل أول إيداع */}
+      {barShown ? (
+        selItems.length ? (
+          <div className="actionbar fixed inset-x-0 z-[21] flex items-center justify-between gap-2.5 border-t-3 border-t-brand bg-ink-black px-4 py-2.5 text-white bottom-[calc(60px+env(safe-area-inset-bottom))] dark:bg-black">
+            <div className="flex flex-col text-sm leading-snug">
+              <span className="font-semibold">المحدد: {chequeWord(selItems.length)}</span>
+              <Amount value={sum(selItems)} className="font-display text-base font-semibold" />
+            </div>
+            <div className="flex gap-1.5">
+              <Button variant="primary" className="px-4 py-2.5" onClick={() => { dialogRef.current = true; setDepositing(selItems); }}>أودعت المحدد</Button>
+              <Button className="border-white/35 bg-transparent px-2.5 py-2.5 text-white hover:bg-white/10 active:bg-white/10" onClick={() => setSelected(new Map())}>إلغاء التحديد</Button>
+            </div>
+          </div>
+        ) : (
+          <div className="actionbar fixed inset-x-0 z-[21] flex min-h-11 items-center border-t border-line-strong bg-surface px-4 py-2 text-sm text-muted bottom-[calc(60px+env(safe-area-inset-bottom))]">
+            المس الشيكات التي سلّمتها للبنك، ثم «أودعت المحدد».
+          </div>
+        )
+      ) : null}
+
+      {route.view !== 'detail' ? <BottomNav view={route.view} alerts={alertCount} /> : null}
+
+      <Sheet open={sheet} onClose={() => setSheet(false)} title="تصفية بالحالة" action={<Button onClick={() => setSheet(false)}>إغلاق</Button>}>
+        {data ? STATUS_FILTERS.map(([value, label]) => {
+          const items = data.all.filter((c) => matches(c) && byStatus(c, value));
+          const on = value === status;
+          return (
+            <button key={value || 'all'} type="button" aria-pressed={on}
+              className={cn('sheet-opt flex min-h-[52px] w-full items-center justify-between gap-3 border-b border-line px-4 py-2 text-start text-base font-semibold last:border-b-0 active:bg-surface-alt',
+                on && 'bg-selected text-selected-ink active:bg-selected', !items.length && !on && 'font-normal text-muted')}
+              onClick={() => { setSheet(false); if (value !== status) { setStatus(value); setLimit(PAGE); window.scrollTo(0, 0); } }}>
+              <span>{on ? '✓ ' : ''}{label}</span>
+              <span className={cn('flex flex-col items-end text-sm font-normal leading-snug', on ? 'text-selected-ink' : 'text-muted')}>
+                <span>{items.length ? chequeWord(items.length) : 'لا شيكات'}</span>
+                {items.length ? <Amount value={sum(items)} /> : null}
+              </span>
+            </button>
+          );
+        }) : null}
+      </Sheet>
+
+      {depositing ? <DepositDialog items={depositing} onClosed={afterDeposit} /> : null}
+    </>
+  );
+}
+
+// شريط التنقل الثابت أسفل الشاشة، قريباً من الإبهام
+function BottomNav({ view, alerts }: { view: View; alerts: number }) {
+  const tabs: [View, string, string, React.ComponentType<{ className?: string }>][] = [
+    ['deposit', 'الإيداع', '#cheques', Landmark], ['all', 'كل الشيكات', '#cheques/all', List],
+    ['alerts', 'التنبيهات', '#cheques/alerts', Bell], ['new', 'تسجيل', '#cheques/new', SquarePlus],
+  ];
+  return (
+    <nav aria-label="شاشات الشيكات" className="bottomnav fixed inset-x-0 bottom-0 z-20 flex border-t border-line-strong bg-surface pb-[env(safe-area-inset-bottom)]">
+      {tabs.map(([id, label, href, Icon]) => {
+        const on = id === view;
+        return (
+          <a key={id} href={href} data-view={id} aria-current={on ? 'page' : undefined}
+            className={cn('tab -mt-px flex min-h-[60px] flex-1 flex-col items-center justify-center gap-0.5 border-t-3 border-transparent text-sm font-semibold text-muted no-underline active:bg-surface-alt',
+              on && 'border-t-brand text-foreground')}>
+            <span className="relative inline-flex">
+              <Icon aria-hidden className="size-5.5" />
+              {id === 'alerts' && alerts ? <span className="num absolute -end-4 -top-1.5 min-w-5 bg-brand px-1.5 py-0.5 text-center text-sm leading-none text-white">{alerts}</span> : null}
+            </span>
+            <span>{label}</span>
+          </a>
+        );
+      })}
+    </nav>
+  );
+}
+
+type RowState = { cls: 'muted' | 'ok' | 'warn' | 'err' | ''; text: string };
+
+// بطاقة تأكيد الإيداع: الشيكات بصورها، والمجموع، وتاريخ الإيداع. يُرسل كل شيك مرة واحدة،
+// وإن انقطع الرد يتوقف الإيداع ولا يُحاوَل أي شيك آخر (لا إعادة تلقائية).
+function DepositDialog({ items, onClosed }: { items: Cheque[]; onClosed: (r: { done: Cheque[]; failed: Cheque[]; attempted: boolean }) => void }) {
+  const single = items.length === 1;
+  const today = todayIso();
+  const minDate = items.map((c) => String(c.date || '').slice(0, 10)).sort().pop() || '';
+  const [date, setDate] = useState(today);
+  const [rows, setRows] = useState<Record<string, RowState>>({});
+  const [phase, setPhase] = useState<'ready' | 'busy' | 'finished'>('ready');
+  const [message, setMessage] = useState<{ tone: 'err' | 'warn'; text: string } | null>(null);
+  const [open, setOpen] = useState(true);
+  const result = useRef({ done: [] as Cheque[], failed: [] as Cheque[], attempted: false });
+
+  const close = () => { if (phase === 'busy') return; setOpen(false); setTimeout(() => onClosed(result.current), 0); };
+
+  async function run() {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today || (minDate && date < minDate)) {
+      setMessage({ tone: 'err', text: minDate && date < minDate ? 'تاريخ الإيداع قبل تاريخ استلام الشيك. صحّحه.' : 'اختر تاريخ إيداع صحيحاً، لا يكون بعد اليوم.' });
+      return;
+    }
+    setMessage(null);
+    setPhase('busy');
+    result.current.attempted = true;
+    let warnings = 0;
+    let stopped = false;
+    const set = (id: string, r: RowState) => setRows((s) => ({ ...s, [id]: r }));
+    for (const c of items) {
+      if (stopped) { set(c.id, { cls: 'muted', text: 'لم يُحاوَل، فقد توقف الإيداع' }); continue; }
+      set(c.id, { cls: 'muted', text: 'جارٍ التسجيل…' });
+      try {
+        const res = await api('/api/m/cheques/deposit', { method: 'POST', body: { payment_id: c.id, amount: c.amount, cheque_number: c.cheque_number, date } });
+        result.current.done.push(c);
+        if (res.warning) { warnings++; set(c.id, { cls: 'warn', text: res.warning }); } else set(c.id, { cls: 'ok', text: 'تم الإيداع' });
+      } catch (e) {
+        result.current.failed.push(c);
+        set(c.id, { cls: 'err', text: errText(e) });
+        // انقطاع الرد بعد محاولة الإيداع: لا نكمل أي شيك آخر
+        if (isCutOff(e)) stopped = true;
+      }
+    }
+    setPhase('finished');
+    if (!result.current.failed.length && !warnings) { setTimeout(() => { setOpen(false); onClosed(result.current); }, 700); return; }
+    setMessage(stopped
+      ? { tone: 'err', text: 'توقف الإيداع، ولم تُحاوَل الشيكات الباقية. اتبع الرسالة تحت الشيك.' }
+      : { tone: 'warn', text: `أُودع ${result.current.done.length} من أصل ${items.length}. راجع الرسائل أعلاه.` });
+  }
+
+  const title = single ? 'تأكيد إيداع شيك في بنك AGB' : `تأكيد إيداع ${chequeWord(items.length, true)} في بنك AGB`;
+  return (
+    <Modal open={open} onClose={close} busy={phase === 'busy'} title={title}>
+      <ul className="m-0 mb-2 list-none p-0">
+        {items.map((c) => {
+          const r = rows[c.id];
+          return (
+            <li key={c.id} className={cn('grid items-start gap-3 border-b border-line py-3', single ? 'grid-cols-1' : 'grid-cols-[76px_1fr]')}>
+              <ChequeImage id={c.id} hasImage={!!c.has_image} v={c.v} size={single ? 'big' : 'thumb'} />
+              <div className="flex min-w-0 flex-col gap-0.5 text-base [overflow-wrap:anywhere]">
+                <div className="font-semibold">{c.customer}</div>
+                <div className="text-sm text-muted">شيك رقم {c.cheque_number ? <Num>{c.cheque_number}</Num> : 'غير مسجّل'}</div>
+                <Amount value={c.amount} className="font-display text-base font-semibold" />
+                {r ? <div className={cn('mt-1 text-sm', r.cls === 'ok' && 'font-semibold text-success', r.cls === 'err' && 'text-danger', r.cls === 'muted' && 'text-muted')}>
+                  {r.cls === 'ok' ? '✓ ' : r.cls === 'warn' ? <span className="text-warning">⚠ </span> : null}{r.text}</div> : null}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      {!single ? (
+        <div className="mb-2.5 flex items-baseline justify-between border-b-2 border-foreground py-2.5 text-base">
+          <span>المجموع</span><Amount value={sum(items)} className="font-display text-lg font-semibold" />
+        </div>
+      ) : null}
+      <label className="block py-2">
+        <span className="mb-1.5 block text-base font-semibold">تاريخ الإيداع</span>
+        <Input type="date" dir="ltr" value={date} max={today} min={minDate} required disabled={phase !== 'ready'} onChange={(e) => setDate(e.target.value)} />
+        <span className="mt-1 block text-sm text-muted">غيّره إن لم يكن الإيداع اليوم.</span>
+      </label>
+      <p className="text-sm text-muted">تأكد أن هذه الشيكات سُلِّمت فعلاً للبنك، وطابقها مع صورها. سيُسجَّل الإيداع في زوهو باسمك.</p>
+      {message ? (message.tone === 'err' ? <FormError>{message.text}</FormError>
+        : <div className="mt-2.5 border-s-3 border-s-warning bg-warning-tint px-3 py-2 text-base">{message.text}</div>) : null}
+      <ModalActions>
+        {phase !== 'finished' ? (
+          <Button variant="primary" disabled={phase === 'busy'} onClick={run} autoFocus>
+            {phase === 'busy' ? 'جارٍ التسجيل…' : single ? 'تأكيد الإيداع' : `تأكيد إيداع ${chequeWord(items.length, true)}`}
+          </Button>
+        ) : null}
+        <Button disabled={phase === 'busy'} onClick={close}>{phase === 'finished' ? 'إغلاق' : 'إلغاء'}</Button>
+      </ModalActions>
+    </Modal>
+  );
+}

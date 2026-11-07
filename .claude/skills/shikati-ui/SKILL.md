@@ -1,6 +1,6 @@
 ---
 name: shikati-ui
-description: "Design system and UX rules for the Shikati cheque app (public/ HTML, CSS, JS). Use before any change to screens, layout, buttons, colours, cards, navigation, dialogs, messages or public/css/app.css, and when ZEKRI asks to improve the interface or user experience. Complements elonac-brand (identity) with app-specific layout and interaction rules. قواعد واجهة شيكاتي وتجربة المستخدم."
+description: "Design system and UX rules for the Shikati cheque app (web/: React, Tailwind, Radix/shadcn-style components). Use before any change to screens, layout, buttons, colours, cards, navigation, dialogs, messages, styles (web/src/index.css) or components (web/src/components), and when ZEKRI asks to improve the interface or user experience. Complements elonac-brand (identity) with app-specific layout and interaction rules. قواعد واجهة شيكاتي وتجربة المستخدم."
 ---
 
 # قواعد واجهة «شيكاتي»
@@ -9,7 +9,7 @@ description: "Design system and UX rules for the Shikati cheque app (public/ HTM
 
 المستعمل الأساسي هو المودِع أمين: يحمل الهاتف بيد واحدة، وغالباً واقف في البنك أو في السيارة، ويريد أن ينهي العمل بأقل عدد من اللمسات ودون خطأ. كل قرار في الواجهة يُقاس بهذا.
 
-اقرأ قبل البدء: `CLAUDE.md`، وملف التنسيق `public/css/app.css` كاملاً، والشاشة التي ستعدّلها في `public/js/modules/`.
+اقرأ قبل البدء: `CLAUDE.md`، ورموز الألوان والخطوط في `web/src/index.css`، والمكونات في `web/src/components/ui/`، والشاشة التي ستعدّلها في `web/src/features/`.
 
 ## 1. القرارات المعتمدة
 
@@ -24,7 +24,7 @@ description: "Design system and UX rules for the Shikati cheque app (public/ HTM
 
 ## 2. الألوان ومعانيها
 
-استعمل المتغيرات من `:root` في `app.css` فقط، ولا تكتب لوناً بقيمته داخل قاعدة. كل لون له معنى واحد:
+استعمل ألوان Tailwind المعرّفة من الرموز في `web/src/index.css` فقط (`bg-brand` و`text-muted` و`border-line` و`text-warning` و`bg-selected`…)، ولا تكتب لوناً بقيمته في صنف أو قاعدة. كل لون له معنى واحد:
 
 | المعنى | المتغير | يُستعمل في |
 |---|---|---|
@@ -119,7 +119,7 @@ description: "Design system and UX rules for the Shikati cheque app (public/ HTM
 
 - **الأحجام:** 13 و15 و17 و28 بكسل فقط (والرقم الكبير في الملخص 32). لا نص أصغر من 13 بكسل.
 - **الأوزان:** 400 للنص، و600 للعناوين والأزرار، و700 للعناوين الرئيسية فقط.
-- **الخطوط:** العربية بخط بلكس العربي (IBM Plex Sans Arabic)، والأرقام والمبالغ بخط بوبنز (Poppins) أو بلكس اللاتيني، كلها من `public/fonts`.
+- **الخطوط:** العربية بخط بلكس العربي (IBM Plex Sans Arabic)، والأرقام والمبالغ بخط بوبنز (Poppins) أو بلكس اللاتيني، كلها من `web/public/fonts`.
 - **الأرقام** بالأرقام اللاتينية، والمبالغ بفاصل مسافة للآلاف ووحدة `DA`، وكل قيمة لاتينية داخل `ltr()` حتى لا ينقلب ترتيبها.
 - **التواريخ** بصيغة يوم/شهر/سنة.
 
@@ -135,9 +135,9 @@ description: "Design system and UX rules for the Shikati cheque app (public/ HTM
 
 - كل المسافات والأحجام من مضاعفات 4 بكسل: 4 و8 و12 و16 و24 و32.
 - الهامش الجانبي للشاشة 16 بكسل، والمسافة بين البطاقات 8 بكسل، وبين الأقسام 24 بكسل.
-- **قطع الزوايا:** العلوية اليسرى والسفلية اليمنى فقط، بمتغيرَي `--cut` و`--cut-sm`. للرقم الكبير ورأس التفاصيل وشارة التأخير فقط، لا للبطاقات ولا للأزرار ولا للحقول (القطع يخفي إطار التركيز).
+- **قطع الزوايا:** العلوية اليسرى والسفلية اليمنى فقط، بالصنفين `cut` و`cut-sm`. للرقم الكبير ورأس التفاصيل وشارة التأخير فقط، لا للبطاقات ولا للأزرار ولا للحقول (القطع يخفي إطار التركيز).
 - لا ظلال زخرفية، ولا تدرجات، ولا زوايا مستديرة.
-- لا مكتبات خارجية ولا خطوط أو أيقونات من الإنترنت: سياسة أمان المحتوى في `public/_headers` تمنعها. الأيقونات رسوم SVG صغيرة داخل الملف أو في `public/img`.
+- لا ملفات ولا خطوط من الإنترنت: كل شيء يُجمَّع في الموقع، وسياسة أمان المحتوى في `web/public/_headers` تمنع غيره، وتمنع وسوم `<style>` التي تضيفها بعض المكتبات. الأيقونات من `lucide-react` (تُجمَّع في الشيفرة)، والشعارات في `web/public/img`.
 
 ## 8. الحركة والاستجابة
 
@@ -149,11 +149,14 @@ description: "Design system and UX rules for the Shikati cheque app (public/ HTM
 
 ## 9. الشيفرة
 
-- **المكونات المشتركة** في `public/js/modules/cheques-ui.js` (بطاقة الشيك، والأقسام، والصورة). لا تكرر بطاقة في ملف آخر.
-- العناصر تُبنى بالدالة `el()` من `public/js/common.js`. لا تمرر `null` إلى `replaceChildren` أو `append` مباشرة، فيظهر نص «null»: صفِّ القائمة أولاً، مثل `.filter(Boolean)`.
-- الأقسام في `app.css` مرتبة بعناوين تعليق عربية. أضف القاعدة الجديدة في قسمها، واحذف القاعدة القديمة التي لم تعد مستعملة.
-- خصائص منطقية دائماً: `inline-start` و`inline-end` و`margin-inline`، لا `left` و`right`، إلا لقطع الزوايا الذي لا ينعكس.
-- بعد أي تغيير في `public/css` أو `public/js`: ارفع `VERSION` في `public/sw.js`.
+- **البنية (منذ 7/11/2026):** React مع Tailwind، ومكونات بنمط shadcn/ui مبنية على Radix في `web/src/components/ui/`: `Button` (الأنواع الثلاثة، و`blocked` للزر غير المسموح)، و`Badge`، و`Input` و`Field`، و`Modal` (بطاقة التأكيد) و`Sheet` (اللوحة السفلية)، و`Menu` (القائمة المنسدلة)، و`Segmented` (أزرار التصفية)، و`Fold` (القسم المطوي). استعملها ولا تكتب زراً أو نافذة من الصفر.
+- **المكونات المشتركة للشيكات** في `web/src/features/cheques/ui.tsx` (بطاقة الشيك، والأقسام، والشارات، و`LateMark`). لا تكرر بطاقة في ملف آخر.
+- **زر الرجوع:** `Modal` و`Sheet` والعارض تستعمل `useBackClose`. للانتقال إلى عنوان بعد إغلاق نافذة استعمل `navigate()` من `web/src/lib/back.ts`.
+- **الأشرطة الثابتة أسفل الشاشة** تسجّل ارتفاعها بـ `useFixedBottom` (`web/src/lib/layout.ts`)، فيترك المحتوى مسافة بقدرها وتظهر الرسائل فوقها.
+- **الرسائل القصيرة** بالدالة `toast()` من `web/src/components/toast.tsx`. القيم اللاتينية بـ `Ltr` و`Num` و`Amount` من `web/src/components/ltr.tsx`.
+- خصائص منطقية دائماً: `ps-` و`pe-` و`ms-` و`me-` و`start-` و`end-` و`border-s`، لا `left` و`right`، إلا لقطع الزوايا الذي لا ينعكس.
+- لا تضف مكتبة تضيف وسم `<style>` أو تحمّل ملفاً من الإنترنت. جرّب كل صفحة في المتصفح وتأكد أن لا خطأ «Content Security Policy» في السجل.
+- بعد أي تغيير في `web/`: ارفع `VERSION` في `web/public/sw.js`.
 
 ## 10. الفحص قبل التسليم
 
@@ -174,5 +177,5 @@ description: "Design system and UX rules for the Shikati cheque app (public/ HTM
    npm run typecheck
    ```
 5. أرسل لـ ZEKRI لقطات قبل التعديل وبعده لكل شاشة تغيّرت.
-6. أضف سطراً في `CHANGELOG.md`، وحدّث `public/help.html` إن تغيّر مكان زر أو طريقة عمل.
+6. أضف سطراً في `CHANGELOG.md`، وحدّث `web/help.html` إن تغيّر مكان زر أو طريقة عمل.
 7. أوقف الخوادم واحذف `.dev.vars`.

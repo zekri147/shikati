@@ -23,13 +23,13 @@ fs.mkdirSync(OUT, { recursive: true });
 const SCREENS = [
   { name: 'deposit', path: '/#cheques' },
   { name: 'deposit-selected', path: '/#cheques', act: async (p) => {
-    await p.locator('.item.selectable').nth(0).click();
-    await p.locator('.item.selectable').nth(1).click();
+    await p.locator('[data-selectable]').nth(0).click();
+    await p.locator('[data-selectable]').nth(1).click();
   }, full: false },
   { name: 'deposit-confirm', path: '/#cheques', act: async (p) => {
-    await p.locator('.item.selectable').nth(0).click();
-    await p.locator('.item.selectable').nth(1).click();
-    await p.locator('.actionbar .btn-primary').click();
+    await p.locator('[data-selectable]').nth(0).click();
+    await p.locator('[data-selectable]').nth(1).click();
+    await p.locator('.actionbar button').first().click();
   }, full: false },
   { name: 'all', path: '/#cheques/all' },
   { name: 'all-sheet', path: '/#cheques/all', act: async (p) => { await p.locator('.status-btn').click(); }, full: false },
