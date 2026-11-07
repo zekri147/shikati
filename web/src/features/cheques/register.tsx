@@ -182,7 +182,7 @@ export function RegisterPage({ onDone }: { onDone: (pid: string) => void }) {
       <div ref={errRef}>{error ? <FormError>{error}</FormError> : null}</div>
 
       {/* شريط ثابت فوق شريط التنقل: ما ينقص، وزر «مراجعة وتسجيل» الباهت حتى تكتمل البيانات */}
-      <div className="formbar fixed inset-x-0 z-[21] flex flex-col gap-2 border-t border-line-strong bg-surface px-4 py-2 bottom-[calc(60px+env(safe-area-inset-bottom))]">
+      <div className="formbar fixed inset-x-0 z-[21] flex flex-col gap-2 border-t border-line-strong bg-surface px-4 py-2 bottom-[calc(var(--nav-h,60px)+env(safe-area-inset-bottom))]">
         <div aria-live="polite" className={cn('min-w-0 text-sm leading-snug', loud && missing.length ? 'font-semibold text-danger' : 'text-muted')}>
           {missing.length ? 'ينقص: ' + missing.join('، ') : 'البيانات كاملة. راجعها ثم سجّل.'}
         </div>
