@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Fold } from '@/components/ui/collapsible';
 import { Amount, Num } from '@/components/ltr';
-import { Empty } from '@/components/shell';
+import { Empty, Note } from '@/components/shell';
 import { useBackClose } from '@/lib/back';
 import { cn } from '@/lib/utils';
 import { daysCount, daysText, fmtDate, shortDate, sum } from '@/lib/format';
@@ -34,7 +34,7 @@ export function LateMark({ days, text }: { days: number; text: React.ReactNode }
   const urgent = days > URGENT_DAYS;
   return (
     <span className={cn('inline-flex items-center gap-1 whitespace-nowrap text-sm font-semibold leading-relaxed text-warning',
-      urgent && 'cut-sm bg-brand px-1.5 text-white')}>
+      urgent && 'cut-sm bg-brand px-2 text-white')}>
       <Clock aria-hidden className="size-3.5" strokeWidth={2.4} />{text}
     </span>
   );
@@ -85,15 +85,15 @@ export function ChequeCard({ c, o }: { c: Cheque; o: CardOpts }) {
       onClick={act}
       onKeyDown={(e) => { if (act && e.target === e.currentTarget && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); act(); } }}
       data-selectable={selectable || undefined}
-      className={cn('item relative flex min-h-[60px] items-center gap-1 bg-surface py-2 ps-3.5 transition-colors duration-150',
+      className={cn('item relative flex min-h-[60px] items-center gap-1 bg-surface py-2 ps-3 transition-colors duration-150',
         o.selectable ? 'pe-0' : 'pe-3',
         act && 'cursor-pointer active:bg-surface-alt',
         o.selected && selectable && '!bg-brand-tint')}
     >
       {lateDays ? <span aria-hidden className={cn('absolute inset-y-0 start-0 w-1', lateDays > URGENT_DAYS ? 'bg-brand' : 'bg-warning')} /> : null}
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-2.5 text-base font-semibold leading-snug [overflow-wrap:anywhere]">
+          <div className="flex min-w-0 items-start gap-2 text-base font-semibold leading-snug [overflow-wrap:anywhere]">
             {selectable ? (
               <span aria-hidden className={cn('mt-px inline-flex size-[22px] flex-none items-center justify-center border-2 border-line-strong bg-surface',
                 o.selected && 'border-brand bg-brand text-white')}>
@@ -104,7 +104,7 @@ export function ChequeCard({ c, o }: { c: Cheque; o: CardOpts }) {
           </div>
           <Amount value={c.amount} className="whitespace-nowrap font-display text-base font-semibold leading-snug" />
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-x-1.5 gap-y-0.5">
+        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
           <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-sm text-muted">
             {c.cheque_number ? <span>شيك <Num>{c.cheque_number}</Num></span> : <span>رقم غير مسجّل</span>}
             <Dot />
@@ -113,17 +113,14 @@ export function ChequeCard({ c, o }: { c: Cheque; o: CardOpts }) {
               : <Num>{shortDate(c.date)}</Num>}
             {c.location ? <><Dot /><span>{c.location}</span></> : null}
           </div>
-          {(lock || status || age) ? <div className="ms-auto flex flex-none flex-wrap items-center gap-1.5">{lock}{status}{age}</div> : null}
+          {(lock || status || age) ? <div className="ms-auto flex flex-none flex-wrap items-center gap-2">{lock}{status}{age}</div> : null}
         </div>
-        {o.note ? <div className="border-s-3 border-s-warning bg-warning-tint px-2.5 py-1 text-sm text-foreground [overflow-wrap:anywhere]">{o.note}</div> : null}
+        {o.note ? <Note tone="warn" compact>{o.note}</Note> : null}
         {o.reasons && o.reasons.length ? (
           // سطر نصي لكل سبب بعلامة صغيرة ملوّنة، لا صناديق ملوّنة: الجملة نفسها تشرح
-          <ul className="reasons m-0 mt-1 flex list-none flex-col gap-0.5 p-0">
+          <ul className="reasons m-0 mt-1 flex list-none flex-col gap-1 p-0">
             {o.reasons.map((r, i) => (
-              <li key={i} className={cn('flex items-start gap-2 text-sm [overflow-wrap:anywhere]', r.tone === 'info' ? 'text-muted' : 'text-foreground')}>
-                <span aria-hidden className={cn('mt-[8px] size-1.5 flex-none', r.tone === 'alert' ? 'bg-brand' : r.tone === 'warn' ? 'bg-warning' : 'bg-line-strong')} />
-                <span className="min-w-0">{r.text}</span>
-              </li>
+              <li key={i}><Note plain tone={r.tone === 'info' ? undefined : r.tone}>{r.text}</Note></li>
             ))}
           </ul>
         ) : null}
@@ -145,15 +142,17 @@ export function CardList({ children, className }: { children: React.ReactNode; c
 }
 
 // inTrigger: داخل زر القسم المطوي يكون العنوان نصاً لا عنواناً (لا عنوان داخل زر)
-export function SectionHead({ title, count, total, primary, inTrigger }: { title: string; count: number; total?: number | null; primary?: boolean; inTrigger?: boolean }) {
+// meta: نص قصير مكان المجموع، مثل «الأقدم أولاً» حين يكون المجموع في اللوح الأحمر فوقه
+export function SectionHead({ title, count, total, primary, inTrigger, meta }: { title: string; count: number; total?: number | null; primary?: boolean; inTrigger?: boolean; meta?: React.ReactNode }) {
   const H: any = inTrigger ? 'span' : 'h2';
   return (
     <div className="flex items-center justify-between gap-3">
       <H className={cn('m-0 flex items-center gap-2 font-bold', inTrigger ? 'text-base' : 'text-lg')}>
         <span>{title}</span>
-        <span className={cn('num min-w-[22px] px-1.5 py-1 text-center text-sm font-semibold leading-none', primary ? 'bg-foreground text-background' : 'bg-surface-alt text-muted')}>{count}</span>
+        <span className={cn('num min-w-[22px] px-2 py-1 text-center text-sm font-semibold leading-none', primary ? 'bg-foreground text-background' : 'bg-surface-alt text-muted')}>{count}</span>
       </H>
-      {total !== null && total !== undefined && count ? <Amount value={total} className="whitespace-nowrap text-sm text-muted" /> : null}
+      {total !== null && total !== undefined && count ? <Amount value={total} className="whitespace-nowrap text-sm text-muted" />
+        : meta ? <span className="whitespace-nowrap text-sm text-muted">{meta}</span> : null}
     </div>
   );
 }
@@ -172,7 +171,7 @@ export function ChequeSection({ title, items, opts, note, noteTone, emptyText, c
     return (
       <section className="mt-4">
         <div className="mb-2 border-b border-line-strong pb-2"><SectionHead title={title} count={items.length} total={total} primary /></div>
-        {note ? <div className="mb-2.5 border-s-3 border-s-line-strong bg-surface-alt px-3 py-2 text-sm text-muted">{note}</div> : null}
+        {note ? <Note className="mb-2">{note}</Note> : null}
         {list}
       </section>
     );
@@ -180,7 +179,7 @@ export function ChequeSection({ title, items, opts, note, noteTone, emptyText, c
   return (
     <Fold open={!!open} onOpenChange={(v) => onOpenChange?.(v)} tone={noteTone} className="fold mt-2"
       head={<SectionHead title={title} count={items.length} total={total} inTrigger />}>
-      {note ? <div className="mb-2.5 bg-surface-alt px-3 py-2 text-sm text-muted">{note}</div> : null}
+      {note ? <Note className="mb-2">{note}</Note> : null}
       <div className="[&_.item]:bg-raised">{list}</div>
     </Fold>
   );

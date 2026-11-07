@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 // ثلاثة أنواع فقط (مهارة واجهة شيكاتي): الرئيسي الأحمر واحد في كل شاشة، والعادي بإطار رمادي،
 // والخطير بإطار ونص أحمرين دون تعبئة. أصغر مساحة لمس 44 بكسل.
 export const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 min-h-11 px-3.5 py-2 text-base font-semibold leading-snug border transition-colors duration-150 select-none disabled:opacity-55 disabled:pointer-events-none no-underline text-center',
+  'inline-flex items-center justify-center gap-2 min-h-11 px-3 py-2 text-base font-semibold leading-snug border transition-colors duration-150 select-none disabled:opacity-55 disabled:pointer-events-none no-underline text-center',
   {
     variants: {
       variant: {
@@ -18,7 +18,7 @@ export const buttonVariants = cva(
       size: {
         default: '',
         lg: 'w-full py-3 text-lg',
-        sm: 'min-h-9 px-2.5 py-1 text-sm',
+        sm: 'min-h-9 px-2 py-1 text-sm',
       },
     },
     defaultVariants: { variant: 'plain', size: 'default' },

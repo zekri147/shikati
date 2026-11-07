@@ -58,7 +58,7 @@ function AskDialog({ a, onClose }: { a: Ask; onClose: () => void }) {
 function Section({ title, meta, children, className }: { title: string; meta?: string; children: React.ReactNode; className?: string }) {
   return (
     <section className={cn('mt-4 border border-line bg-surface px-4 pb-4 pt-1', className)}>
-      <div className="mb-3 flex items-center justify-between gap-3 border-b border-line pb-2 pt-2.5">
+      <div className="mb-3 flex items-center justify-between gap-3 border-b border-line pb-2 pt-2">
         <h2 className="m-0 text-lg font-bold">{title}</h2>{meta ? <span className="text-sm text-muted">{meta}</span> : null}
       </div>
       {children}
@@ -70,8 +70,8 @@ function Table({ head, children, empty, cols }: { head: string[]; children: Reac
   return (
     <div className="-mx-4 overflow-x-auto">
       <table className="w-full border-collapse text-base">
-        <thead><tr>{head.map((h, i) => <th key={i} className="whitespace-nowrap border-b-2 border-line-strong bg-surface-alt px-2.5 py-1.5 text-start text-sm font-semibold text-muted">{h}</th>)}</tr></thead>
-        <tbody className="[&>tr:nth-child(even)>td]:bg-surface-alt [&_td]:border-b [&_td]:border-line [&_td]:px-2.5 [&_td]:py-1.5 [&_td]:align-top">
+        <thead><tr>{head.map((h, i) => <th key={i} className="whitespace-nowrap border-b-2 border-line-strong bg-surface-alt px-2 py-2 text-start text-sm font-semibold text-muted">{h}</th>)}</tr></thead>
+        <tbody className="[&>tr:nth-child(even)>td]:bg-surface-alt [&_td]:border-b [&_td]:border-line [&_td]:px-2 [&_td]:py-2 [&_td]:align-top">
           {empty ? <tr><td colSpan={cols} className="!bg-transparent py-4 text-center text-muted">{empty}</td></tr> : children}
         </tbody>
       </table>
@@ -133,7 +133,7 @@ export function AdminPage() {
               {users.map((u) => {
                 const post = (path: string, body?: object) => api(`/api/admin/users/${u.id}/${path}`, { method: 'POST', body: body || {} });
                 return (
-                  <li key={u.id} className="border border-line bg-raised px-3 py-2.5">
+                  <li key={u.id} className="border border-line bg-raised px-3 py-2">
                     <div className="flex items-start justify-between gap-3">
                       <span className={cn('font-semibold', !u.active && 'text-muted')}>{u.display_name}</span>
                       <Badge>{ROLE[u.role] || u.role}</Badge>
@@ -142,7 +142,7 @@ export function AdminPage() {
                       <Ltr>{u.username}</Ltr><span aria-hidden>·</span><span>{u.active ? 'نشط' : 'موقوف'}</span>
                       {u.rep_code ? <><span aria-hidden>·</span><span>مندوب <Ltr>{u.rep_code}</Ltr></span></> : null}
                     </div>
-                    <div className="mt-1.5 flex flex-wrap gap-2 [&>button]:flex-[1_1_96px]">
+                    <div className="mt-2 flex flex-wrap gap-2 [&>button]:flex-[1_1_96px]">
                       {/* لا إيقاف لحسابك أنت: الخادم يرفضه، فلا يظهر الزر */}
                       {u.username === me?.user.username ? null : u.active ? (
                         <Button variant="danger" onClick={() => setAsk({ title: 'إيقاف ' + u.display_name, text: 'سيُخرج من التطبيق فوراً، ولن يستطيع الدخول حتى تعيد تفعيله.', okText: 'إيقاف', danger: true,
@@ -192,7 +192,7 @@ export function AdminPage() {
           {recError ? <ErrorBox>{recError}</ErrorBox> : null}
           {rec ? (
             <div>
-              <h3 className="mb-1.5 mt-4 text-base">إيداعات سجّلها التطبيق: {rec.app.count}، منها للمراجعة: {rec.app.problems}</h3>
+              <h3 className="mb-2 mt-4 text-base">إيداعات سجّلها التطبيق: {rec.app.count}، منها للمراجعة: {rec.app.problems}</h3>
               {rec.app.count ? (
                 <Table cols={6} head={['النتيجة', 'العميل', 'الشيك', 'المبلغ', 'الموظف', 'الوقت']}>
                   {rec.app.items.map((d: any, i: number) => (
@@ -205,7 +205,7 @@ export function AdminPage() {
                   ))}
                 </Table>
               ) : <p className="text-muted">لا إيداعات من التطبيق في آخر 7 أيام.</p>}
-              <h3 className="mb-1.5 mt-4 text-base">شيكات AGB مودعة من خارج التطبيق: {rec.outside.count}</h3>
+              <h3 className="mb-2 mt-4 text-base">شيكات AGB مودعة من خارج التطبيق: {rec.outside.count}</h3>
               <p className="text-sm text-muted">من القسم القديم أو يدوياً في زوهو. التاريخ هو آخر تعديل للدفعة، وهو تقريبي.</p>
               {rec.outside.count ? (
                 <Table cols={5} head={['العميل', 'الشيك', 'المبلغ', 'الحالة', 'آخر تعديل']}>

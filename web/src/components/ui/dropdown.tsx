@@ -29,7 +29,7 @@ export const MenuItem = React.forwardRef<HTMLDivElement, M.DropdownMenuItemProps
   ({ className, danger, blocked, ...props }, ref) => (
     <M.Item
       ref={ref}
-      className={cn('flex min-h-11 w-full cursor-pointer select-none items-center px-4 py-2.5 text-start text-base outline-none data-[highlighted]:bg-surface-alt',
+      className={cn('flex min-h-11 w-full cursor-pointer select-none items-center px-4 py-2 text-start text-base outline-none data-[highlighted]:bg-surface-alt',
         danger && 'font-semibold text-danger', blocked && 'opacity-60', className)}
       {...props}
     />
@@ -38,7 +38,7 @@ export const MenuItem = React.forwardRef<HTMLDivElement, M.DropdownMenuItemProps
 MenuItem.displayName = 'MenuItem';
 
 export function MenuLabel({ children }: { children: React.ReactNode }) {
-  return <M.Label className="border-b border-line px-4 pb-2 pt-2.5 text-sm text-muted">{children}</M.Label>;
+  return <M.Label className="border-b border-line px-4 pb-2 pt-2 text-sm text-muted">{children}</M.Label>;
 }
 export function MenuSeparator() {
   return <M.Separator className="my-1 h-px bg-line" />;

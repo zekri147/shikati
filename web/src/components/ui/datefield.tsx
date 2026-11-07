@@ -14,7 +14,7 @@ export function DateField({ label, value, onChange, min, max, disabled, hint, cl
   const top = max || today;
   const yesterday = isoAddDays(today, -1);
   const other = value !== today && value !== yesterday;
-  const chip = 'cut-sm relative flex min-h-11 flex-1 items-center justify-center gap-1.5 bg-chip px-2 py-2 text-base font-semibold text-muted active:opacity-80 disabled:opacity-55';
+  const chip = 'cut-sm relative flex min-h-11 flex-1 items-center justify-center gap-2 bg-chip px-2 py-2 text-base font-semibold text-muted active:opacity-80 disabled:opacity-55';
   const on = 'bg-selected text-selected-ink';
 
   function pick(v: string) {
@@ -26,7 +26,7 @@ export function DateField({ label, value, onChange, min, max, disabled, hint, cl
 
   return (
     <fieldset className={cn('m-0 min-w-0 border-0 p-0 py-2', className)} disabled={disabled}>
-      <legend className="mb-1.5 p-0 text-base font-semibold">{label}</legend>
+      <legend className="mb-2 p-0 text-base font-semibold">{label}</legend>
       <div className="flex gap-2">
         <button type="button" className={cn(chip, value === today && on)} aria-pressed={value === today} onClick={() => pick(today)}>اليوم</button>
         <button type="button" className={cn(chip, value === yesterday && on, min && yesterday < min && 'opacity-55')} aria-pressed={value === yesterday} onClick={() => pick(yesterday)}>أمس</button>
@@ -40,7 +40,7 @@ export function DateField({ label, value, onChange, min, max, disabled, hint, cl
             onChange={(e) => pick(e.target.value)} />
         </span>
       </div>
-      <div className="mt-1.5 text-base font-semibold" aria-live="polite">{longDate(value)}</div>
+      <div className="mt-2 text-base font-semibold" aria-live="polite">{longDate(value)}</div>
       {hint ? <div className="text-sm text-muted">{hint}</div> : null}
     </fieldset>
   );

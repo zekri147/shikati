@@ -179,7 +179,7 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
           <RefreshButton busy={busy} loadedAt={loadedAt} onClick={() => load(true)} onRed />
         </div>
         <Amount value={total(list)} className="block font-display text-3xl font-semibold leading-tight tracking-tight max-[360px]:text-2xl" />
-        <div className="mt-1.5 flex flex-wrap gap-x-3 text-sm">
+        <div className="mt-2 flex flex-wrap gap-x-3 text-sm">
           <span>{list.length ? `على ${customersWord(list.length)}` : 'لا رصيد مفتوح'}</span>
           {old.length ? <span>أكثر من 90 يوماً <Amount value={total(old)} className="font-semibold" /></span> : null}
         </div>
@@ -196,7 +196,7 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
       <section className="mt-4">
         <div className="mb-2 flex items-center justify-between gap-3 border-b border-line-strong pb-2">
           <h2 className="m-0 flex items-center gap-2 text-lg font-bold"><span>{cat ? catLabel : 'كل المدينين'}</span>
-            <span className="num min-w-[22px] bg-foreground px-1.5 py-1 text-center text-sm font-semibold leading-none text-background">{items.length}</span></h2>
+            <span className="num min-w-[22px] bg-foreground px-2 py-1 text-center text-sm font-semibold leading-none text-background">{items.length}</span></h2>
           <Amount value={total(items)} className="text-sm text-muted" />
         </div>
         {cat ? <p className="mb-2 mt-0 text-sm text-muted">{CAT_NOTE[cat]}</p> : null}
@@ -206,7 +206,7 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
           </ul>
         ) : <Empty>{q ? 'لا عميل يطابق البحث.' : list.length ? 'لا عملاء في هذه الفئة.'
           : data.is_admin ? 'لا أرصدة مفتوحة لهذا الاختيار.' : 'لا رصيد مفتوح على عملائك. إن كان هذا غير صحيح، تأكد مع الإدارة أن حقل «Owner» على عملائك في زوهو يحمل رمزك.'}</Empty>}
-        {more > 0 ? <Button className="mt-2.5 w-full py-3" onClick={() => setLimit(limit + PAGE)}>عرض {customersWord(more)} آخرين</Button> : null}
+        {more > 0 ? <Button className="mt-2 w-full py-3" onClick={() => setLimit(limit + PAGE)}>عرض {customersWord(more)} آخرين</Button> : null}
       </section>
 
       <Sheet open={sheet === 'rep'} onClose={() => setSheet('')} title="المندوب" action={<Button onClick={() => setSheet('')}>إغلاق</Button>}>
@@ -248,7 +248,7 @@ function CustomerItem({ c, d, rep, onReview }: { c: Cust; d: CollData; rep: stri
   return (
     <li role="link" tabIndex={0} aria-label={`${c.name}، ${fmtAmount(c.balance)}، ${lateText(c)}`}
       onClick={open} onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(); } }}
-      className={cn('item flex min-h-[60px] cursor-pointer items-center gap-1 bg-surface py-2 pe-3 active:bg-surface-alt', canToggle ? 'ps-0' : 'ps-3.5')}>
+      className={cn('item flex min-h-[60px] cursor-pointer items-center gap-1 bg-surface py-2 pe-3 active:bg-surface-alt', canToggle ? 'ps-0' : 'ps-3')}>
       {canToggle ? (
         // زر «راجعت» بجانب العميل: يفتح بطاقة التأكيد، لأن المراجعة تُكتب في زوهو فوراً
         <button type="button" aria-pressed={!!r} aria-label={r ? `${c.name}: ${ZOHO_WORD[r.zoho] || 'راجعته'}` : 'راجعت ' + c.name}
@@ -257,20 +257,20 @@ function CustomerItem({ c, d, rep, onReview }: { c: Cust; d: CollData; rep: stri
             if (!r || sendable(r)) { onReview(r); return; }
             toast(r.zoho === 'done' ? 'سُجّلت هذه المراجعة في زوهو، فلا تُلغى.' : 'لم يصل رد واضح من زوهو. الإدارة تتحقق منها.', 'warn');
           }}
-          className={cn('rev-btn -my-2 me-2 flex w-16 flex-none flex-col items-center justify-center gap-1 self-stretch border-e border-line px-1 py-1.5 text-sm font-semibold active:bg-surface-alt',
+          className={cn('rev-btn -my-2 me-2 flex w-16 flex-none flex-col items-center justify-center gap-1 self-stretch border-e border-line px-1 py-2 text-sm font-semibold active:bg-surface-alt',
             r ? 'on text-foreground' : 'text-muted')}>
-          <span aria-hidden className={cn('flex size-6 items-center justify-center border-2', r ? 'border-foreground bg-foreground text-background' : 'border-line-strong')}>
+          <span aria-hidden className={cn('flex size-6 items-center justify-center border-2', r ? 'border-selected bg-selected text-selected-ink' : 'border-line-strong')}>
             {r ? <Check className="size-4" strokeWidth={3} /> : null}
           </span>
           <span>{r ? 'راجعته' : 'راجعت'}</span>
         </button>
       ) : null}
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-start justify-between gap-3">
           <Ltr className="min-w-0 text-base font-semibold leading-snug [overflow-wrap:anywhere]">{c.name}</Ltr>
           <Amount value={c.balance} className="whitespace-nowrap font-display text-base font-semibold" />
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-x-1.5 gap-y-0.5">
+        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
           <div className={cn('flex min-w-0 flex-wrap items-center gap-x-1 text-sm', r ? 'text-foreground' : 'text-muted')}>
             <span>{r ? 'راجعته ' + timeOf(r.at) + (r.late ? ' (بعد الأجل)' : '') : lateText(c)}</span>
             {r && r.zoho !== 'done' ? <><Dot /><span className="font-semibold text-warning">{ZOHO_WORD[r.zoho]}</span></> : null}
@@ -279,7 +279,7 @@ function CustomerItem({ c, d, rep, onReview }: { c: Cust; d: CollData; rep: stri
           </div>
           {!r && isOld(c) ? <span className="ms-auto"><LateMark days={99} text={c.late === null ? 'افتتاحي' : <><Ltr>+90</Ltr> يوماً</>} /></span> : null}
         </div>
-        {r && r.note ? <div className="border-s-3 border-s-line-strong bg-surface-alt px-2.5 py-1 text-sm [overflow-wrap:anywhere]">{r.note}</div> : null}
+        {r && r.note ? <Note compact className="text-foreground">{r.note}</Note> : null}
       </div>
     </li>
   );
@@ -326,11 +326,11 @@ function ReviewBlock({ data, list, rep, cat, setCat, onOpen }: { data: CollData;
         <h2 className={cn('m-0 text-base font-bold', past && !all && 'text-danger')}>مراجعة الأسبوع: {text}</h2>
         <span className="text-sm text-muted">{deadline}</span>
       </div>
-      <div role="progressbar" aria-label="تقدّم المراجعة" aria-valuemin={0} aria-valuemax={need.length} aria-valuenow={done} className="my-2 h-1.5 bg-surface-alt">
+      <div role="progressbar" aria-label="تقدّم المراجعة" aria-valuemin={0} aria-valuemax={need.length} aria-valuenow={done} className="my-2 h-2 bg-surface-alt">
         <div className={cn('h-full transition-[width] duration-200', all ? 'bg-foreground' : past ? 'bg-brand' : 'bg-warning')} style={{ width: `${pct}%` }} />
       </div>
       {!all ? (
-        <Button size="sm" className={cn('w-full', cat === 'rev' && 'border-foreground')} aria-pressed={cat === 'rev'} onClick={() => setCat(cat === 'rev' ? '' : 'rev')}>
+        <Button className={cn('cut-sm w-full border-0 bg-chip', cat === 'rev' && 'bg-selected text-selected-ink hover:bg-selected')} aria-pressed={cat === 'rev'} onClick={() => setCat(cat === 'rev' ? '' : 'rev')}>
           {cat === 'rev' ? 'اعرض كل المدينين' : `اعرض من بقي دون مراجعة (${left})`}</Button>
       ) : null}
     </section>
@@ -350,7 +350,7 @@ function ReviewDetails({ data, reload }: { data: CollData; reload: () => void })
       {prog.length ? (
         <ul className={cn(LIST_BOX, 'mt-2')}>
           {prog.map((p) => (
-            <li key={p.rep} className="flex min-h-[52px] items-center justify-between gap-3 px-3.5 py-2">
+            <li key={p.rep} className="flex min-h-[52px] items-center justify-between gap-3 px-3 py-2">
               <span className="min-w-0">
                 <Ltr className="block font-semibold">{p.rep}</Ltr>
                 <span className="block text-sm text-muted">{p.last ? 'آخر مراجعة ' + timeOf(p.last) : 'لم يراجع أحداً بعد'}</span>
@@ -402,17 +402,17 @@ function Unsent({ list, reload }: { list?: Review['unsent']; reload: () => void 
   return (
     <Fold open={open} onOpenChange={setOpen} tone="warn" className="mt-2"
       head={<div className="flex items-center justify-between gap-3"><span className="font-bold">لم تصل إلى زوهو</span><span className="text-sm text-muted">{list.length}</span></div>}>
-      <ul className="m-0 flex list-none flex-col gap-2 p-0">
+      <ul className={LIST_BOX}>
         {list.map((u) => {
           const key = u.week + u.id;
           const body = { week: u.week, customer_id: u.id };
           const waiting = u.state === 'unknown' || u.state === 'pending';
           return (
-            <li key={key} className="border border-line bg-raised px-3 py-2">
+            <li key={key} className="bg-raised px-3 py-2">
               <div className="flex justify-between gap-3"><Ltr className="font-semibold">{u.name}</Ltr><Ltr className="text-sm text-muted">{u.rep}</Ltr></div>
               <div className="text-sm font-semibold text-warning">{(waiting ? 'بانتظار التحقق: افتح العميل في زوهو وابحث عن التعليق أدناه.' : ZOHO_WORD[u.state]) + (u.error ? ` (${u.error})` : '')}</div>
               <p className="my-1 text-sm text-muted [overflow-wrap:anywhere]">{u.text}</p>
-              <div className="mt-1.5 flex flex-wrap gap-2 [&>button]:flex-1">
+              <div className="mt-2 flex flex-wrap gap-2 [&>button]:flex-1">
                 {waiting ? (
                   <>
                     <Button disabled={busy === key} onClick={() => act(key, 'resolve', { ...body, found: true }, 'سُجّلت كأنها في زوهو')}>موجود في زوهو</Button>
@@ -471,15 +471,15 @@ function ReviewDialog({ data, me, c, r, onClose, onSaved }: { data: CollData; me
   return (
     <Modal open={open} onClose={finish} busy={busy} title={<>مراجعة <Ltr>{c.name}</Ltr></>}>
       <label className="block py-2">
-        <span className="mb-1.5 block text-base font-semibold">ماذا قال العميل؟</span>
+        <span className="mb-2 block text-base font-semibold">ماذا قال العميل؟</span>
         <Textarea rows={3} maxLength={400} autoFocus disabled={busy || !!done} placeholder="اختياري. مثال: وعد بالدفع يوم الخميس" value={note} onChange={(e) => setNote(e.target.value)} />
       </label>
       <div className="my-2">
         <span className="text-sm text-muted">سيُكتب في سجل العميل في زوهو:</span>
-        <p className="mt-1 border-s-3 border-s-line-strong bg-surface-alt px-3 py-2 text-sm [overflow-wrap:anywhere]">{previewText(data, c, clean, late)}</p>
+        <Note className="mt-1 text-foreground">{previewText(data, c, clean, late)}</Note>
       </div>
       <Note tone="warn">بعد الإرسال لا تُعدَّل المراجعة ولا تُلغى من التطبيق.</Note>
-      {done ? <Note tone="warn" className="mt-2.5 text-base">{done}</Note> : null}
+      {done ? <Note tone="warn" className="mt-2 text-base">{done}</Note> : null}
       {error ? <FormError>{error}</FormError> : null}
       <ModalActions>
         {!done ? <Button variant="primary" disabled={busy} onClick={run}>{busy ? 'جارٍ التسجيل…' : 'سجّل في زوهو'}</Button> : null}
@@ -523,8 +523,8 @@ function CustomerPage({ data, id, me, onBack, onReview, onCancelled }: {
       <Slab>
         <SlabTop onBack={onBack} />
         <h1 className="m-0"><Ltr className="block text-lg font-bold leading-snug [overflow-wrap:anywhere]">{c.name}</Ltr></h1>
-        <Amount value={c.balance} className="mt-0.5 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
-        <div className="mt-2.5 flex flex-wrap gap-2">
+        <Amount value={c.balance} className="mt-1 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
+        <div className="mt-2 flex flex-wrap gap-2">
           <Badge tone={isOld(c) ? 'dark' : 'inverse'}>{lateText(c)}</Badge>
           {c.invoices.length ? <Badge tone="inverse">{invoicesWord(c.invoices.length)}</Badge> : null}
           {data.is_admin ? <Badge tone="inverse">{c.owner ? <Ltr>{c.owner}</Ltr> : 'بلا مندوب'}</Badge> : null}
@@ -535,17 +535,13 @@ function CustomerPage({ data, id, me, onBack, onReview, onCancelled }: {
         {rv && needsReview(c) ? (
           !r ? (
             !rv.can_review ? <Note tone="warn">لم يُراجَع هذا العميل هذا الأسبوع.</Note> : (
-              <section className="border border-line border-s-3 border-s-warning bg-surface px-3.5 pb-3 pt-1">
-                <h2 className="-mx-3.5 mb-2 mt-0 border-b border-line px-3.5 pb-2 pt-2.5 text-base font-bold">مراجعة الأسبوع: لم تراجعه بعد</h2>
+              <Block title="مراجعة الأسبوع: لم تراجعه بعد" className="border-s-3 border-s-warning">
                 <p className="text-sm text-muted">اتصل به، ثم سجّل ما قاله. المراجعة تُكتب تعليقاً في سجل العميل في زوهو.</p>
                 <Button className="w-full" onClick={() => onReview(c, null)}>سجّل المراجعة</Button>
-              </section>
+              </Block>
             )
           ) : (
-            <section className="border border-line border-s-3 border-s-foreground bg-surface px-3.5 pb-3 pt-1">
-              <h2 className="-mx-3.5 mb-2 mt-0 border-b border-line px-3.5 pb-2 pt-2.5 text-base font-bold">
-                {`راجعه ${rv.can_review ? '' : r.by + ' '}${timeOf(r.at)}${r.late ? ' (بعد الأجل)' : ''}`.replace('  ', ' ')}
-              </h2>
+            <Block title={`راجعه ${rv.can_review ? '' : r.by + ' '}${timeOf(r.at)}${r.late ? ' (بعد الأجل)' : ''}`.replace('  ', ' ')} className="border-s-3 border-s-foreground">
               <p className="my-1 text-base [overflow-wrap:anywhere]">{r.note || 'دون ملاحظة.'}</p>
               <p className={cn('text-sm', r.zoho === 'done' ? 'text-muted' : 'font-semibold text-warning')}>
                 {r.zoho === 'done' ? '✓ مكتوبة في سجل العميل في زوهو.' : r.zoho === 'unknown' || r.zoho === 'pending'
@@ -557,7 +553,7 @@ function CustomerPage({ data, id, me, onBack, onReview, onCancelled }: {
                   <Button disabled={cancelling} onClick={cancelReview}>إلغاء المراجعة</Button>
                 </div>
               ) : null}
-            </section>
+            </Block>
           )
         ) : null}
 
@@ -576,8 +572,8 @@ function CustomerPage({ data, id, me, onBack, onReview, onCancelled }: {
             <ul className="m-0 list-none p-0">
               {c.invoices.map((i) => (
                 <li key={i.number} className="border-b border-line py-2 text-base last:border-b-0">
-                  <div className="flex flex-wrap items-baseline justify-between gap-2.5"><Ltr className="font-semibold">{i.number}</Ltr><Amount value={i.balance} className="font-semibold" /></div>
-                  <div className="flex flex-wrap items-baseline justify-between gap-x-2.5 text-sm text-muted">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2"><Ltr className="font-semibold">{i.number}</Ltr><Amount value={i.balance} className="font-semibold" /></div>
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-2 text-sm text-muted">
                     <span>بتاريخ <Num>{fmtDate(i.date)}</Num> · الاستحقاق <Num>{fmtDate(i.due)}</Num></span>
                     <span className={cn('whitespace-nowrap', i.late > 90 && 'font-semibold text-danger')}>{i.late ? 'متأخرة ' + daysWord(i.late) : 'لم يحن موعدها'}</span>
                   </div>
@@ -588,11 +584,11 @@ function CustomerPage({ data, id, me, onBack, onReview, onCancelled }: {
         ) : null}
       </div>
 
-      <div className="detailbar fixed inset-x-0 bottom-0 z-20 flex gap-2 border-t border-line-strong bg-surface px-4 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2.5 [&>*]:flex-1">
-        {c.phone ? <Button asChild variant="primary" className="py-2.5"><a href={'tel:+' + c.phone}>اتصال</a></Button>
-          : <Button variant="primary" blocked className="py-2.5" onClick={() => toast('لا رقم هاتف لهذا العميل في زوهو.', 'warn')}>اتصال</Button>}
-        {c.phone ? <Button asChild className="py-2.5"><a href={`https://wa.me/${c.phone}?text=${encodeURIComponent(msg)}`} target="_blank" rel="noopener">واتساب</a></Button>
-          : <Button blocked className="py-2.5" onClick={() => toast('لا رقم هاتف لهذا العميل في زوهو.', 'warn')}>واتساب</Button>}
+      <div className="detailbar fixed inset-x-0 bottom-0 z-20 flex gap-2 border-t border-line-strong bg-surface px-4 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 [&>*]:flex-1">
+        {c.phone ? <Button asChild variant="primary" className="py-2"><a href={'tel:+' + c.phone}>اتصال</a></Button>
+          : <Button variant="primary" blocked className="py-2" onClick={() => toast('لا رقم هاتف لهذا العميل في زوهو.', 'warn')}>اتصال</Button>}
+        {c.phone ? <Button asChild className="py-2"><a href={`https://wa.me/${c.phone}?text=${encodeURIComponent(msg)}`} target="_blank" rel="noopener">واتساب</a></Button>
+          : <Button blocked className="py-2" onClick={() => toast('لا رقم هاتف لهذا العميل في زوهو.', 'warn')}>واتساب</Button>}
       </div>
     </>
   );

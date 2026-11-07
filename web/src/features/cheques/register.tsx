@@ -18,7 +18,7 @@ import { fmtDate, newRequestId, parseAmount, todayIso } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { DEST_LABELS } from './ui';
 import { rotateDataUrl, shrink } from './media';
-import { AllocList, KV, PartyPicker, type Party } from './pickers';
+import { AllocList, Block, KV, PartyPicker, type Party } from './pickers';
 import { GroupField, PhotoButtons } from './edit';
 import type { Line } from './types';
 
@@ -26,19 +26,18 @@ const LOC_FROM_LABEL: Record<string, string> = { 'الجزائر': 'ALGER', 'ا�
 type Options = { can_register: boolean; reader: boolean; destinations: string[]; locations: { key: string; label: string }[] };
 type Preview = { lines: Line[]; unused: number; vendor?: { lines: Line[]; unused: number } };
 
-// خطوة مرقّمة: تظهر علامة ✓ حين تكتمل، فيرى الموظف ما بقي بنظرة. الخطوات مسطحة يفصلها خط رفيع، لا صناديق
+// خطوة مرقّمة بعنوان بارز فوق مجموعتها: تظهر علامة ✓ حين تكتمل، فيرى الموظف ما بقي بنظرة
 function Step({ n, title, done, children }: { n: number; title: string; done: boolean; children: React.ReactNode }) {
   return (
-    <section className="step border-b border-line pb-4 last:border-b-0">
-      <h2 className="mb-1 mt-0 flex items-center gap-2.5 text-lg font-bold">
+    <Block strong title={<>
         <span aria-hidden className={cn('num inline-flex size-6 flex-none items-center justify-center text-sm', done ? 'bg-selected text-selected-ink' : 'border border-line-strong text-muted')}>
           {done ? <Check className="size-4" strokeWidth={3} /> : n}
         </span>
         <span>{title}</span>
         {done ? <span className="sr-only">(مكتملة)</span> : null}
-      </h2>
+      </>}>
       {children}
-    </section>
+    </Block>
   );
 }
 
@@ -47,7 +46,7 @@ function StepsProgress({ done }: { done: boolean[] }) {
   const n = done.filter(Boolean).length;
   return (
     <div>
-      <div className="mb-1.5 text-sm text-muted">{n === done.length ? 'الخطوات كلها مكتملة' : `أكملت ${n} من ${done.length} خطوات`}</div>
+      <div className="mb-2 text-sm text-muted">{n === done.length ? 'الخطوات كلها مكتملة' : `أكملت ${n} من ${done.length} خطوات`}</div>
       <div aria-hidden className="flex gap-1">{done.map((d, i) => <span key={i} className={cn('h-1 flex-1 transition-colors duration-200', d ? 'bg-selected' : 'bg-line-strong')} />)}</div>
     </div>
   );
@@ -183,11 +182,11 @@ export function RegisterPage({ onDone }: { onDone: (pid: string) => void }) {
       <div ref={errRef}>{error ? <FormError>{error}</FormError> : null}</div>
 
       {/* شريط ثابت فوق شريط التنقل: ما ينقص، وزر «مراجعة وتسجيل» الباهت حتى تكتمل البيانات */}
-      <div className="formbar fixed inset-x-0 z-[21] flex flex-col gap-1.5 border-t border-line-strong bg-surface px-4 pb-2.5 pt-2 bottom-[calc(60px+env(safe-area-inset-bottom))]">
+      <div className="formbar fixed inset-x-0 z-[21] flex flex-col gap-2 border-t border-line-strong bg-surface px-4 py-2 bottom-[calc(60px+env(safe-area-inset-bottom))]">
         <div aria-live="polite" className={cn('min-w-0 text-sm leading-snug', loud && missing.length ? 'font-semibold text-danger' : 'text-muted')}>
           {missing.length ? 'ينقص: ' + missing.join('، ') : 'البيانات كاملة. راجعها ثم سجّل.'}
         </div>
-        <Button variant="primary" className="w-full py-2.5" blocked={missing.length > 0} disabled={checking} onClick={submit}>
+        <Button variant="primary" className="w-full py-2" blocked={missing.length > 0} disabled={checking} onClick={submit}>
           {checking ? 'جارٍ حساب التوزيع…' : 'مراجعة وتسجيل'}
         </Button>
       </div>
@@ -238,7 +237,7 @@ function RegisterConfirm({ form, preview, onClose }: { form: any; preview: Previ
   return (
     <Modal open={open} onClose={() => finish(null)} busy={busy} title="تأكيد تسجيل الشيك">
       {form.image ? <img src={form.image} alt="صورة الشيك" className="mt-1 block max-h-[260px] w-full border border-line bg-surface-alt object-contain" />
-        : <div className="flex items-center justify-center bg-surface-alt p-4.5 text-sm text-soft">دون صورة</div>}
+        : <div className="flex items-center justify-center bg-surface-alt p-4 text-sm text-soft">دون صورة</div>}
       <dl className="m-0 mt-2 flex flex-col">
         <KV label="العميل">{form.customer.name}</KV>
         <KV label="المبلغ"><Amount value={form.amount} /></KV>
@@ -248,12 +247,12 @@ function RegisterConfirm({ form, preview, onClose }: { form: any; preview: Previ
         <KV label="الموقع">{form.locationLabel}</KV>
         <KV label="تاريخ الاستلام"><Num>{fmtDate(form.date)}</Num></KV>
       </dl>
-      <h3 className="mb-1 mt-3.5 text-base">{endorsed ? 'التوزيع على فواتير العميل' : 'التوزيع على الفواتير'}</h3>
+      <h3 className="mb-1 mt-3 text-base">{endorsed ? 'التوزيع على فواتير العميل' : 'التوزيع على الفواتير'}</h3>
       <AllocList lines={preview.lines} emptyText="لا فواتير غير مدفوعة لهذا العميل." />
       {preview.unused > 0 ? <Note tone="warn" className="mt-2">يبقى <Amount value={preview.unused} className="font-semibold" /> رصيداً مسبقاً للعميل.</Note> : null}
       {endorsed && preview.vendor ? (
         <>
-          <h3 className="mb-1 mt-3.5 text-base">التوزيع على فواتير المورد</h3>
+          <h3 className="mb-1 mt-3 text-base">التوزيع على فواتير المورد</h3>
           <AllocList lines={preview.vendor.lines} emptyText="لا فواتير غير مدفوعة لهذا المورد." />
           {preview.vendor.unused > 0 ? <Note tone="warn" className="mt-2">يبقى <Amount value={preview.vendor.unused} className="font-semibold" /> رصيداً مسبقاً عند المورد.</Note> : null}
         </>

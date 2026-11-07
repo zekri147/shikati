@@ -8,7 +8,7 @@ import { DateField } from '@/components/ui/datefield';
 import { Modal, ModalActions, Sheet, SheetOption } from '@/components/ui/dialog';
 import { Segmented } from '@/components/ui/segmented';
 import { Amount, Num } from '@/components/ltr';
-import { Empty, ErrorBox, FormError, RefreshButton, SkeletonList, Slab } from '@/components/shell';
+import { Empty, ErrorBox, FormError, Note, RefreshButton, SkeletonList, Slab } from '@/components/shell';
 import { toast } from '@/components/toast';
 import { api, errText, isCutOff, type Me } from '@/lib/api';
 import { useFixedBottom } from '@/lib/layout';
@@ -242,12 +242,12 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
           {refresh(true)}
         </div>
         <Amount value={sum(agb)} className="block font-display text-3xl font-semibold leading-tight tracking-tight [overflow-wrap:anywhere] max-[360px]:text-2xl" />
-        <div className="mt-1.5 flex flex-wrap gap-x-3 text-sm" aria-live="polite">
+        <div className="mt-2 flex flex-wrap gap-x-3 text-sm" aria-live="polite">
           <span>{agb.length ? chequeWord(agb.length) : 'لا شيكات'}</span>
           {lateCount ? <span><span className="font-semibold">{lateCount}</span> متأخرة</span> : null}
           <span>{doneToday.length ? <>أُودع اليوم <span className="font-semibold">{doneToday.length}</span> · <Amount value={sum(doneToday)} /></> : 'لم يُودَع شيء اليوم بعد'}</span>
         </div>
-        {others.length ? <div className="mt-0.5 text-sm opacity-90">وفي الحوزة لغير AGB: {chequeWord(others.length)} · <Amount value={sum(others)} /></div> : null}
+        {others.length ? <div className="mt-1 text-sm opacity-90">وفي الحوزة لغير AGB: {chequeWord(others.length)} · <Amount value={sum(others)} /></div> : null}
       </Slab>
     );
     const opts = { selected: false, onToggle: toggle, link: true };
@@ -257,11 +257,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
       <>
         <section className="mt-4">
           <div className="mb-2 border-b border-line-strong pb-2">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="m-0 flex items-center gap-2 text-lg font-bold"><span>في الحوزة لبنك AGB</span>
-                <span className="num min-w-[22px] bg-foreground px-1.5 py-1 text-center text-sm font-semibold leading-none text-background">{agb.length}</span></h2>
-              {agb.length > 1 ? <span className="text-sm text-muted">الأقدم أولاً</span> : null}
-            </div>
+            <SectionHead title="في الحوزة لبنك AGB" count={agb.length} primary meta={agb.length > 1 ? 'الأقدم أولاً' : null} />
           </div>
           {agb.length ? (
             <CardList>
@@ -292,13 +288,13 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
       <>
         {items.length ? weekGroups(shown).map((g) => (
           <section key={g.title}>
-            <h2 className="mb-1.5 mt-4 flex justify-between gap-3 text-sm font-semibold text-muted"><span>{g.title}</span><span>{chequeWord(g.items.length)}</span></h2>
+            <h2 className="mb-2 mt-4 flex justify-between gap-3 text-sm font-semibold text-muted"><span>{g.title}</span><span>{chequeWord(g.items.length)}</span></h2>
             <CardList>
               {g.items.map((c) => <ChequeCard key={c.id} c={c} o={{ link: true, showStatus: !status || status === 'other', ageInHandOnly: true, lateOnly: true }} />)}
             </CardList>
           </section>
         )) : <div className="mt-3"><Empty>لا شيك يطابق البحث أو التصفية.</Empty></div>}
-        {more > 0 ? <Button className="mt-2.5 w-full py-3" onClick={() => setLimit(limit + PAGE)}>عرض المزيد ({more})</Button> : null}
+        {more > 0 ? <Button className="mt-2 w-full py-3" onClick={() => setLimit(limit + PAGE)}>عرض المزيد ({more})</Button> : null}
       </>
     );
   } else if (data && route.view === 'alerts') {
@@ -306,7 +302,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     // ما في بنك AGB بانتظار التحصيل: متابعة للمدير، لا عمل يومي للمودِع
     const inBank = pick(data.agb_pending_collection.items);
     summary = (
-      <div className="cut-sm flex items-center justify-between gap-3 bg-tile px-4 py-2.5 text-white">
+      <div className="cut-sm flex items-center justify-between gap-3 bg-tile px-4 py-2 text-white">
         <div className="text-sm font-semibold">في بنك AGB بانتظار التحصيل<span className="block font-normal">{chequeWord(inBank.length)}</span></div>
         <Amount value={sum(inBank)} className="whitespace-nowrap font-display text-lg font-semibold" />
       </div>
@@ -393,18 +389,18 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
       {/* شريط الإيداع فوق شريط التنقل: المحدد والمجموع والزران، أو شرح المس والإيداع قبل أول إيداع */}
       {barShown ? (
         selItems.length ? (
-          <div className="actionbar fixed inset-x-0 z-[21] flex items-center justify-between gap-2.5 border-t-3 border-t-brand bg-ink-black px-4 py-2.5 text-white bottom-[calc(60px+env(safe-area-inset-bottom))] dark:bg-black">
+          <div className="actionbar fixed inset-x-0 z-[21] flex items-center justify-between gap-2 border-t-3 border-t-brand bg-bar px-4 py-2 text-white bottom-[calc(60px+env(safe-area-inset-bottom))]">
             <div className="flex flex-col text-sm leading-snug">
               <span className="font-semibold">المحدد: {chequeWord(selItems.length)}</span>
               <Amount value={sum(selItems)} className="font-display text-base font-semibold" />
             </div>
-            <div className="flex gap-1.5">
-              <Button variant="primary" className="px-4 py-2.5" blocked={!fresh} onClick={() => {
+            <div className="flex gap-2">
+              <Button variant="primary" className="px-4 py-2" blocked={!fresh} onClick={() => {
                 // البيانات المعروضة من آخر فتح: لا إيداع قبل وصول الجديدة، فقد يكون الشيك تغيّر
                 if (!fresh) { toast(busy ? 'انتظر لحظة حتى يكتمل التحديث، ثم أودع.' : 'البيانات قديمة. حدّث الشاشة أولاً، ثم أودع.', 'warn'); return; }
                 dialogRef.current = true; setDepositing(selItems);
               }}>أودعت المحدد</Button>
-              <Button className="border-white/35 bg-transparent px-2.5 py-2.5 text-white hover:bg-white/10 active:bg-white/10" onClick={() => setSelected(new Map())}>إلغاء التحديد</Button>
+              <Button className="border-line-on-dark bg-transparent px-2 py-2 text-white hover:bg-press-on-dark active:bg-press-on-dark" onClick={() => setSelected(new Map())}>إلغاء التحديد</Button>
             </div>
           </div>
         ) : (
@@ -445,13 +441,13 @@ function BottomNav({ view, alerts }: { view: View; alerts: number }) {
         const on = id === view;
         return (
           <a key={id} href={href} data-view={id} aria-current={on ? 'page' : undefined}
-            className={cn('tab relative flex min-h-[60px] flex-1 flex-col items-center justify-center gap-0.5 text-sm font-semibold text-muted no-underline active:bg-surface-alt',
+            className={cn('tab relative flex min-h-[60px] flex-1 flex-col items-center justify-center gap-1 text-sm font-semibold text-muted no-underline active:bg-surface-alt',
               on && 'text-foreground')}>
             {/* علامة حمراء مائلة فوق التبويب الحالي */}
             {on ? <span aria-hidden className="cut-xs absolute -top-px h-1 w-10 bg-brand" /> : null}
             <span className="relative inline-flex">
               <Icon aria-hidden className="size-5.5" />
-              {id === 'alerts' && alerts ? <span className="num absolute -end-4 -top-1.5 min-w-5 bg-brand px-1.5 py-0.5 text-center text-sm leading-none text-white">{alerts}</span> : null}
+              {id === 'alerts' && alerts ? <span className="num absolute -end-4 -top-1.5 min-w-5 bg-brand px-2 py-1 text-center text-sm leading-none text-white">{alerts}</span> : null}
             </span>
             <span>{label}</span>
           </a>
@@ -519,7 +515,7 @@ function DepositDialog({ items, onClosed }: { items: Cheque[]; onClosed: (r: { d
           return (
             <li key={c.id} className={cn('grid items-start gap-3 border-b border-line py-3', single ? 'grid-cols-1' : 'grid-cols-[76px_1fr]')}>
               <ChequeImage id={c.id} hasImage={!!c.has_image} v={c.v} size={single ? 'big' : 'thumb'} />
-              <div className="flex min-w-0 flex-col gap-0.5 text-base [overflow-wrap:anywhere]">
+              <div className="flex min-w-0 flex-col gap-1 text-base [overflow-wrap:anywhere]">
                 <div className="font-semibold">{c.customer}</div>
                 <div className="text-sm text-muted">شيك رقم {c.cheque_number ? <Num>{c.cheque_number}</Num> : 'غير مسجّل'}</div>
                 <Amount value={c.amount} className="font-display text-base font-semibold" />
@@ -531,14 +527,14 @@ function DepositDialog({ items, onClosed }: { items: Cheque[]; onClosed: (r: { d
         })}
       </ul>
       {!single ? (
-        <div className="mb-2.5 flex items-baseline justify-between border-b-2 border-foreground py-2.5 text-base">
+        <div className="mb-2 flex items-baseline justify-between border-b-2 border-foreground py-2 text-base">
           <span>المجموع</span><Amount value={sum(items)} className="font-display text-lg font-semibold" />
         </div>
       ) : null}
       <DateField label="تاريخ الإيداع" value={date} max={today} min={minDate || undefined} disabled={phase !== 'ready'} onChange={setDate} />
       <p className="text-sm text-muted">تأكد أن هذه الشيكات سُلِّمت فعلاً للبنك، وطابقها مع صورها. سيُسجَّل الإيداع في زوهو باسمك.</p>
       {message ? (message.tone === 'err' ? <FormError>{message.text}</FormError>
-        : <div className="mt-2.5 border-s-3 border-s-warning bg-warning-tint px-3 py-2 text-base">{message.text}</div>) : null}
+        : <Note tone="warn" className="mt-2 text-base">{message.text}</Note>) : null}
       <ModalActions>
         {phase !== 'finished' ? (
           <Button variant="primary" disabled={phase === 'busy'} onClick={run} autoFocus>

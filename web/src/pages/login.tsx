@@ -59,7 +59,7 @@ export function LoginPage() {
         <FormError>{error}</FormError>
         <Button id="login-btn" type="submit" variant="primary" size="lg" disabled={busy}>{busy ? "جارٍ الدخول…" : "دخول"}</Button>
       </form>
-      <a className="mt-4.5 block text-center text-base text-muted underline" href="/help">طريقة التثبيت على الهاتف والاستعمال</a>
+      <a className="mt-4 block text-center text-base text-muted underline" href="/help">طريقة التثبيت على الهاتف والاستعمال</a>
     </AuthCard>
   );
 }

@@ -34,6 +34,12 @@
   --selected: #1a1a1a;       /* المختار: أسود في الفاتح */
   --selected-ink: #ffffff;
   --tile-dark: #1a1a1a;
+  --bar: #1a1a1a;                        /* شريط الإيداع والرسائل القصيرة: أسود */
+  --scrim: rgba(0, 0, 0, .65);           /* الخلفية خلف النوافذ */
+  --press-on-brand: rgba(0, 0, 0, .15);  /* ضغط زر شفاف على الأحمر */
+  --press-on-dark: rgba(255, 255, 255, .10);
+  --line-on-dark: rgba(255, 255, 255, .35); /* إطار زر شفاف على الأسود */
+  --ok-on-dark: #4cc38a;                 /* خط النجاح في الرسالة القصيرة على الأسود */
   color-scheme: light;
 }
 
@@ -57,6 +63,7 @@
   --selected: #ffffff;       /* المختار: أبيض في الداكن */
   --selected-ink: #1a1a1a;
   --tile-dark: #242424;
+  --bar: #000000;
   color-scheme: dark;
 }
 
@@ -81,6 +88,12 @@
   --color-selected: var(--selected);
   --color-selected-ink: var(--selected-ink);
   --color-tile: var(--tile-dark);
+  --color-bar: var(--bar);
+  --color-scrim: var(--scrim);
+  --color-press-on-brand: var(--press-on-brand);
+  --color-press-on-dark: var(--press-on-dark);
+  --color-line-on-dark: var(--line-on-dark);
+  --color-ok-on-dark: var(--ok-on-dark);
   --color-ink-black: var(--black);
 
   --font-sans: "Plex Arabic", "Plex Sans", Tahoma, sans-serif;

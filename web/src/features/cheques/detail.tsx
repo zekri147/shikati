@@ -70,8 +70,8 @@ export function DetailPage({ id, isAdmin, onBack, preview }: { id: string; isAdm
           <Slab>
             {backRow(preview.cheque_number ? <>شيك <Num>{preview.cheque_number}</Num></> : null)}
             <h1 className="m-0 text-lg font-bold leading-snug [overflow-wrap:anywhere]">{preview.customer}</h1>
-            <Amount value={preview.amount} className="mt-0.5 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
-            <div className="mt-2.5 flex flex-wrap gap-2"><Badge tone={preview.status === 'في الحوزة' || preview.status === 'مرفوض' ? 'dark' : 'inverse'}>{preview.status || 'بلا حالة'}</Badge></div>
+            <Amount value={preview.amount} className="mt-1 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
+            <div className="mt-2 flex flex-wrap gap-2"><Badge tone={preview.status === 'في الحوزة' || preview.status === 'مرفوض' ? 'dark' : 'inverse'}>{preview.status || 'بلا حالة'}</Badge></div>
           </Slab>
         ) : <Slab>{backRow()}<h1 className="m-0 text-lg font-bold">تفاصيل الشيك</h1></Slab>}
         <SkeletonList rows={4} />
@@ -88,8 +88,8 @@ export function DetailPage({ id, isAdmin, onBack, preview }: { id: string; isAdm
       <Slab>
         {backRow(d.cheque_number ? <>شيك <Num>{d.cheque_number}</Num></> : null)}
         <h1 className="m-0 text-lg font-bold leading-snug [overflow-wrap:anywhere]">{d.customer}</h1>
-        <Amount value={d.amount} className="mt-0.5 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
-        <div className="mt-2.5 flex flex-wrap gap-2">
+        <Amount value={d.amount} className="mt-1 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
+        <div className="mt-2 flex flex-wrap gap-2">
           <Badge tone={d.status === 'في الحوزة' || d.status === 'مرفوض' ? 'dark' : 'inverse'}>{d.status || 'بلا حالة'}</Badge>
           {d.destination ? <Badge tone="inverse">{DEST_LABELS[d.destination] || d.destination}{d.location ? ' · ' + d.location : ''}</Badge> : <Badge tone="dark">الوجهة غير محددة</Badge>}
         </div>
@@ -111,7 +111,7 @@ export function DetailPage({ id, isAdmin, onBack, preview }: { id: string; isAdm
               : d.drive_url ? <a className="flex h-[72px] items-center justify-center bg-surface-alt p-2 text-center text-sm font-semibold text-danger no-underline" href={d.drive_url} target="_blank" rel="noopener noreferrer">في غوغل درايف</a>
                 : <div className="flex h-[72px] items-center justify-center bg-surface-alt p-2 text-center text-sm text-soft">لا صورة</div>}
           </div>
-          <div className="flex flex-col justify-center gap-0.5 text-sm text-muted">
+          <div className="flex flex-col justify-center gap-1 text-sm text-muted">
             {d.has_image ? <span>اضغط الصورة لتكبيرها</span> : d.drive_url ? <span>الصورة محفوظة في غوغل درايف</span> : <span>لا توجد صورة لهذا الشيك</span>}
             {d.captured_at ? <span>صُوّرت <Num>{d.captured_at}</Num></span> : null}
           </div>
@@ -148,8 +148,8 @@ export function DetailPage({ id, isAdmin, onBack, preview }: { id: string; isAdm
             <ul className="m-0 list-none p-0">
               {d.invoices.map((i: any) => (
                 <li key={i.number} className="border-b border-line py-2 text-base last:border-b-0">
-                  <div className="flex flex-wrap items-baseline justify-between gap-2.5"><Num className="font-semibold">{i.number}</Num><Amount value={i.applied} className="font-semibold" /></div>
-                  <div className="flex flex-wrap items-baseline justify-between gap-2.5 text-sm text-muted">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2"><Num className="font-semibold">{i.number}</Num><Amount value={i.applied} className="font-semibold" /></div>
+                  <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm text-muted">
                     <span>بتاريخ <Num>{fmtDate(i.date)}</Num></span>
                     {i.balance > 0 ? <span>باقي الفاتورة <Amount value={i.balance} /></span> : <span>سُدّدت كاملة</span>}
                   </div>
@@ -163,7 +163,7 @@ export function DetailPage({ id, isAdmin, onBack, preview }: { id: string; isAdm
           {d.deposits.length ? (
             <ul className="m-0 list-none p-0">
               {d.deposits.map((x: any, i: number) => (
-                <li key={i} className="flex flex-wrap items-baseline justify-between gap-2.5 border-b border-line py-2 text-base last:border-b-0">
+                <li key={i} className="flex flex-wrap items-baseline justify-between gap-2 border-b border-line py-2 text-base last:border-b-0">
                   <span className="font-semibold">{x.account || 'حساب غير معروف'}</span>{x.date ? <Num>{fmtDate(x.date)}</Num> : null}
                 </li>
               ))}
@@ -188,7 +188,7 @@ export function DetailPage({ id, isAdmin, onBack, preview }: { id: string; isAdm
               <ul className="m-0 list-none p-0">
                 {d.app.history.map((h: any, i: number) => (
                   <li key={i} className="border-b border-line py-2 text-base last:border-b-0">
-                    <div className="flex flex-wrap items-baseline justify-between gap-2.5"><span className="font-semibold">{ACTION_TEXT[h.action] || h.action}</span><Num className="text-sm text-muted">{fmtDateTime(h.at)}</Num></div>
+                    <div className="flex flex-wrap items-baseline justify-between gap-2"><span className="font-semibold">{ACTION_TEXT[h.action] || h.action}</span><Num className="text-sm text-muted">{fmtDateTime(h.at)}</Num></div>
                     <div className="text-sm text-muted">{[h.username, h.details].filter(Boolean).join(' · ')}</div>
                   </li>
                 ))}
@@ -200,15 +200,15 @@ export function DetailPage({ id, isAdmin, onBack, preview }: { id: string; isAdm
 
       {/* شريط العمليات الثابت: العمل الرئيسي، ثم «تعديل»، ثم «المزيد» */}
       {hasBar ? (
-        <div className="detailbar fixed inset-x-0 bottom-0 z-20 flex gap-2 border-t border-line-strong bg-surface px-4 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2.5 [&>*]:flex-1">
+        <div className="detailbar fixed inset-x-0 bottom-0 z-20 flex gap-2 border-t border-line-strong bg-surface px-4 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 [&>*]:flex-1">
           {d.can_endorse ? (
-            <Button variant="primary" className="py-2.5" onClick={() => {
+            <Button variant="primary" className="py-2" onClick={() => {
               endorseRef.current?.scrollIntoView({ block: 'start' });
               endorseRef.current?.querySelector('input')?.focus({ preventScroll: true });
             }}>إتمام التظهير</Button>
           ) : null}
           {d.edit ? (
-            <Button className="py-2.5" blocked={!d.edit.allowed} onClick={() => {
+            <Button className="py-2" blocked={!d.edit.allowed} onClick={() => {
               // التعديل غير المسموح يشرح سببه بدل زر معطّل بلا تفسير
               if (!d.edit.allowed) { toast(d.edit.blocker || 'تعديل هذا الشيك غير متاح.', 'warn'); return; }
               setEditing(true);
@@ -217,12 +217,12 @@ export function DetailPage({ id, isAdmin, onBack, preview }: { id: string; isAdm
           ) : null}
           {u ? (
             <Menu dir="rtl">
-              <MenuTrigger asChild><Button className="gap-1.5 py-2.5"><span>المزيد</span><ChevronUp aria-hidden className="size-4.5" /></Button></MenuTrigger>
+              <MenuTrigger asChild><Button className="gap-2 py-2"><span>المزيد</span><ChevronUp aria-hidden className="size-4.5" /></Button></MenuTrigger>
               <MenuContent side="top" align="end" className="min-w-[280px]">
-                <MenuItem danger blocked={!u.allowed} className="flex-col items-start py-2.5"
+                <MenuItem danger blocked={!u.allowed} className="flex-col items-start py-2"
                   onSelect={() => { if (!u.allowed) { toast(u.blocker, 'warn'); return; } setUndoOpen(true); }}>
                   <span className={cn('block', !u.allowed && 'text-muted')}>{u.title}</span>
-                  <span className="mt-0.5 block text-sm font-normal text-muted">{u.allowed ? u.effect : u.blocker}</span>
+                  <span className="mt-1 block text-sm font-normal text-muted">{u.allowed ? u.effect : u.blocker}</span>
                 </MenuItem>
               </MenuContent>
             </Menu>
@@ -275,7 +275,7 @@ function ChequePath({ d }: { d: Detail }) {
                 s.state === 'done' ? 'bg-foreground' : s.state === 'now' ? 'bg-brand' : 'bg-line-strong')} />
               {i < steps.length - 1 ? <span aria-hidden className={cn('w-0.5 flex-1', s.state === 'done' ? 'bg-foreground' : 'bg-line')} /> : null}
             </div>
-            <div className="flex flex-1 justify-between gap-2 pb-2.5">
+            <div className="flex flex-1 justify-between gap-2 pb-2">
               <span className={cn(s.state === 'todo' ? 'text-muted' : 'font-semibold', s.alert && 'text-danger')}>{s.label}</span>
               {s.when ? <span className="text-sm text-muted">{s.when}</span> : null}
             </div>
@@ -321,22 +321,21 @@ function EndorsePanel({ d, reload, innerRef }: { d: Detail; reload: () => void; 
   }
 
   return (
-    <section ref={innerRef as React.RefObject<HTMLElement>} className="scroll-mt-16 border border-line bg-surface px-3.5 pb-3 pt-1">
-      <h2 className="-mx-3.5 mb-2 mt-0 border-b border-line px-3.5 pb-2 pt-2.5 text-base font-bold">إتمام التظهير لمورد</h2>
+    <Block title="إتمام التظهير لمورد" innerRef={innerRef}>
       <p className="text-sm text-muted">الشيك مسجّل في حساب الشيكات المظهّرة، ولم تُنشأ دفعة المورد بعد. اختر المورد الذي سُلّم له الشيك.</p>
       <PartyPicker kind="vendor" value={vendor} onChange={setVendor} />
       {vendor && !preview && !pError ? <p className="text-sm text-muted">جارٍ حساب التوزيع…</p> : null}
       {pError ? <FormError>{pError}</FormError> : null}
       {preview ? (
         <div>
-          <h3 className="mb-1 mt-3.5 text-base">التوزيع على فواتير المورد</h3>
+          <h3 className="mb-1 mt-3 text-base">التوزيع على فواتير المورد</h3>
           <AllocList lines={preview.lines} emptyText="لا فواتير غير مدفوعة لهذا المورد." />
           {preview.unused > 0 ? <Note tone="warn" className="mt-2">يبقى <Amount value={preview.unused} className="font-semibold" /> رصيداً مسبقاً عند المورد.</Note> : null}
         </div>
       ) : null}
       {error ? <FormError>{error}</FormError> : null}
       {preview && !dead ? <Button variant="primary" size="lg" className="mt-2" disabled={busy} onClick={go}>{busy ? 'جارٍ إنشاء دفعة المورد…' : 'إتمام التظهير'}</Button> : null}
-    </section>
+    </Block>
   );
 }
 
