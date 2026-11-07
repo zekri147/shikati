@@ -34,6 +34,28 @@
   --gap: 12px;
   --tap: 44px;              /* أصغر مساحة لمس */
   --nav-h: 60px;            /* شريط التنقل السفلي */
+  --top-h: 52px;            /* الشريط العلوي */
+  --bar-h: 64px;            /* شريط العمل فوق شريط التنقل */
+
+  /* مقاسات الخط المعتمدة فقط: 13 و15 و17 و28، والرقم الكبير 32 */
+  --fs-sm: 13px;
+  --fs-md: 15px;
+  --fs-lg: 17px;
+  --fs-xl: 28px;
+  --fs-kpi: 32px;
+
+  /* المسافات من مضاعفات 4 */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+
+  /* معاني الألوان: كل لون لمعنى واحد */
+  --topbar-bg: var(--surface);   /* الشريط العلوي يتبع الوضع */
+  --late: var(--warning);        /* متأخر: متابعة */
+  --late-urgent: var(--brand);   /* متأخر جداً: عاجل */
   color-scheme: light;
 }
 
@@ -83,15 +105,22 @@ main { max-width: 760px; margin: 0 auto; padding: 16px; }
 
 /* ———————————————— الشريط العلوي ———————————————— */
 
+/* خلفية الشريط بلون السطح حسب الوضع، والشعار الأحمر في الفاتح والأبيض في الداكن (قاعدة هوية إيلوناك:
+   على الأسود يوضع الشعار الأبيض). الأحمر يبقى للعمل الرئيسي والعاجل. */
 .topbar {
   position: sticky; top: 0; z-index: 10;
-  background: var(--brand); color: var(--white);
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 10px 16px;
-  padding-top: calc(10px + env(safe-area-inset-top));
+  background: var(--topbar-bg); color: var(--ink);
+  border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  min-height: var(--top-h);
+  padding: calc(var(--sp-1) + env(safe-area-inset-top)) var(--sp-2) var(--sp-1);
+  padding-inline-start: var(--sp-4);
 }
-.topbar .logo { height: 20px; width: auto; display: block; }
-.topbar .menu-btn { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; padding: 8px 12px; }
+.topbar .logo { height: 18px; width: auto; display: block; }
+.logo-on-light { display: none !important; }
+:root[data-theme="light"] .logo-on-light { display: block !important; }
+:root[data-theme="light"] .logo-on-dark { display: none !important; }
+.topbar .menu-btn { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-md); padding: var(--sp-2) var(--sp-3); }
 .menu {
   position: absolute; top: 100%; inset-inline-end: 8px; z-index: 40;
   min-width: 240px; background: var(--surface); color: var(--ink);
@@ -117,7 +146,7 @@ main { max-width: 760px; margin: 0 auto; padding: 16px; }
 .is-blocked { opacity: .6; }
 .topbar .actions { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; justify-content: flex-end; }
 .topbar .who { font-size: 13px; opacity: .9; margin-inline-end: 6px; }
-.topbar :focus-visible { outline-color: var(--white); }
+
 @media (max-width: 420px) { .topbar .who { display: none; } }
 
 /* ———————————————— الأزرار ———————————————— */
@@ -130,8 +159,8 @@ button, .btn {
   -webkit-tap-highlight-color: transparent;
 }
 button:disabled { opacity: .55; cursor: default; }
-.btn-ghost { background: transparent; color: var(--white); padding: 7px 10px; font-size: 13px; }
-.btn-ghost:hover, .btn-ghost:active { background: rgba(0, 0, 0, .16); }
+.btn-ghost { background: transparent; color: var(--ink); padding: var(--sp-2) var(--sp-3); font-size: var(--fs-md); font-weight: 600; }
+.btn-ghost:hover, .btn-ghost:active { background: var(--surface-alt); }
 .btn-primary { background: var(--brand); color: var(--white); }
 .btn-primary:hover, .btn-primary:active { background: var(--brand-pressed); }
 .btn-plain { background: var(--surface); color: var(--ink); border-color: var(--line-strong); }
@@ -141,20 +170,27 @@ button:disabled { opacity: .55; cursor: default; }
 
 /* ———————————————— الأرقام الرئيسية ———————————————— */
 
-.kpis { display: flex; flex-direction: column; gap: 6px; }
+.kpis { display: flex; flex-direction: column; gap: var(--sp-2); }
+/* الرقم الكبير: العنوان والعدد في سطر، والمبلغ تحته. مساحة حمراء واحدة في الشاشة */
 .kpi {
   background: var(--brand); color: var(--white);
-  padding: 12px 16px;
+  padding: var(--sp-3) var(--sp-4);
   clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
 }
-.kpi .label { font-size: 14px; font-weight: 600; opacity: .95; }
-.kpi .value { font-size: 32px; line-height: 1.15; margin-top: 2px; overflow-wrap: anywhere; }
-.kpi .sub { font-size: 13px; opacity: .9; margin-top: 0; }
-@media (max-width: 360px) { .kpi .value { font-size: 27px; } }
+.kpi-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); }
+.kpi .label { font-size: var(--fs-sm); font-weight: 600; }
+.kpi .value { font-size: var(--fs-kpi); line-height: 1.15; margin-top: var(--sp-1); overflow-wrap: anywhere; }
+.kpi .sub { font-size: var(--fs-sm); margin-top: 0; }
+@media (max-width: 360px) { .kpi .value { font-size: var(--fs-xl); } }
+
+/* سطر الحالة تحت الملخص: معلومة قصيرة يميناً، وزر التحديث بوقته يساراً */
+.statusline { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); margin-top: var(--sp-2); min-height: var(--tap); }
+.statusline .st-text { font-size: var(--fs-sm); color: var(--ink-muted); min-width: 0; }
+.statusline .st-text .strong { color: var(--ink); }
 
 /* المربع الثاني: سطر واحد مختصر */
 .kpi.dark {
-  background: var(--tile-dark); padding: 10px 16px; margin-bottom: 12px;
+  background: var(--tile-dark); padding: 10px 16px;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   clip-path: polygon(var(--cut-sm) 0, 100% 0, 100% calc(100% - var(--cut-sm)), calc(100% - var(--cut-sm)) 100%, 0 100%, 0 var(--cut-sm));
 }
@@ -204,18 +240,16 @@ body.has-nav { padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
 
 /* ———————————————— الأدوات: التحديث والتصفية والبحث ———————————————— */
 
-.filters { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 4px; }
-.filter-row { display: flex; gap: 8px; }
-.filter-row .chips { flex: 1; min-width: 0; }
+.filters { display: flex; flex-direction: column; gap: var(--sp-2); margin: var(--sp-2) 0 var(--sp-1); }
 .btn-plain.refresh {
-  display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; flex: none;
-  font-size: 13px; font-weight: 400; color: var(--ink-muted);
+  display: inline-flex; align-items: center; gap: 6px; padding: 0 var(--sp-2); flex: none;
+  font-size: var(--fs-sm); font-weight: 400; color: var(--ink-muted); background: transparent; border-color: transparent;
 }
 .btn-plain.refresh .ico { width: 18px; height: 18px; color: var(--ink); }
 .refresh-time { white-space: nowrap; }
 .chips { display: flex; border: 1px solid var(--line-strong); background: var(--surface); }
 .chip {
-  flex: 1; padding: 9px 6px; font-size: 14px; background: transparent; color: var(--ink-muted);
+  flex: 1; padding: 9px 6px; font-size: var(--fs-md); background: transparent; color: var(--ink-muted);
   border: 0; border-inline-start: 1px solid var(--line);
 }
 .chip:first-child { border-inline-start: 0; }
@@ -239,22 +273,21 @@ input:focus-visible { outline: 3px solid var(--accent-text); outline-offset: 0; 
 
 /* ———————————————— الأقسام ———————————————— */
 
-.block { margin-top: 12px; }
+.block { margin-top: var(--sp-4); }
 .block-head {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 0 0 8px;
 }
-.block-head h2 { font-size: 17px; font-weight: 700; margin: 0; display: flex; align-items: center; gap: 8px; }
+.block-head h2 { font-size: var(--fs-lg); font-weight: 700; margin: 0; display: flex; align-items: center; gap: 8px; }
 .block-head .meta { font-size: 13px; color: var(--ink-muted); white-space: nowrap; }
-.block.primary > .block-head { border-bottom: 3px solid var(--brand); margin-bottom: 8px; }
-.block.primary > .block-head h2 { font-size: 18px; }
+.block.primary > .block-head { border-bottom: 1px solid var(--line-strong); margin-bottom: var(--sp-2); }
 
 .count {
   font-family: "Plex Sans", sans-serif; font-size: 13px; font-weight: 600; line-height: 1;
   min-width: 22px; padding: 4px 6px; text-align: center;
   background: var(--surface-alt); color: var(--ink-muted);
 }
-.block.primary .count { background: var(--brand); color: var(--white); }
+.block.primary .count { background: var(--ink); color: var(--page); }
 
 /* الأقسام المطوية: صف كامل قابل للضغط */
 details.fold { background: var(--surface); border: 1px solid var(--line); }
@@ -293,14 +326,14 @@ details.fold.warn { border-inline-start: 3px solid var(--warning); }
 .list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .item {
   background: var(--surface); border: 1px solid var(--line);
-  padding: 10px 12px; display: flex; align-items: center; gap: 4px;
-  position: relative;
+  padding: var(--sp-2) var(--sp-3); display: flex; align-items: center; gap: var(--sp-1);
+  position: relative; min-height: 60px;
 }
-.item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 details.fold .item { background: var(--raised); }
 .item-main { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.item .customer { font-weight: 600; font-size: 15px; line-height: 1.45; display: flex; align-items: flex-start; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
-.facts { display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px; font-size: 13px; color: var(--ink-muted); min-width: 0; }
+.item .customer { font-weight: 600; font-size: var(--fs-md); line-height: 1.4; display: flex; align-items: flex-start; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
+.facts { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--sp-1); font-size: var(--fs-sm); line-height: 1.5; color: var(--ink-muted); min-width: 0; }
 .facts .dot { color: var(--ink-soft); }
 .marks { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
 .marks:empty { display: none; }
@@ -308,17 +341,27 @@ details.fold .item { background: var(--raised); }
   flex: none; align-self: stretch; display: flex; align-items: center; justify-content: center;
   width: 32px; margin-inline-end: -8px; color: var(--ink-soft); text-decoration: none;
 }
-a.go { width: var(--tap); margin-block: -10px; border-inline-start: 1px solid var(--line); color: var(--ink-muted); }
+a.go { width: var(--tap); margin-block: calc(-1 * var(--sp-2)); margin-inline-end: calc(-1 * var(--sp-3)); border-inline-start: 1px solid var(--line); color: var(--ink-muted); }
 a.go:active { background: var(--surface-alt); }
 .go .ico { width: 18px; height: 18px; }
-.item .amount { font-family: "Poppins", "Plex Sans", sans-serif; font-weight: 600; font-size: 16px; white-space: nowrap; line-height: 1.45; }
-.item-sub { display: flex; align-items: center; justify-content: space-between; gap: 4px 8px; flex-wrap: wrap; }
-.age { font-size: 13px; color: var(--ink-muted); white-space: nowrap; }
-.age.late {
-  color: var(--white); background: var(--brand); font-weight: 600; padding: 2px 8px;
+.item .amount { font-family: "Poppins", "Plex Sans", sans-serif; font-weight: 600; font-size: var(--fs-md); white-space: nowrap; line-height: 1.4; }
+/* إن لم تتسع الشارة بجانب الرقم والتاريخ، تنزل سطراً كاملاً ولا تكسر سطر المعلومات */
+.item-sub { display: flex; align-items: center; justify-content: space-between; gap: 2px 6px; flex-wrap: wrap; }
+.item-sub .marks { flex: none; margin-inline-start: auto; }
+.age { font-size: var(--fs-sm); line-height: 1.5; color: var(--ink-muted); white-space: nowrap; display: inline-flex; align-items: center; gap: var(--sp-1); }
+/* متأخر (أكثر من 7 أيام): متابعة، بلون التحذير مع رمز الساعة */
+.age.late { color: var(--late); font-weight: 600; }
+.age.late::before {
+  content: ""; width: 14px; height: 14px; flex: none; background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7v5l3 2'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7v5l3 2'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+/* متأخر جداً (أكثر من 14 يوماً): عاجل، شارة حمراء بقطع الزاوية */
+.age.late.urgent {
+  color: var(--white); background: var(--late-urgent); padding: 0 6px;
   clip-path: polygon(var(--cut-sm) 0, 100% 0, 100% calc(100% - var(--cut-sm)), calc(100% - var(--cut-sm)) 100%, 0 100%, 0 var(--cut-sm));
 }
-.badge { font-size: 13px; font-weight: 600; padding: 2px 8px; background: var(--surface-alt); border: 1px solid var(--line-strong); white-space: nowrap; }
+.badge { font-size: var(--fs-sm); font-weight: 600; line-height: 1.4; padding: 0 var(--sp-2); background: var(--surface-alt); border: 1px solid var(--line-strong); white-space: nowrap; }
 .badge.lock-unknown { background: var(--warning-tint); border-color: var(--warning); color: var(--ink); }
 .badge.lock-done, .badge.lock-pending { background: var(--surface-alt); }
 .item.linkable { cursor: pointer; -webkit-tap-highlight-color: transparent; }
@@ -352,7 +395,7 @@ a.go:active { background: var(--surface-alt); }
 
 /* ———————————————— كل الشيكات ———————————————— */
 
-.result-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 16px 0 8px; font-size: 14px; }
+.listbox > .list, .listbox > .empty { margin-top: var(--sp-3); }
 .btn-plain.more { width: 100%; margin-top: 10px; padding: 12px; }
 
 /* ———————————————— تفاصيل الشيك ———————————————— */
@@ -456,6 +499,10 @@ dialog.confirm > .reg-preview { margin-top: 12px; width: calc(100% - 36px); }
 .actionbar .btn-primary { padding: 11px 16px; font-size: 15px; }
 .actionbar .btn-plain { padding: 11px 10px; background: transparent; color: var(--white); border-color: rgba(255, 255, 255, .35); }
 body.has-bar main { padding-bottom: 76px; }
+.actionbar.hint { background: var(--surface); color: var(--ink-muted); border-top: 1px solid var(--line-strong); min-height: var(--tap); }
+:root[data-theme="dark"] .actionbar.hint { background: var(--surface); }
+.actionbar.hint .ab-info { font-size: var(--fs-sm); }
+.actionbar.hint .ab-buttons { display: none; }
 
 /* ———————————————— بطاقة التأكيد ———————————————— */
 
@@ -491,7 +538,7 @@ dialog.confirm > .dlg-actions { margin-bottom: 18px; }
 .img-thumb .cheque-img, .img-thumb.img-empty { height: 56px; max-height: 56px; }
 .img-big .cheque-img { max-height: 240px; }
 .img-empty {
-  font-size: 12px; color: var(--ink-soft); background: var(--surface-alt);
+  font-size: var(--fs-sm); color: var(--ink-soft); background: var(--surface-alt);
   display: flex; align-items: center; justify-content: center; text-align: center; padding: 6px;
 }
 .img-big.img-empty { padding: 18px; }
@@ -519,7 +566,7 @@ body.has-nav.has-bar .toast-host { bottom: calc(var(--nav-h) + 80px + env(safe-a
 
 /* ———————————————— التذييل ———————————————— */
 
-footer.foot { max-width: 760px; margin: 28px auto 24px; padding: 0 16px; font-size: 12px; color: var(--ink-soft); display: flex; align-items: center; gap: 8px; }
+footer.foot { max-width: 760px; margin: var(--sp-5) auto var(--sp-4); padding: 0 var(--sp-4); font-size: var(--fs-sm); color: var(--ink-soft); display: flex; align-items: center; gap: 8px; }
 footer.foot img { height: 14px; width: auto; }
 
 /* ———————————————— صفحة الدخول والإعداد ———————————————— */
@@ -622,7 +669,7 @@ button.kpi-btn[aria-pressed="true"] { outline: 3px solid var(--brand); outline-o
 /* زر «راجعت» على طرف بطاقة العميل */
 .item.has-rev { padding-inline-start: 0; }
 .rev-btn {
-  flex: none; align-self: stretch; width: 64px; margin-block: -10px; margin-inline-end: 8px; padding: 6px 4px;
+  flex: none; align-self: stretch; width: 64px; margin-block: calc(-1 * var(--sp-2)); margin-inline-end: 8px; padding: 6px 4px;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
   background: transparent; color: var(--ink-muted); border: 0; border-inline-end: 1px solid var(--line); font-size: 13px; font-weight: 600;
 }

@@ -157,7 +157,7 @@
       if (r && r.zoho !== 'done') facts.push(el('span', { class: 'dot', 'aria-hidden': 'true', text: '·' }), el('span', { class: 'rev-warn', text: ZOHO_WORD[r.zoho] }));
       if (c.invoices.length > 1) facts.push(el('span', { class: 'dot', 'aria-hidden': 'true', text: '·' }), el('span', { text: invoicesWord(c.invoices.length) }));
       if (d.is_admin && !st.rep) facts.push(el('span', { class: 'dot', 'aria-hidden': 'true', text: '·' }), c.owner ? ltr(c.owner) : el('span', { text: 'بلا مندوب' }));
-      const mark = isOld(c) ? el('span', { class: 'age late', text: c.late === null ? 'افتتاحي' : '+90 يوماً' }) : null;
+      const mark = isOld(c) ? el('span', { class: 'age late urgent', text: c.late === null ? 'افتتاحي' : '+90 يوماً' }) : null;
       const toggle = rv.can_review && needsReview(c) ? reviewToggle(c, r) : null;
       const li = el('li', { class: 'item linkable' + (toggle ? ' has-rev' : '') + (r ? ' reviewed' : ''), tabindex: '0', role: 'link', 'aria-label': `${c.name}، ${fmtAmount(c.balance)}، ${lateText(c)}` },
         toggle,
