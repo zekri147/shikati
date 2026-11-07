@@ -36,5 +36,7 @@ export function expectedAccount(accountId: string, destination: string): string 
 
 export function wrongAccountText(accountId: string, accountName: string, destination: string): string {
   const expected = expectedAccount(accountId, destination);
-  return expected ? `مسجّل في حساب «${accountName || 'غير معروف'}»، والصحيح «${expected}»` : '';
+  // اسم الحساب الصحيح بالعربية كما يعرفه الموظف، واسم الحساب الحالي كما في زوهو
+  const label = expected === 'Endorsed Cheques' ? 'الشيكات المظهّرة' : 'الشيكات في الحوزة';
+  return expected ? `مسجّل في حساب «${accountName || 'غير معروف'}»، والصحيح حساب ${label}` : '';
 }

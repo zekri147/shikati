@@ -50,7 +50,7 @@ export type CardOpts = {
 };
 
 // بطاقة الشيك في سطرين: العميل والمبلغ، ثم الرقم والتاريخ والموقع وشارة واحدة.
-// في شاشة الإيداع يحدد اللمسُ البطاقة، والسهم وحده يفتح التفاصيل. وفي غيرها يفتح اللمسُ التفاصيل.
+// في شاشة الإيداع يحدد اللمسُ البطاقة، والسهم وحده يفتح التفاصيل. وفي غيرها يفتح اللمسُ البطاقة كلها التفاصيل، دون سهم.
 export function ChequeCard({ c, o }: { c: Cheque; o: CardOpts }) {
   const noAge = o.noAge || (o.ageInHandOnly && c.status !== 'في الحوزة');
   const late = c.days > LATE_DAYS && !noAge;
@@ -117,9 +117,10 @@ export function ChequeCard({ c, o }: { c: Cheque; o: CardOpts }) {
         </div>
         {o.note ? <Note tone="warn" compact>{o.note}</Note> : null}
         {o.reasons && o.reasons.length ? (
+          // سطر نصي لكل سبب بعلامة صغيرة ملوّنة، لا صناديق ملوّنة: الجملة نفسها تشرح
           <ul className="reasons m-0 mt-1 flex list-none flex-col gap-1 p-0">
             {o.reasons.map((r, i) => (
-              <li key={i}><Note compact tone={r.tone === 'info' ? undefined : r.tone}>{r.text}</Note></li>
+              <li key={i}><Note plain tone={r.tone === 'info' ? undefined : r.tone}>{r.text}</Note></li>
             ))}
           </ul>
         ) : null}
@@ -129,7 +130,7 @@ export function ChequeCard({ c, o }: { c: Cheque; o: CardOpts }) {
           className="-my-2 flex w-11 flex-none items-center justify-center self-stretch border-s border-line text-muted active:bg-surface-alt">
           <ChevronLeft aria-hidden className="size-4.5" />
         </a>
-      ) : o.link ? <span aria-hidden className="-me-2 flex w-8 flex-none items-center justify-center text-soft"><ChevronLeft className="size-4.5" /></span> : null}
+      ) : null}
     </li>
   );
 }
@@ -141,7 +142,8 @@ export function CardList({ children, className }: { children: React.ReactNode; c
 }
 
 // inTrigger: داخل زر القسم المطوي يكون العنوان نصاً لا عنواناً (لا عنوان داخل زر)
-export function SectionHead({ title, count, total, primary, inTrigger }: { title: string; count: number; total?: number | null; primary?: boolean; inTrigger?: boolean }) {
+// meta: نص قصير مكان المجموع، مثل «الأقدم أولاً» حين يكون المجموع في اللوح الأحمر فوقه
+export function SectionHead({ title, count, total, primary, inTrigger, meta }: { title: string; count: number; total?: number | null; primary?: boolean; inTrigger?: boolean; meta?: React.ReactNode }) {
   const H: any = inTrigger ? 'span' : 'h2';
   return (
     <div className="flex items-center justify-between gap-3">
@@ -149,7 +151,8 @@ export function SectionHead({ title, count, total, primary, inTrigger }: { title
         <span>{title}</span>
         <span className={cn('num min-w-[22px] px-2 py-1 text-center text-sm font-semibold leading-none', primary ? 'bg-foreground text-background' : 'bg-surface-alt text-muted')}>{count}</span>
       </H>
-      {total !== null && total !== undefined && count ? <Amount value={total} className="whitespace-nowrap text-sm text-muted" /> : null}
+      {total !== null && total !== undefined && count ? <Amount value={total} className="whitespace-nowrap text-sm text-muted" />
+        : meta ? <span className="whitespace-nowrap text-sm text-muted">{meta}</span> : null}
     </div>
   );
 }

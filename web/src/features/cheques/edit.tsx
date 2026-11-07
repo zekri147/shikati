@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Camera } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Field, Input } from '@/components/ui/input';
+import { DateField } from '@/components/ui/datefield';
 import { Modal, ModalActions } from '@/components/ui/dialog';
 import { Segmented } from '@/components/ui/segmented';
 import { Amount, Num } from '@/components/ltr';
@@ -93,7 +94,7 @@ export function EditPanel({ d, onSaved, onCancel }: { d: Detail; onSaved: () => 
       <Field label="المبلغ" hint="إن تغيّر المبلغ يُعاد توزيعه آلياً على أقدم فواتير العميل.">
         <Input inputMode="decimal" dir="ltr" autoComplete="off" value={amount} onChange={(x) => setAmount(x.target.value)} />
       </Field>
-      <Field label="تاريخ الاستلام"><Input type="date" dir="ltr" value={date} max={todayIso()} onChange={(x) => setDate(x.target.value)} /></Field>
+      <DateField label="تاريخ الاستلام" value={date} max={todayIso()} onChange={setDate} />
       <GroupField label="الموقع">
         <Segmented label="الموقع" value={location} onChange={setLocation} options={[{ value: 'ALGER', label: 'الجزائر' }, { value: 'EL EULMA', label: 'العلمة' }]} />
       </GroupField>

@@ -70,7 +70,7 @@ function Table({ head, children, empty, cols }: { head: string[]; children: Reac
   return (
     <div className="-mx-4 overflow-x-auto">
       <table className="w-full border-collapse text-base">
-        <thead><tr>{head.map((h, i) => <th key={i} className="whitespace-nowrap bg-brand px-2 py-2 text-start font-semibold text-white">{h}</th>)}</tr></thead>
+        <thead><tr>{head.map((h, i) => <th key={i} className="whitespace-nowrap border-b-2 border-line-strong bg-surface-alt px-2 py-2 text-start text-sm font-semibold text-muted">{h}</th>)}</tr></thead>
         <tbody className="[&>tr:nth-child(even)>td]:bg-surface-alt [&_td]:border-b [&_td]:border-line [&_td]:px-2 [&_td]:py-2 [&_td]:align-top">
           {empty ? <tr><td colSpan={cols} className="!bg-transparent py-4 text-center text-muted">{empty}</td></tr> : children}
         </tbody>
@@ -143,7 +143,8 @@ export function AdminPage() {
                       {u.rep_code ? <><span aria-hidden>·</span><span>مندوب <Ltr>{u.rep_code}</Ltr></span></> : null}
                     </div>
                     <div className="mt-2 flex flex-wrap gap-2 [&>button]:flex-[1_1_96px]">
-                      {u.active ? (
+                      {/* لا إيقاف لحسابك أنت: الخادم يرفضه، فلا يظهر الزر */}
+                      {u.username === me?.user.username ? null : u.active ? (
                         <Button variant="danger" onClick={() => setAsk({ title: 'إيقاف ' + u.display_name, text: 'سيُخرج من التطبيق فوراً، ولن يستطيع الدخول حتى تعيد تفعيله.', okText: 'إيقاف', danger: true,
                           run: async () => { await post('disable'); toast('أُوقف ' + u.display_name); await refresh(); } })}>إيقاف</Button>
                       ) : (

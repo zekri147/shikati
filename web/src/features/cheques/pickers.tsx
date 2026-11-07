@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Amount, Num } from '@/components/ltr';
 import { api, errText } from '@/lib/api';
 import { fmtDate, round2 } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import type { Line } from './types';
 
 export type Party = { id: string; name: string };
@@ -89,12 +90,13 @@ export function KV({ label, children, after }: { label: string; children: React.
   );
 }
 
-// قسم بعنوان وخط تحته: كل أقسام صفحات التفاصيل. innerRef لمن يحتاج التمرير إليه
-export function Block({ title, children, className, id, innerRef }: { title: React.ReactNode; children: React.ReactNode; className?: string; id?: string; innerRef?: React.Ref<HTMLElement> }) {
+// قسم بعنوان: كل أقسام صفحات التفاصيل والنماذج. العنوان صغير فوق مجموعة مسطحة بإطار رفيع،
+// لا عنوان داخل صندوق بخط فاصل. strong: عنوان بارز لخطوات النموذج. innerRef لمن يحتاج التمرير إليه
+export function Block({ title, children, className, id, innerRef, strong }: { title: React.ReactNode; children: React.ReactNode; className?: string; id?: string; innerRef?: React.Ref<HTMLElement>; strong?: boolean }) {
   return (
-    <section id={id} ref={innerRef} className={'scroll-mt-16 border border-line bg-surface px-3 pb-3 pt-1 ' + (className || '')}>
-      <h2 className="-mx-3 mb-2 mt-0 flex items-center gap-2 border-b border-line px-3 pb-2 pt-2 text-base font-bold">{title}</h2>
-      {children}
+    <section id={id} ref={innerRef} className={'scroll-mt-16 ' + (className || '')}>
+      <h2 className={cn('mb-2 mt-0 flex items-center gap-2', strong ? 'text-lg font-bold' : 'text-sm font-semibold text-muted')}>{title}</h2>
+      <div className="border border-line bg-surface px-4 py-2">{children}</div>
     </section>
   );
 }

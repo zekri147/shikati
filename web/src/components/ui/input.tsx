@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // الحقول بلا زوايا مستديرة، وإطار التركيز ظاهر دائماً
@@ -19,6 +20,21 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTML
   />
 ));
 Textarea.displayName = 'Textarea';
+
+// الرمز السري مع زر العين لإظهاره: يتأكد الموظف مما كتب قبل الدخول، والهاتف في يد واحدة
+export const PasswordInput = React.forwardRef<HTMLInputElement, Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'>>(({ className, ...props }, ref) => {
+  const [shown, setShown] = React.useState(false);
+  return (
+    <span className="relative block">
+      <Input ref={ref} type={shown ? 'text' : 'password'} className={cn('pe-12', className)} {...props} />
+      <button type="button" onClick={() => setShown(!shown)} aria-pressed={shown} aria-label={shown ? 'إخفاء الرمز السري' : 'إظهار الرمز السري'}
+        className="absolute inset-y-0 end-0 flex w-11 items-center justify-center text-muted active:bg-surface-alt">
+        {shown ? <EyeOff aria-hidden className="size-5" /> : <Eye aria-hidden className="size-5" />}
+      </button>
+    </span>
+  );
+});
+PasswordInput.displayName = 'PasswordInput';
 
 export function Field({ label, hint, children, className }: { label: React.ReactNode; hint?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
