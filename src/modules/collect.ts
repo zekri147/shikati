@@ -257,7 +257,8 @@ async function saveReview(req: Request, env: Env, user: User): Promise<Response>
   if (!ID_RE.test(id)) throw new HttpError(400, 'العميل غير صالح.');
   const note = String(b.note ?? '').replace(/\s+/g, ' ').trim().slice(0, NOTE_MAX);
   const own = normRep(user.rep_code);
-  if (!own || user.role === 'admin') throw new HttpError(403, 'المراجعة للمندوب صاحب العميل فقط.');
+  // المدير يراجع أيضاً عملاء رمزه إن كان له رمز (بطلب ZEKRI يوم 7/11/2026)
+  if (!own) throw new HttpError(403, 'المراجعة للمندوب صاحب العميل فقط.');
   const snap = await getSnapshot(env, false);
   const c = snap.customers.find((x) => x.id === id);
   if (!c || c.owner !== own) throw new HttpError(403, 'هذا العميل ليس من عملائك.');
@@ -337,7 +338,7 @@ async function reviewStatus(env: Env, user: User): Promise<Response> {
   const own = normRep(user.rep_code);
   const week = reviewWeek(todayAlgiers());
   const deadline = reviewDeadline(week);
-  if (!own || user.role === 'admin') return json({ week, deadline, need: 0, done: 0 });
+  if (!own) return json({ week, deadline, need: 0, done: 0 });
   const snap = await getSnapshot(env, false);
   const mine = snap.customers.filter((c) => c.owner === own && needsReview(c));
   const rows = await weekReviews(env, week, own);
@@ -406,7 +407,8 @@ export async function handleCollect(req: Request, env: Env, user: User): Promise
     review: {
       week,
       deadline: reviewDeadline(week),
-      can_review: !!own && !isAdmin,
+      // كل من له رمز مندوب يراجع عملاء رمزه، والمدير منهم
+      can_review: !!own,
       items: reviews,
       // المدير: تقدّم كل مندوب، وكل الملاحظات المكتوبة هذا الأسبوع
       progress: isAdmin ? reviewProgress(snap.customers, rows) : undefined,

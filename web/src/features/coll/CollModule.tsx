@@ -52,12 +52,14 @@ type Review = {
   unsent?: { week: string; id: string; name: string; rep: string; state: string; error?: string; text: string }[];
   history?: { week: string; reps: { rep: string; need: number; done: number; late: number }[] }[];
 };
-type CollData = { at: number; is_admin: boolean; own_rep: string; customers: Cust[]; reps?: { rep: string; count: number; total: number; old: number }[]; review?: Review };
+type CollData = { at: number; is_admin: boolean; rep: string; own_rep: string; customers: Cust[]; reps?: { rep: string; count: number; total: number; old: number }[]; review?: Review };
 
 const catOf = (c: Cust) => (c.late === null ? 'open' : c.late > 90 ? 'old' : c.late > 30 ? 'd90' : c.late > 0 ? 'd30' : 'due');
 const isOld = (c: Cust) => c.late === null || c.late > 90;
 // المراجعة الأسبوعية: كل عميل مدين له مندوب (منذ 7/11/2026، بطلب ZEKRI)
 const needsReview = (c: Cust) => c.balance >= 1 && !!c.owner;
+// من يراجع العميل: صاحب رمز المندوب نفسه، مندوباً كان أو المدير (بطلب ZEKRI يوم 7/11/2026)
+const isMine = (d: CollData, c: Cust) => !!d.review?.can_review && !!d.own_rep && c.owner === d.own_rep;
 const total = (list: Cust[]) => round2(list.reduce((t, c) => t + c.balance, 0));
 const lateText = (c: Cust) => (c.late === null ? 'رصيد افتتاحي' : c.late > 0 ? `متأخر ${daysWord(c.late)}` : 'لم يحن موعدها');
 // الرقم بالصيغة المحلية: 213561765718 يصبح 0561 76 57 18
@@ -79,7 +81,9 @@ function parseRoute(hash: string) {
 export function CollModule({ me, hash }: { me: Me; hash: string }) {
   const isAdmin = me.user.role === 'admin';
   const route = useMemo(() => parseRoute(hash), [hash]);
-  const [rep, setRep] = useState(() => (isAdmin ? loadKey(REP_KEY) : ''));
+  // رمز المستخدم نفسه: للمدير الذي له عملاء، يُختار عند الوصول من سطر التذكير
+  const ownCode = (me.user.rep_code || '').trim().toUpperCase();
+  const [rep, setRep] = useState(() => (isAdmin ? (route.rev && ownCode ? ownCode : loadKey(REP_KEY)) : ''));
   // آخر أرصدة على الهاتف تُعرض فوراً، ثم تُحدَّث. لكل اختيار مندوب نسخته
   const keyOf = (code: string) => 'coll:' + me.user.username + ':' + code;
   const [data, setData] = useState<CollData | null>(() => readCache<CollData>(keyOf(rep))?.data || null);
@@ -142,12 +146,15 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
 
   // سطر التذكير فوق شريط التنقل يتبع ما بقي للمندوب في آخر بيانات
   useEffect(() => {
-    if (route.rev) setCat('rev');
+    if (!route.rev) return;
+    setCat('rev');
+    if (isAdmin && ownCode && rep !== ownCode) pickRep(ownCode);
   }, [route.rev]);
   useEffect(() => {
     const rv = data?.review;
-    if (!rv || !rv.can_review) return;
-    const need = data!.customers.filter(needsReview);
+    // المدير: فقط حين تشمل القائمة عملاءه (الكل أو رمزه)
+    if (!rv || !rv.can_review || (data!.is_admin && data!.rep !== '' && data!.rep !== data!.own_rep)) return;
+    const need = data!.customers.filter((c) => needsReview(c) && c.owner === data!.own_rep);
     setReviewLeft({ left: need.filter((c) => !rv.items[c.id]).length, deadline: rv.deadline });
   }, [data]);
 
@@ -259,7 +266,7 @@ const Dot = () => <span aria-hidden className="text-soft">·</span>;
 function CustomerItem({ c, d, rep, onReview }: { c: Cust; d: CollData; rep: string; onReview: (r: Rev | null) => void }) {
   const rv = d.review;
   const r = rv && needsReview(c) ? rv.items[c.id] : null;
-  const canToggle = !!rv?.can_review && needsReview(c);
+  const canToggle = isMine(d, c) && needsReview(c);
   const ref = useRef<HTMLLIElement>(null);
   const open = () => { markShared(c.id, ref.current); location.hash = '#coll/c/' + c.id; };
   const shared = isShared(c.id);
@@ -330,13 +337,15 @@ function ReviewBlock({ data, list, rep, cat, setCat, onOpen }: { data: CollData;
     );
   }
   const need = list.filter(needsReview);
-  if (!need.length || (!rv.can_review && !rep)) return null;
+  // «أنا»: المندوب في قائمته، والمدير حين يختار رمزه
+  const self = rv.can_review && (!data.is_admin || rep === data.own_rep);
+  if (!need.length || (!self && !rep)) return null;
   const done = need.filter((c) => rv.items[c.id]).length;
   const all = done === need.length;
   const left = need.length - done;
-  const text = all ? `${rv.can_review ? 'أنهيت' : 'أنهى'} مراجعة كل العملاء المدينين ✓`
+  const text = all ? `${self ? 'أنهيت' : 'أنهى'} مراجعة كل العملاء المدينين ✓`
     : past ? `انتهى الأجل، وبقي ${customersWord(left)} دون مراجعة.`
-      : `${rv.can_review ? 'راجعت' : 'راجع'} ${done} من ${need.length}.`;
+      : `${self ? 'راجعت' : 'راجع'} ${done} من ${need.length}.`;
   const pct = Math.round((done / need.length) * 100);
   return (
     <section className="mt-3">
@@ -579,20 +588,20 @@ function CustomerPage({ data, id, me, onBack, onReview, onCancelled }: {
 
         {rv && needsReview(c) ? (
           !r ? (
-            !rv.can_review ? <Note tone="warn">لم يُراجَع هذا العميل هذا الأسبوع.</Note> : (
+            !isMine(data, c) ? <Note tone="warn">لم يُراجَع هذا العميل هذا الأسبوع.</Note> : (
               <Block title="مراجعة الأسبوع: لم تراجعه بعد" className="border-s-3 border-s-warning">
                 <p className="text-sm text-muted">اتصل به، ثم سجّل ما قاله. المراجعة تُكتب تعليقاً في سجل العميل في زوهو.</p>
                 <Button className="w-full" onClick={() => onReview(c, null)}>سجّل المراجعة</Button>
               </Block>
             )
           ) : (
-            <Block title={`راجعه ${rv.can_review ? '' : r.by + ' '}${timeOf(r.at)}${r.late ? ' (بعد الأجل)' : ''}`.replace('  ', ' ')} className="border-s-3 border-s-foreground">
+            <Block title={`راجعه ${isMine(data, c) ? '' : r.by + ' '}${timeOf(r.at)}${r.late ? ' (بعد الأجل)' : ''}`.replace('  ', ' ')} className="border-s-3 border-s-foreground">
               <p className="my-1 text-base [overflow-wrap:anywhere]">{r.note || 'دون ملاحظة.'}</p>
               <p className={cn('text-sm', r.zoho === 'done' ? 'text-muted' : 'font-semibold text-warning')}>
                 {r.zoho === 'done' ? '✓ مكتوبة في سجل العميل في زوهو.' : r.zoho === 'unknown' || r.zoho === 'pending'
                   ? 'لم يصل رد واضح من زوهو. لا تعد المحاولة: الإدارة تتحقق منها.' : 'لم تصل إلى زوهو بعد.'}
               </p>
-              {rv.can_review && sendable(r) ? (
+              {isMine(data, c) && sendable(r) ? (
                 <div className="mt-2 flex gap-2 [&>button]:flex-1">
                   <Button onClick={() => onReview(c, r)}>أعد الإرسال</Button>
                   <Button disabled={cancelling} onClick={cancelReview}>إلغاء المراجعة</Button>
