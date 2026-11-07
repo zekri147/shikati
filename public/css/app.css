@@ -568,7 +568,7 @@ tbody tr:nth-child(even) td.empty-cell { background: transparent; }
 /* بطاقة المستخدم في الإدارة */
 .item.user { align-items: stretch; }
 .item.user.off .customer { color: var(--ink-muted); }
-.user-actions { display: flex; gap: 8px; margin-top: 6px; }
+.user-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .user-actions button { flex: 1; padding: 9px 10px; }
 .help ol, .help ul { padding-inline-start: 22px; margin: 6px 0; }
 .help li { margin: 5px 0; }
@@ -580,6 +580,77 @@ tbody tr:nth-child(even) td.empty-cell { background: transparent; }
 .photo-btns.first { flex-direction: column; }
 .photo-btns.first .shoot { padding: 18px; font-size: 17px; border-color: var(--ink-muted); }
 .photo-btns.first .shoot .ico { width: 26px; height: 26px; }
+
+/* ———————————————— قسم التحصيل ———————————————— */
+
+/* المربع الأسود للديون القديمة زر: يعرض عملاءها فقط */
+button.kpi-btn {
+  width: 100%; min-height: var(--tap); border: 0; text-align: start; color: var(--white); font: inherit; cursor: pointer;
+}
+button.kpi-btn:active { opacity: .85; }
+button.kpi-btn[aria-pressed="true"] { outline: 3px solid var(--brand); outline-offset: -3px; }
+.coll-reps:not(:empty) { margin-bottom: 12px; }
+.coll-updated { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.coll-hint { margin: 0 0 8px; }
+.coll-foot { margin: 16px 0 0; }
+.coll-late { color: var(--accent-text); font-weight: 600; }
+.chip .num { margin-inline-start: 2px; }
+.detailbar > .btn { flex: 1; text-align: center; padding: 11px 12px; font-size: 15px; }
+
+/* المراجعة الأسبوعية: شريط التقدّم فوق القائمة */
+.rev { background: var(--surface); border: 1px solid var(--line); border-inline-start: 3px solid var(--warning); padding: 12px 14px; margin-top: 12px; }
+.rev.done { border-inline-start-color: var(--ink); }
+.rev.late { border-inline-start-color: var(--brand); }
+.rev-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.rev-h h2 { font-size: 15px; font-weight: 700; margin: 0; }
+.rev-h .meta { font-size: 13px; color: var(--ink-muted); }
+.rev-bar { height: 8px; background: var(--surface-alt); margin: 10px 0 8px; }
+.rev-bar > i { display: block; height: 100%; background: var(--warning); transition: width .15s; }
+.rev.done .rev-bar > i { background: var(--ink); }
+.rev-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.rev-st { margin: 0; font-size: 13px; flex: 1 1 180px; }
+.rev.done .rev-st { font-weight: 600; }
+.rev.late .rev-st { color: var(--accent-text); font-weight: 600; }
+.btn-plain.rev-left { padding: 8px 12px; font-size: 13px; }
+.rev-left[aria-pressed="true"] { border-color: var(--ink); }
+.rev-admin .table-wrap { border: 1px solid var(--line); }
+.rev-admin details.fold { margin-top: 8px; }
+.rev-ok { font-weight: 600; }
+.rev-no { color: var(--accent-text); font-weight: 600; }
+.rev-text { margin: 4px 0; font-size: 14px; overflow-wrap: anywhere; }
+
+/* زر «راجعت» على طرف بطاقة العميل */
+.item.has-rev { padding-inline-start: 0; }
+.rev-btn {
+  flex: none; align-self: stretch; width: 64px; margin-block: -10px; margin-inline-end: 8px; padding: 6px 4px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  background: transparent; color: var(--ink-muted); border: 0; border-inline-end: 1px solid var(--line); font-size: 13px; font-weight: 600;
+}
+.rev-btn:active { background: var(--surface-alt); }
+.rev-mark { width: 24px; height: 24px; border: 2px solid var(--line-strong); }
+/* المُراجَع بلون «المختار»: الأسود في الفاتح والأبيض في الداكن، والعلامة بلون الصفحة */
+.rev-btn.on { color: var(--ink); }
+.rev-mark { display: flex; }
+.rev-btn.on .rev-mark { border-color: var(--ink); background: var(--ink); }
+.rev-btn.on .rev-mark::after {
+  content: ""; flex: 1; background: var(--page);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2.4'%3E%3Cpath d='M3 8.5 6.5 12 13 4.5'/%3E%3C/svg%3E") center / 16px no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2.4'%3E%3Cpath d='M3 8.5 6.5 12 13 4.5'/%3E%3C/svg%3E") center / 16px no-repeat;
+}
+.item.reviewed .facts { color: var(--ink); }
+.item-note.rev-note { background: var(--surface-alt); border-inline-start-color: var(--line-strong); }
+
+/* المراجعة في بطاقة العميل */
+.rev-card { border-inline-start: 3px solid var(--warning); }
+.rev-card.on { border-inline-start-color: var(--ink); }
+.rev-card .field { display: block; }
+.rev-area {
+  font: inherit; font-size: 15px; width: 100%; margin-top: 4px; padding: 10px 12px; resize: vertical; min-height: 64px;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 0;
+}
+.rev-area:focus-visible { outline: 3px solid var(--accent-text); outline-offset: 0; }
+.rev-actions { display: flex; gap: 8px; margin-top: 8px; }
+.rev-actions > button { flex: 1; }
 
 /* ———————————————— عارض الصورة ———————————————— */
 dialog.viewer {

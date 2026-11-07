@@ -111,7 +111,7 @@ export async function currentUser(req: Request, env: Env): Promise<User | null> 
   const token = readCookie(req);
   if (!token || token.length > 100) return null;
   return await env.DB.prepare(
-    'SELECT u.id, u.username, u.display_name, u.role FROM sessions s JOIN users u ON u.id = s.user_id ' +
+    'SELECT u.id, u.username, u.display_name, u.role, u.rep_code FROM sessions s JOIN users u ON u.id = s.user_id ' +
     'WHERE s.token_hash = ? AND s.expires_at > ? AND u.active = 1',
   ).bind(await sha256Hex(token), nowSec()).first<User>();
 }

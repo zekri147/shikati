@@ -6,6 +6,8 @@ export interface AppModule {
   id: string;
   title: string;
   roles: Role[];
+  // شرط إضافي اختياري: القسم يظهر لمن تحقق فيه، مثل وجود رمز المندوب
+  allow?(user: User): boolean;
   // subpath هو ما بعد /api/m/<id>
   handle(req: Request, env: Env, user: User, subpath: string): Promise<Response>;
 }

@@ -1,24 +1,25 @@
 (function () {
   const { api, el, ltr, toast, fmtDateTime, fmtAmount } = window.Shikati;
-  const ROLE = { admin: 'مدير', depositor: 'مودِع' };
+  const ROLE = { admin: 'مدير', depositor: 'مودِع', rep: 'مندوب' };
   const ACTION = {
     login: 'دخول', 'user.create': 'إنشاء مستخدم', 'user.disable': 'إيقاف مستخدم',
-    'user.enable': 'تفعيل مستخدم', 'user.password': 'تغيير رمز سري', setup: 'الإعداد الأولي',
+    'user.enable': 'تفعيل مستخدم', 'user.password': 'تغيير رمز سري', 'user.rep': 'تغيير رمز المندوب', 'coll.review': 'مراجعة عميل', 'coll.review.cancel': 'إلغاء مراجعة', setup: 'الإعداد الأولي',
     deposit: 'إيداع شيك', 'deposit.release': 'تحرير إيداع', 'deposit.reverted': 'إيداع أُلغي في زوهو',
   };
   const RESULT = { ok: 'تمّ', denied: 'مرفوض', error: 'خطأ' };
 
   // بطاقة تأكيد بشكل التطبيق بدل نوافذ المتصفح. مع password يطلب رمزاً سرياً في حقل مخفي.
-  // run تنفّذ العملية، وخطؤها يظهر داخل البطاقة دون إغلاقها.
-  function ask({ title, text, okText, danger, password, run }) {
-    const input = password ? el('input', { type: 'password', dir: 'ltr', autocomplete: 'new-password', minlength: '8' }) : null;
+  // مع field يطلب نصاً قصيراً (رمز المندوب). run تنفّذ العملية، وخطؤها يظهر داخل البطاقة دون إغلاقها.
+  function ask({ title, text, okText, danger, password, field, run }) {
+    const input = password ? el('input', { type: 'password', dir: 'ltr', autocomplete: 'new-password', minlength: '8' })
+      : field ? el('input', { type: 'text', dir: 'ltr', autocapitalize: 'characters', spellcheck: 'false', value: field.value || '', placeholder: field.placeholder || '' }) : null;
     const message = el('div', { role: 'alert' });
     const okBtn = el('button', { type: 'button', class: danger ? 'btn-danger' : 'btn-primary', text: okText });
     const cancelBtn = el('button', { type: 'button', class: 'btn-plain', text: 'إلغاء' });
     const dlg = el('dialog', { class: 'confirm', 'aria-labelledby': 'ask-title' },
       el('h2', { id: 'ask-title', text: title }),
       el('p', { text }),
-      input ? el('div', { class: 'field' }, el('label', {}, el('span', { text: 'الرمز السري الجديد (8 أحرف على الأقل)' }), input)) : null,
+      input ? el('div', { class: 'field' }, el('label', {}, el('span', { text: field ? field.label : 'الرمز السري الجديد (8 أحرف على الأقل)' }), input)) : null,
       message,
       el('div', { class: 'dlg-actions' }, okBtn, cancelBtn));
     let busy = false;
@@ -26,7 +27,7 @@
     cancelBtn.addEventListener('click', close);
     dlg.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
     okBtn.addEventListener('click', async () => {
-      if (input && input.value.length < 8) { message.className = 'form-error'; message.textContent = 'الرمز السري 8 أحرف على الأقل.'; return; }
+      if (password && input.value.length < 8) { message.className = 'form-error'; message.textContent = 'الرمز السري 8 أحرف على الأقل.'; return; }
       busy = true; okBtn.disabled = true; cancelBtn.disabled = true;
       try {
         await run(input ? input.value : undefined);
@@ -59,12 +60,22 @@
         title: 'رمز سري جديد لـ ' + u.display_name, text: 'أعطه الرمز الجديد بنفسك، لا في رسالة مكتوبة.',
         okText: 'حفظ الرمز', password: true, run: async (p) => { await post('password', { password: p }); toast('حُفظ الرمز السري الجديد'); await refresh(); },
       }) });
+      // رمز المندوب: يربط المستخدم بعملائه في زوهو (حقل «Owner») فيرى تحصيلهم
+      const rep = el('button', { type: 'button', class: 'btn-plain', text: 'رمز المندوب', onclick: () => ask({
+        title: 'رمز المندوب لـ ' + u.display_name,
+        text: u.role === 'rep'
+          ? 'اكتبه كما في حقل «Owner» على العميل في زوهو. يرى المندوب عملاء هذا الرمز فقط.'
+          : 'اكتبه كما في حقل «Owner» في زوهو ليرى قسم التحصيل لعملائه. اتركه فارغاً لإزالته.',
+        okText: 'حفظ الرمز', field: { label: 'رمز المندوب', value: u.rep_code || '', placeholder: 'AMINE' },
+        run: async (code) => { await post('rep', { rep_code: code }); toast('حُفظ رمز المندوب'); await refresh(); },
+      }) });
+      const facts = [ltr(u.username), el('span', { class: 'dot', 'aria-hidden': 'true', text: '·' }), el('span', { text: u.active ? 'نشط' : 'موقوف' })];
+      if (u.rep_code) facts.push(el('span', { class: 'dot', 'aria-hidden': 'true', text: '·' }), el('span', {}, 'مندوب ', ltr(u.rep_code)));
       return el('li', { class: 'item user' + (u.active ? '' : ' off') },
         el('div', { class: 'item-body' },
           el('div', { class: 'item-main' }, el('div', { class: 'customer', text: u.display_name }), el('span', { class: 'badge', text: ROLE[u.role] || u.role })),
-          el('div', { class: 'item-sub' },
-            el('div', { class: 'facts' }, ltr(u.username), el('span', { class: 'dot', 'aria-hidden': 'true', text: '·' }), el('span', { text: u.active ? 'نشط' : 'موقوف' }))),
-          el('div', { class: 'user-actions' }, toggle, pw)));
+          el('div', { class: 'item-sub' }, el('div', { class: 'facts' }, facts)),
+          el('div', { class: 'user-actions' }, toggle, pw, rep)));
     }));
   }
 
@@ -177,6 +188,7 @@
           display_name: form.display_name.value.trim(),
           username: form.username.value.trim(),
           role: form.role.value,
+          rep_code: form.rep_code.value.trim(),
           password: form.password.value,
         } });
         form.reset();

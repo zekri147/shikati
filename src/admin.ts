@@ -8,7 +8,19 @@ import { handleReconcile } from './modules/reconcile';
 import { probeImage } from './modules/image';
 
 const USERNAME_RE = /^[a-z0-9._-]{3,32}$/;
-const ROLES: Role[] = ['admin', 'depositor'];
+const ROLES: Role[] = ['admin', 'depositor', 'rep'];
+// رمز المندوب كما في الحقل «Owner» في زوهو: أحرف لاتينية كبيرة، مثل AMINE
+const REP_CODE_RE = /^[A-Z][A-Z0-9 _-]{1,31}$/;
+
+function validateRepCode(v: unknown, role: Role): string | null {
+  const code = String(v ?? '').trim().toUpperCase();
+  if (!code) {
+    if (role === 'rep') throw new HttpError(400, 'المندوب يحتاج رمزاً يطابق حقل «Owner» في زوهو، مثل AMINE.');
+    return null;
+  }
+  if (!REP_CODE_RE.test(code)) throw new HttpError(400, 'رمز المندوب: أحرف لاتينية كما في حقل «Owner» في زوهو، مثل AMINE.');
+  return code;
+}
 
 function validatePassword(pw: unknown): string {
   const s = String(pw ?? '');
@@ -20,14 +32,14 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
   // GET /api/admin/users
   if (req.method === 'GET' && path === '/users') {
     const { results } = await env.DB.prepare(
-      'SELECT id, username, display_name, role, active, created_at FROM users ORDER BY id',
+      'SELECT id, username, display_name, role, rep_code, active, created_at FROM users ORDER BY id',
     ).all();
     return json({ users: results });
   }
 
   // POST /api/admin/users
   if (req.method === 'POST' && path === '/users') {
-    const b = await readJson<{ username?: string; display_name?: string; role?: string; password?: string }>(req);
+    const b = await readJson<{ username?: string; display_name?: string; role?: string; password?: string; rep_code?: string }>(req);
     const username = String(b.username || '').trim().toLowerCase();
     const display = String(b.display_name || '').trim();
     const role = b.role as Role;
@@ -36,26 +48,36 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
     }
     if (!display || display.length > 60) throw new HttpError(400, 'أدخل الاسم الظاهر.');
     if (!ROLES.includes(role)) throw new HttpError(400, 'الدور غير صالح.');
+    const repCode = validateRepCode(b.rep_code, role);
     const pw = await hashPassword(validatePassword(b.password));
     try {
       await env.DB.prepare(
-        'INSERT INTO users (username, display_name, role, pw_hash, pw_salt, pw_iter) VALUES (?, ?, ?, ?, ?, ?)',
-      ).bind(username, display, role, pw.hash, pw.salt, pw.iter).run();
+        'INSERT INTO users (username, display_name, role, rep_code, pw_hash, pw_salt, pw_iter) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ).bind(username, display, role, repCode, pw.hash, pw.salt, pw.iter).run();
     } catch {
       throw new HttpError(409, 'اسم المستخدم موجود مسبقاً.');
     }
-    await audit(env, admin, 'user.create', 'ok', username, role);
+    await audit(env, admin, 'user.create', 'ok', username, repCode ? `${role} ${repCode}` : role);
     return json({ ok: true }, 201);
   }
 
   // POST /api/admin/users/:id/(disable|enable|password)
-  const m = path.match(/^\/users\/(\d+)\/(disable|enable|password)$/);
+  const m = path.match(/^\/users\/(\d+)\/(disable|enable|password|rep)$/);
   if (req.method === 'POST' && m) {
     const id = Number(m[1]);
     const action = m[2];
-    const target = await env.DB.prepare('SELECT id, username FROM users WHERE id = ?')
-      .bind(id).first<{ id: number; username: string }>();
+    const target = await env.DB.prepare('SELECT id, username, role FROM users WHERE id = ?')
+      .bind(id).first<{ id: number; username: string; role: Role }>();
     if (!target) throw new HttpError(404, 'المستخدم غير موجود.');
+
+    // رمز المندوب: يُضاف أو يُغيَّر أو يُحذف (للمودِع والمدير). يسري من الطلب التالي دون خروج.
+    if (action === 'rep') {
+      const b = await readJson<{ rep_code?: string }>(req);
+      const code = validateRepCode(b.rep_code, target.role);
+      await env.DB.prepare('UPDATE users SET rep_code = ? WHERE id = ?').bind(code, id).run();
+      await audit(env, admin, 'user.rep', 'ok', target.username, code || '—');
+      return json({ ok: true });
+    }
 
     if (action === 'disable') {
       if (target.id === admin.id) throw new HttpError(400, 'لا يمكنك إيقاف حسابك أنت.');
