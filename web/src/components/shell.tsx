@@ -1,18 +1,15 @@
 import * as React from 'react';
-import { Menu as MenuIcon } from 'lucide-react';
+import { Menu as MenuIcon, RefreshCw } from 'lucide-react';
+import { relTime } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '@/components/ui/dropdown';
 import { toggleTheme, useTheme } from '@/lib/theme';
 import { logout } from '@/lib/api';
 
-// الشعار الأحمر في الوضع الفاتح، والأبيض في الداكن (قاعدة هوية إيلوناك: على الأسود يوضع الشعار الأبيض)
+// الشعار الأبيض على الشريط الأحمر (قاعدة هوية إيلوناك: على الأحمر يوضع الشعار الأبيض)
 export function Logo() {
-  return (
-    <>
-      <img className="hidden h-[18px] w-auto dark:block" src="/img/logo-white.svg" alt="إيلوناك" />
-      <img className="block h-[18px] w-auto dark:hidden" src="/img/logo-red.svg" alt="إيلوناك" />
-    </>
-  );
+  return <img className="block h-[18px] w-auto" src="/img/logo-white.svg" alt="إيلوناك" />;
 }
 
 export type MenuLink = { href: string; label: string };
@@ -24,14 +21,14 @@ export function TopBar({ name, links = [], themeOnly, showLogout = true }: {
   const theme = useTheme();
   const themeLabel = theme === 'dark' ? 'الوضع الفاتح' : 'الوضع الداكن';
   return (
-    <header className="sticky top-0 z-30 flex min-h-[52px] items-center justify-between gap-3 border-b border-line bg-surface pe-2 ps-4 pt-[env(safe-area-inset-top)] text-foreground">
+    <header className="sticky top-0 z-30 flex min-h-[52px] items-center justify-between gap-3 bg-brand pe-2 ps-4 pt-[env(safe-area-inset-top)] text-white [&_:focus-visible]:outline-white">
       <Logo />
       {themeOnly ? (
-        <Button variant="ghost" onClick={toggleTheme} aria-label={theme === 'dark' ? 'التبديل إلى الوضع الفاتح' : 'التبديل إلى الوضع الداكن'}>{themeLabel}</Button>
+        <Button variant="ghost" className="text-white hover:bg-black/15 active:bg-black/15" onClick={toggleTheme} aria-label={theme === 'dark' ? 'التبديل إلى الوضع الفاتح' : 'التبديل إلى الوضع الداكن'}>{themeLabel}</Button>
       ) : (
         <Menu dir="rtl" modal={false}>
           <MenuTrigger asChild>
-            <Button variant="ghost" id="menu-btn" className="gap-2"><MenuIcon aria-hidden className="size-5.5" /><span>القائمة</span></Button>
+            <Button variant="ghost" id="menu-btn" className="gap-2 text-white hover:bg-black/15 active:bg-black/15"><MenuIcon aria-hidden className="size-5.5" /><span>القائمة</span></Button>
           </MenuTrigger>
           <MenuContent>
             {name ? <MenuLabel>{name}</MenuLabel> : null}
@@ -81,4 +78,42 @@ export function Note({ tone, children, className }: { tone?: 'warn' | 'alert' | 
 
 export function FormError({ children }: { children?: React.ReactNode }) {
   return <div role="alert" className="mt-2.5 min-h-[1.6em] text-base text-danger">{children}</div>;
+}
+
+// اللوح الأحمر الملاصق للشريط العلوي: ملخص الصفحة أو رأس صفحة التفاصيل.
+// بعرض الشاشة كاملاً، وتُقطع زاويته السفلية اليمنى وحدها (هوية إيلوناك). يوضع أول عنصر داخل Main.
+export function Slab({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <div className={'slab cut-br -mx-4 -mt-4 bg-brand px-4 pb-6 pt-1 text-white [&_:focus-visible]:outline-white ' + (className || '')}>{children}</div>;
+}
+
+// صف أعلى اللوح في صفحات التفاصيل: الرجوع يميناً، ومعلومة قصيرة اختيارية يساراً
+export function SlabTop({ onBack, extra }: { onBack: () => void; extra?: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <SlabBack onClick={onBack} />
+      {extra ? <span className="text-sm">{extra}</span> : null}
+    </div>
+  );
+}
+
+// زر التحديث بوقت آخر تحديث: على اللوح الأحمر (onRed) أو في سطر الحالة. مساحة لمسه 44 بكسل
+export function RefreshButton({ busy, loadedAt, onClick, onRed }: { busy: boolean; loadedAt: number; onClick: () => void; onRed?: boolean }) {
+  return (
+    <Button variant="ghost" disabled={busy} onClick={onClick}
+      className={cn('flex-none gap-1.5 px-2 text-sm font-normal', onRed ? '-me-2 text-white hover:bg-black/15 active:bg-black/15 disabled:opacity-80' : 'text-muted')}
+      aria-label={busy ? 'جارٍ التحديث…' : 'تحديث. آخر تحديث ' + (loadedAt ? relTime(loadedAt) : '')}>
+      <RefreshCw aria-hidden className={cn('size-4.5', onRed ? 'text-white' : 'text-foreground', busy && 'animate-spin')} />
+      <span className="whitespace-nowrap">{busy ? 'جارٍ التحديث…' : loadedAt ? relTime(loadedAt) : 'تحديث'}</span>
+    </Button>
+  );
+}
+
+// زر الرجوع على اللوح الأحمر
+export function SlabBack({ onClick }: { onClick: () => void }) {
+  return (
+    <Button variant="ghost" onClick={onClick} className="-ms-2 gap-1 px-2 text-white hover:bg-black/15 active:bg-black/15">
+      <svg aria-hidden="true" viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 6 6 6-6 6" /></svg>
+      <span>رجوع</span>
+    </Button>
+  );
 }

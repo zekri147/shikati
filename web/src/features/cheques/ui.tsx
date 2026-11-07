@@ -57,12 +57,16 @@ export function ChequeCard({ c, o }: { c: Cheque; o: CardOpts }) {
   const selectable = !!o.selectable && !c.lock;
 
   let age: React.ReactNode = null;
+  // أيام التأخر التي ترسم الشريط على طرف البطاقة: تحذير بعد 7 أيام، وأحمر بعد 14
+  let lateDays = 0;
   if (c.status === 'مودع في البنك' && c.deposit_days !== undefined) {
     // التحصيل المتأخر لبنك AGB وحده: الرستمية لا تتحوّل إلى «محصّل» في زوهو
     const slow = c.destination === 'ELONAC' && c.deposit_days > LATE_DAYS;
+    if (slow) lateDays = c.deposit_days;
     age = slow ? <LateMark days={c.deposit_days} text={'تحصيل متأخر ' + daysCount(c.deposit_days)} />
       : <span className="whitespace-nowrap text-sm text-muted">في البنك {daysText(c.deposit_days)}</span>;
   } else if (!noAge && (late || !o.lateOnly)) {
+    if (late) lateDays = c.days;
     age = late ? <LateMark days={c.days} text={'متأخر ' + daysCount(c.days)} /> : <span className="whitespace-nowrap text-sm text-muted">{daysText(c.days)}</span>;
   }
   // شارة واحدة حين lateOnly: نص العمر يغني عن شارة الحالة
@@ -81,11 +85,12 @@ export function ChequeCard({ c, o }: { c: Cheque; o: CardOpts }) {
       onClick={act}
       onKeyDown={(e) => { if (act && e.target === e.currentTarget && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); act(); } }}
       data-selectable={selectable || undefined}
-      className={cn('item relative flex min-h-[60px] items-center gap-1 border border-line bg-surface py-2 ps-3 transition-colors duration-150',
+      className={cn('item relative flex min-h-[60px] items-center gap-1 bg-surface py-2 ps-3.5 transition-colors duration-150',
         o.selectable ? 'pe-0' : 'pe-3',
         act && 'cursor-pointer active:bg-surface-alt',
-        o.selected && selectable && 'border-brand bg-brand-tint before:absolute before:-inset-y-px before:-start-px before:w-1 before:bg-brand')}
+        o.selected && selectable && '!bg-brand-tint')}
     >
+      {lateDays ? <span aria-hidden className={cn('absolute inset-y-0 start-0 w-1', lateDays > URGENT_DAYS ? 'bg-brand' : 'bg-warning')} /> : null}
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-2.5 text-base font-semibold leading-snug [overflow-wrap:anywhere]">
@@ -132,8 +137,10 @@ export function ChequeCard({ c, o }: { c: Cheque; o: CardOpts }) {
   );
 }
 
+// قائمة متصلة بفواصل رفيعة بدل بطاقات منفصلة: أهدأ للعين، وتتسع لشيكات أكثر
+export const LIST_BOX = 'm-0 flex list-none flex-col border border-line bg-surface p-0 [&>li+li]:border-t [&>li+li]:border-line';
 export function CardList({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <ul className={cn('m-0 flex list-none flex-col gap-2 p-0', className)}>{children}</ul>;
+  return <ul className={cn(LIST_BOX, className)}>{children}</ul>;
 }
 
 // inTrigger: داخل زر القسم المطوي يكون العنوان نصاً لا عنواناً (لا عنوان داخل زر)

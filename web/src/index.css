@@ -30,6 +30,7 @@
   --warning: #9a5b00;
   --warning-tint: rgba(154, 91, 0, .10);
   --success: #1f7a4d;
+  --chip: #ffffff;           /* الشارة المائلة غير المختارة: بيضاء على رمادي الصفحة */
   --selected: #1a1a1a;       /* المختار: أسود في الفاتح */
   --selected-ink: #ffffff;
   --tile-dark: #1a1a1a;
@@ -52,6 +53,7 @@
   --warning: #e0a03a;
   --warning-tint: rgba(224, 160, 58, .14);
   --success: #4cc38a;
+  --chip: #242424;
   --selected: #ffffff;       /* المختار: أبيض في الداكن */
   --selected-ink: #1a1a1a;
   --tile-dark: #242424;
@@ -75,6 +77,7 @@
   --color-warning: var(--warning);
   --color-warning-tint: var(--warning-tint);
   --color-success: var(--success);
+  --color-chip: var(--chip);
   --color-selected: var(--selected);
   --color-selected-ink: var(--selected-ink);
   --color-tile: var(--tile-dark);
@@ -105,6 +108,14 @@
 /* قطع الزوايا: العلوية اليسرى والسفلية اليمنى فقط، ولا ينعكس مع اتجاه النص */
 @utility cut {
   clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px);
+}
+/* اللوح الأحمر الملاصق للشريط العلوي: تُقطع زاويته السفلية اليمنى وحدها (العلوية اليسرى ملتصقة بالشريط) */
+@utility cut-br {
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 28px), calc(100% - 28px) 100%, 0 100%);
+}
+/* قطع 4 بكسل للعلامات الصغيرة: علامة التبويب الحالي، ونقاط مسار الشيك */
+@utility cut-xs {
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
 }
 @utility cut-sm {
   clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
