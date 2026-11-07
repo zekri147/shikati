@@ -56,6 +56,8 @@ const SCREENS = [
   { name: 'coll-customer-new', path: '/#coll/c/7418400000200006', full: false },
   { name: 'menu', path: '/#coll', act: async (p) => { await p.locator('#menu-btn').click(); }, full: false },
   { name: 'admin', path: '/admin' },
+  { name: 'admin-user-sheet', path: '/admin', act: async (p) => { await p.locator('.user-row').first().click(); }, full: false },
+  { name: 'admin-deposits', path: '/admin', act: async (p) => { await p.getByRole('radio', { name: /الإيداعات/ }).click(); } },
   { name: 'help', path: '/help' },
 ];
 

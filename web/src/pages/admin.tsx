@@ -3,8 +3,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Field, Input } from '@/components/ui/input';
-import { CLOSE_MS, Modal, ModalActions } from '@/components/ui/dialog';
+import { Field, Input, PasswordInput } from '@/components/ui/input';
+import { CLOSE_MS, Modal, ModalActions, Sheet } from '@/components/ui/dialog';
+import { Segmented } from '@/components/ui/segmented';
+import { LIST_BOX } from '@/features/cheques/ui';
+import { load, save } from '@/lib/storage';
 import { Amount, Ltr, Num } from '@/components/ltr';
 import { ErrorBox, Footer, FormError, Main, Note, TopBar } from '@/components/shell';
 import { toast } from '@/components/toast';
@@ -79,12 +82,41 @@ function Table({ head, children, empty, cols }: { head: string[]; children: Reac
   );
 }
 
+const TAB_KEY = 'shikati-admin-tab';
+
+// إجراءات المستخدم في اللوحة السفلية: الرمز السري، ورمز المندوب، ثم الإيقاف أو التفعيل في آخرها.
+// لا إيقاف لحسابك أنت: الخادم يرفضه، فلا يظهر.
+function UserActions({ u, self, setAsk, refresh }: { u: any; self: boolean; setAsk: (a: Ask) => void; refresh: () => Promise<void> }) {
+  const post = (path: string, body?: object) => api(`/api/admin/users/${u.id}/${path}`, { method: 'POST', body: body || {} });
+  return (
+    <div className="flex flex-col gap-2 px-4 pb-2">
+      <p className="m-0 text-sm text-muted"><Ltr>{u.username}</Ltr> · {ROLE[u.role] || u.role} · {u.active ? 'نشط' : 'موقوف'}</p>
+      <Button onClick={() => setAsk({ title: 'رمز سري جديد لـ ' + u.display_name, text: 'أعطه الرمز الجديد بنفسك، لا في رسالة مكتوبة.', okText: 'حفظ الرمز', password: true,
+        run: async (p) => { await post('password', { password: p }); toast('حُفظ الرمز السري الجديد'); await refresh(); } })}>رمز سري جديد</Button>
+      {/* رمز المندوب: يربط المستخدم بعملائه في زوهو (حقل «Owner») فيرى تحصيلهم */}
+      <Button onClick={() => setAsk({ title: 'رمز المندوب لـ ' + u.display_name,
+        text: u.role === 'rep' ? 'اكتبه كما في حقل «Owner» على العميل في زوهو. يرى المندوب عملاء هذا الرمز فقط.' : 'اكتبه كما في حقل «Owner» في زوهو ليرى قسم التحصيل لعملائه. اتركه فارغاً لإزالته.',
+        okText: 'حفظ الرمز', field: { label: 'رمز المندوب', value: u.rep_code || '', placeholder: 'AMINE' },
+        run: async (code) => { await post('rep', { rep_code: code }); toast('حُفظ رمز المندوب'); await refresh(); } })}>رمز المندوب{u.rep_code ? <> (<Ltr>{u.rep_code}</Ltr>)</> : null}</Button>
+      {self ? null : u.active ? (
+        <Button variant="danger" className="mt-4" onClick={() => setAsk({ title: 'إيقاف ' + u.display_name, text: 'سيُخرج من التطبيق فوراً، ولن يستطيع الدخول حتى تعيد تفعيله.', okText: 'إيقاف', danger: true,
+          run: async () => { await post('disable'); toast('أُوقف ' + u.display_name); await refresh(); } })}>إيقاف الحساب</Button>
+      ) : (
+        <Button className="mt-4" onClick={async () => { try { await post('enable'); toast('فُعّل ' + u.display_name); await refresh(); } catch (e) { toast(errText(e), 'err'); } }}>تفعيل الحساب</Button>
+      )}
+    </div>
+  );
+}
+
 export function AdminPage() {
   const [me, setMe] = useState<Me | null>(null);
   const [users, setUsers] = useState<any[] | null>(null);
   const [deposits, setDeposits] = useState<any[] | null>(null);
   const [audit, setAudit] = useState<any[] | null>(null);
   const [ask, setAsk] = useState<Ask | null>(null);
+  const [tab, setTab] = useState(() => load(TAB_KEY) || 'users');
+  const [userSheet, setUserSheet] = useState<any | null>(null);
+  const [adding, setAdding] = useState(false);
   const [nu, setNu] = useState({ display_name: '', username: '', role: 'depositor', rep_code: '', password: '' });
   const [nuError, setNuError] = useState('');
   const [rec, setRec] = useState<any>(null);
@@ -106,6 +138,7 @@ export function AdminPage() {
       await api('/api/admin/users', { method: 'POST', body: { ...nu, display_name: nu.display_name.trim(), username: nu.username.trim(), rep_code: nu.rep_code.trim() } });
       setNu({ display_name: '', username: '', role: 'depositor', rep_code: '', password: '' });
       toast('أُضيف المستخدم');
+      setAdding(false);
       await refresh();
     } catch (ex) { setNuError(errText(ex)); }
   }
@@ -126,67 +159,34 @@ export function AdminPage() {
       <TopBar name={me?.user.display_name} links={[{ href: '/', label: 'التطبيق' }, { href: '/help', label: 'المساعدة وطريقة الاستعمال' }]} />
       <Main>
         <h1 className="m-0 text-2xl font-bold">الإدارة</h1>
+        {/* تبويبات بدل صفحة طويلة: يفتح المدير ما يريده مباشرة، وتنبيه الإيداعات المعلّقة على تبويبها */}
+        <Segmented label="أقسام الإدارة" className="mt-3" value={tab} onChange={(v) => { setTab(v); save(TAB_KEY, v); }}
+          options={[{ value: 'users', label: 'المستخدمون' }, { value: 'deposits', label: attention ? '⚠ الإيداعات' : 'الإيداعات' }, { value: 'audit', label: 'السجل' }, { value: 'reconcile', label: 'المطابقة' }]} />
 
-        <Section title="المستخدمون">
+        {tab === 'users' ? <Section title="المستخدمون">
           {!users ? <p className="text-muted">جارٍ التحميل…</p> : (
-            <ul className="m-0 flex list-none flex-col gap-2 p-0">
-              {users.map((u) => {
-                const post = (path: string, body?: object) => api(`/api/admin/users/${u.id}/${path}`, { method: 'POST', body: body || {} });
-                return (
-                  <li key={u.id} className="border border-line bg-raised px-3 py-2">
-                    <div className="flex items-start justify-between gap-3">
-                      <span className={cn('font-semibold', !u.active && 'text-muted')}>{u.display_name}</span>
-                      <Badge>{ROLE[u.role] || u.role}</Badge>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-x-1 text-sm text-muted">
-                      <Ltr>{u.username}</Ltr><span aria-hidden>·</span><span>{u.active ? 'نشط' : 'موقوف'}</span>
-                      {u.rep_code ? <><span aria-hidden>·</span><span>مندوب <Ltr>{u.rep_code}</Ltr></span></> : null}
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-2 [&>button]:flex-[1_1_96px]">
-                      {/* لا إيقاف لحسابك أنت: الخادم يرفضه، فلا يظهر الزر */}
-                      {u.username === me?.user.username ? null : u.active ? (
-                        <Button variant="danger" onClick={() => setAsk({ title: 'إيقاف ' + u.display_name, text: 'سيُخرج من التطبيق فوراً، ولن يستطيع الدخول حتى تعيد تفعيله.', okText: 'إيقاف', danger: true,
-                          run: async () => { await post('disable'); toast('أُوقف ' + u.display_name); await refresh(); } })}>إيقاف</Button>
-                      ) : (
-                        <Button onClick={async () => { try { await post('enable'); toast('فُعّل ' + u.display_name); await refresh(); } catch (e) { toast(errText(e), 'err'); } }}>تفعيل</Button>
-                      )}
-                      <Button onClick={() => setAsk({ title: 'رمز سري جديد لـ ' + u.display_name, text: 'أعطه الرمز الجديد بنفسك، لا في رسالة مكتوبة.', okText: 'حفظ الرمز', password: true,
-                        run: async (p) => { await post('password', { password: p }); toast('حُفظ الرمز السري الجديد'); await refresh(); } })}>رمز سري جديد</Button>
-                      {/* رمز المندوب: يربط المستخدم بعملائه في زوهو (حقل «Owner») فيرى تحصيلهم */}
-                      <Button onClick={() => setAsk({ title: 'رمز المندوب لـ ' + u.display_name,
-                        text: u.role === 'rep' ? 'اكتبه كما في حقل «Owner» على العميل في زوهو. يرى المندوب عملاء هذا الرمز فقط.' : 'اكتبه كما في حقل «Owner» في زوهو ليرى قسم التحصيل لعملائه. اتركه فارغاً لإزالته.',
-                        okText: 'حفظ الرمز', field: { label: 'رمز المندوب', value: u.rep_code || '', placeholder: 'AMINE' },
-                        run: async (code) => { await post('rep', { rep_code: code }); toast('حُفظ رمز المندوب'); await refresh(); } })}>رمز المندوب</Button>
-                    </div>
-                  </li>
-                );
-              })}
+            <ul className={LIST_BOX}>
+              {users.map((u) => (
+                // لمس المستخدم يفتح إجراءاته في لوحة سفلية: الصف يبقى سطرين هادئين
+                <li key={u.id}>
+                  <button type="button" className="user-row flex min-h-[60px] w-full items-center justify-between gap-3 bg-surface px-3 py-2 text-start active:bg-surface-alt" onClick={() => setUserSheet(u)}>
+                    <span className="min-w-0">
+                      <span className={cn('block font-semibold', !u.active && 'text-muted')}>{u.display_name}</span>
+                      <span className="flex flex-wrap items-center gap-x-1 text-sm text-muted">
+                        <Ltr>{u.username}</Ltr><span aria-hidden>·</span><span>{u.active ? 'نشط' : 'موقوف'}</span>
+                        {u.rep_code ? <><span aria-hidden>·</span><span>مندوب <Ltr>{u.rep_code}</Ltr></span></> : null}
+                      </span>
+                    </span>
+                    <Badge tone={u.active ? 'neutral' : 'warn'}>{ROLE[u.role] || u.role}</Badge>
+                  </button>
+                </li>
+              ))}
             </ul>
           )}
-        </Section>
+          <Button variant="primary" size="lg" className="mt-4" onClick={() => { setNuError(''); setAdding(true); }}>إضافة مستخدم</Button>
+        </Section> : null}
 
-        <Section title="إضافة مستخدم">
-          <form onSubmit={addUser} noValidate>
-            <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2">
-              <Field label="الاسم الظاهر"><Input value={nu.display_name} onChange={(e) => setNu({ ...nu, display_name: e.target.value })} /></Field>
-              <Field label="اسم الدخول"><Input dir="ltr" autoCapitalize="none" spellCheck={false} value={nu.username} onChange={(e) => setNu({ ...nu, username: e.target.value })} /></Field>
-              <Field label="الدور">
-                <span className="relative block">
-                  <select className="block min-h-11 w-full appearance-none border border-line-strong bg-surface pe-9 ps-3 py-2 text-foreground" value={nu.role} onChange={(e) => setNu({ ...nu, role: e.target.value })}>
-                    <option value="depositor">مودِع</option><option value="rep">مندوب</option><option value="admin">مدير</option>
-                  </select>
-                  <ChevronDown aria-hidden className="pointer-events-none absolute end-3 top-1/2 size-4.5 -translate-y-1/2 text-muted" />
-                </span>
-              </Field>
-              <Field label="رمز المندوب (كما في حقل «Owner» في زوهو)"><Input dir="ltr" autoCapitalize="characters" spellCheck={false} placeholder="AMINE" value={nu.rep_code} onChange={(e) => setNu({ ...nu, rep_code: e.target.value })} /></Field>
-              <Field label="الرمز السري (8 أحرف على الأقل)"><Input type="password" autoComplete="new-password" dir="ltr" value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} /></Field>
-            </div>
-            <FormError>{nuError}</FormError>
-            <Button type="submit" variant="primary" size="lg" className="mt-3">إضافة المستخدم</Button>
-          </form>
-        </Section>
-
-        <Section title="مطابقة الأسبوع" meta="آخر 7 أيام">
+        {tab === 'reconcile' ? <Section title="مطابقة الأسبوع" meta="آخر 7 أيام">
           <p className="mt-0 text-sm text-muted">تقرأ من زوهو فقط ولا تغيّر شيئاً. شغّلها مرة كل يوم خلال أسبوع التشغيل المتوازي.</p>
           <Button size="lg" disabled={recBusy} onClick={runReconcile}>{recBusy ? 'جارٍ المطابقة…' : 'تشغيل المطابقة'}</Button>
           {recError ? <ErrorBox>{recError}</ErrorBox> : null}
@@ -217,9 +217,9 @@ export function AdminPage() {
               ) : <p className="text-muted">لا شيء.</p>}
             </div>
           ) : null}
-        </Section>
+        </Section> : null}
 
-        <Section title="الإيداعات" meta="آخر 100 محاولة">
+        {tab === 'deposits' ? <Section title="الإيداعات" meta="آخر 100 محاولة">
           {attention ? <Note tone="warn" className="mb-3">إيداعات «بانتظار التحقق»: افتح الدفعة في زوهو وتأكد هل أُنشئ إيداعها، ثم اضغط «تحرير» فقط إن لم يُنشأ أو بعد تصحيحه يدوياً.</Note> : null}
           <Table cols={8} head={['الوقت', 'الموظف', 'العميل', 'الشيك', 'المبلغ', 'الحالة', 'الرسالة', '']} empty={!deposits ? 'جارٍ التحميل…' : deposits.length ? null : 'لا محاولات إيداع بعد.'}>
             {(deposits || []).map((d, i) => {
@@ -239,9 +239,9 @@ export function AdminPage() {
               );
             })}
           </Table>
-        </Section>
+        </Section> : null}
 
-        <Section title="سجل العمليات" meta="آخر 200 عملية">
+        {tab === 'audit' ? <Section title="سجل العمليات" meta="آخر 200 عملية">
           <Table cols={5} head={['الوقت', 'المستخدم', 'العملية', 'الهدف', 'النتيجة']} empty={!audit ? 'جارٍ التحميل…' : audit.length ? null : 'لا عمليات مسجّلة بعد.'}>
             {(audit || []).map((a, i) => (
               <tr key={i}>
@@ -251,9 +251,32 @@ export function AdminPage() {
               </tr>
             ))}
           </Table>
-        </Section>
+        </Section> : null}
       </Main>
       <Footer />
+      <Sheet open={!!userSheet} onClose={() => setUserSheet(null)} title={userSheet ? userSheet.display_name : ''} action={<Button onClick={() => setUserSheet(null)}>إغلاق</Button>}>
+        {userSheet ? <UserActions u={userSheet} self={userSheet.username === me?.user.username} setAsk={(a) => { setUserSheet(null); setAsk(a); }} refresh={refresh} /> : null}
+      </Sheet>
+      <Modal open={adding} onClose={() => setAdding(false)} title="إضافة مستخدم">
+          <form onSubmit={addUser} noValidate>
+            <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2">
+              <Field label="الاسم الظاهر"><Input value={nu.display_name} onChange={(e) => setNu({ ...nu, display_name: e.target.value })} /></Field>
+              <Field label="اسم الدخول"><Input dir="ltr" autoCapitalize="none" spellCheck={false} value={nu.username} onChange={(e) => setNu({ ...nu, username: e.target.value })} /></Field>
+              <Field label="الدور">
+                <span className="relative block">
+                  <select className="block min-h-11 w-full appearance-none border border-line-strong bg-surface pe-9 ps-3 py-2 text-foreground" value={nu.role} onChange={(e) => setNu({ ...nu, role: e.target.value })}>
+                    <option value="depositor">مودِع</option><option value="rep">مندوب</option><option value="admin">مدير</option>
+                  </select>
+                  <ChevronDown aria-hidden className="pointer-events-none absolute end-3 top-1/2 size-4.5 -translate-y-1/2 text-muted" />
+                </span>
+              </Field>
+              <Field label="رمز المندوب (كما في حقل «Owner» في زوهو)"><Input dir="ltr" autoCapitalize="characters" spellCheck={false} placeholder="AMINE" value={nu.rep_code} onChange={(e) => setNu({ ...nu, rep_code: e.target.value })} /></Field>
+              <Field label="الرمز السري (8 أحرف على الأقل)"><PasswordInput autoComplete="new-password" dir="ltr" value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} /></Field>
+            </div>
+            <FormError>{nuError}</FormError>
+            <ModalActions><Button type="submit" variant="primary">إضافة المستخدم</Button><Button onClick={() => setAdding(false)}>إلغاء</Button></ModalActions>
+          </form>
+      </Modal>
       {ask ? <AskDialog a={ask} onClose={() => setAsk(null)} /> : null}
     </>
   );
