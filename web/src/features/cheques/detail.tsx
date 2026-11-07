@@ -7,12 +7,12 @@ import { Modal, ModalActions } from '@/components/ui/dialog';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/dropdown';
 import { Badge } from '@/components/ui/badge';
 import { Amount, Num } from '@/components/ltr';
-import { ErrorBox, FormError, Note } from '@/components/shell';
+import { ErrorBox, FormError, Note, Slab, SlabBack } from '@/components/shell';
 import { toast } from '@/components/toast';
 import { api, errText, isCutOff } from '@/lib/api';
 import { navigate } from '@/lib/back';
 import { useFixedBottom } from '@/lib/layout';
-import { fmtDate, fmtDateTime } from '@/lib/format';
+import { daysText, fmtDate, fmtDateTime, todayIso } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { DEST_LABELS, StatusBadge } from './ui';
 import { ChequeImage } from './media';
@@ -59,14 +59,15 @@ export function DetailPage({ id, isAdmin, onBack }: { id: string; isAdmin: boole
   const hasBar = !!d && !editing && (d.can_endorse || d.edit || d.undo);
   useFixedBottom(68, hasBar);
 
-  const top = (
-    <div className="mb-3 flex items-center gap-3">
-      <Button onClick={onBack} className="gap-1 pe-3 ps-3.5"><ChevronRight aria-hidden className="size-4.5" /><span>رجوع</span></Button>
-      <h1 className="m-0 text-lg font-bold">تفاصيل الشيك</h1>
+  // رأس الصفحة: لوح أحمر ملاصق للشريط العلوي، فيه الرجوع ثم العميل والمبلغ والحالة والوجهة
+  const backRow = (extra?: React.ReactNode) => (
+    <div className="flex items-center justify-between gap-3">
+      <SlabBack onClick={onBack} />
+      {extra}
     </div>
   );
-  if (error && !d) return <>{top}<ErrorBox>{error}</ErrorBox></>;
-  if (!d) return <>{top}<p className="text-muted">جارٍ التحميل…</p></>;
+  if (error && !d) return <><Slab>{backRow()}<h1 className="m-0 text-lg font-bold">تفاصيل الشيك</h1></Slab><ErrorBox>{error}</ErrorBox></>;
+  if (!d) return <><Slab>{backRow()}<h1 className="m-0 text-lg font-bold">تفاصيل الشيك</h1></Slab><p className="mt-4 text-muted">جارٍ التحميل…</p></>;
 
   const en = d.app.endorsement;
   const lock = d.app.lock;
@@ -74,18 +75,16 @@ export function DetailPage({ id, isAdmin, onBack }: { id: string; isAdmin: boole
 
   return (
     <>
-      {top}
-      <div className="flex flex-col gap-3" aria-live="polite">
-        {/* الرأس الأحمر: العميل والمبلغ والحالة والوجهة */}
-        <div className="cut bg-brand px-4.5 pb-3.5 pt-4 text-white">
-          <div className="text-lg font-bold leading-snug [overflow-wrap:anywhere]">{d.customer}</div>
-          <Amount value={d.amount} className="mt-1 block font-display text-[30px] font-semibold leading-tight" />
-          <div className="mt-2.5 flex flex-wrap gap-1.5">
-            <Badge tone={d.status === 'في الحوزة' || d.status === 'مرفوض' ? 'dark' : 'inverse'}>{d.status || 'بلا حالة'}</Badge>
-            {d.destination ? <Badge tone="inverse">الوجهة: {DEST_LABELS[d.destination] || d.destination}</Badge> : <Badge tone="dark">الوجهة غير محددة</Badge>}
-          </div>
+      <Slab>
+        {backRow(d.cheque_number ? <span className="text-sm">شيك <Num>{d.cheque_number}</Num></span> : null)}
+        <h1 className="m-0 text-lg font-bold leading-snug [overflow-wrap:anywhere]">{d.customer}</h1>
+        <Amount value={d.amount} className="mt-0.5 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
+        <div className="mt-2.5 flex flex-wrap gap-2">
+          <Badge tone={d.status === 'في الحوزة' || d.status === 'مرفوض' ? 'dark' : 'inverse'}>{d.status || 'بلا حالة'}</Badge>
+          {d.destination ? <Badge tone="inverse">{DEST_LABELS[d.destination] || d.destination}{d.location ? ' · ' + d.location : ''}</Badge> : <Badge tone="dark">الوجهة غير محددة</Badge>}
         </div>
-
+      </Slab>
+      <div className="mt-4 flex flex-col gap-3" aria-live="polite">
         {editing && d.edit ? <EditPanel d={d} onSaved={reload} onCancel={() => setEditing(false)} /> : null}
         {en && en.state === 'unknown' ? <Note tone="alert">بانتظار التحقق: انقطع الرد بعد إرسال دفعة المورد لهذا الشيك. تحقق في زوهو قبل أي محاولة جديدة.</Note> : null}
         {d.can_endorse ? <EndorsePanel d={d} reload={reload} innerRef={endorseRef} /> : null}
@@ -93,22 +92,30 @@ export function DetailPage({ id, isAdmin, onBack }: { id: string; isAdmin: boole
         {d.box_alert ? <Note tone="alert">صندوق غير مطابق: {d.box_alert}</Note> : null}
         {lock && lock.state === 'unknown' ? <Note tone="alert">بانتظار التحقق: انقطع الرد بعد محاولة إيداع هذا الشيك. تحقق في صفحة الإدارة قبل أي محاولة جديدة.</Note> : null}
 
-        <div>
-          {d.has_image ? <ChequeImage id={d.id} hasImage v={d.edit ? d.edit.version : ''} size="big" />
-            : d.drive_url ? <a className="flex items-center justify-center bg-surface-alt p-4.5 text-center font-semibold text-danger no-underline" href={d.drive_url} target="_blank" rel="noopener noreferrer">الصورة في غوغل درايف: اضغط لفتحها</a>
-              : <div className="flex items-center justify-center bg-surface-alt p-4.5 text-center text-sm text-soft">لا توجد صورة لهذا الشيك</div>}
+        <ChequePath d={d} />
+
+        {/* الصورة مصغّرة بجانب وقت التصوير، وتُكبَّر باللمس */}
+        <div className="flex items-stretch gap-3">
+          <div className="w-[132px] flex-none">
+            {d.has_image ? <ChequeImage id={d.id} hasImage v={d.edit ? d.edit.version : ''} size="mid" />
+              : d.drive_url ? <a className="flex h-[72px] items-center justify-center bg-surface-alt p-2 text-center text-sm font-semibold text-danger no-underline" href={d.drive_url} target="_blank" rel="noopener noreferrer">في غوغل درايف</a>
+                : <div className="flex h-[72px] items-center justify-center bg-surface-alt p-2 text-center text-sm text-soft">لا صورة</div>}
+          </div>
+          <div className="flex flex-col justify-center gap-0.5 text-sm text-muted">
+            {d.has_image ? <span>اضغط الصورة لتكبيرها</span> : d.drive_url ? <span>الصورة محفوظة في غوغل درايف</span> : <span>لا توجد صورة لهذا الشيك</span>}
+            {d.captured_at ? <span>صُوّرت <Num>{d.captured_at}</Num></span> : null}
+          </div>
         </div>
 
-        <Block title="بيانات الشيك">
-          <dl className="m-0 flex flex-col">
-            <KV label="رقم الشيك">{d.cheque_number ? <Num>{d.cheque_number}</Num> : ''}</KV>
-            <KV label="تاريخ الاستلام"><Num>{fmtDate(d.date)}</Num></KV>
-            {d.deposit_date ? <KV label="تاريخ الإيداع"><Num>{fmtDate(d.deposit_date)}</Num></KV> : null}
-            <KV label="الموقع">{d.location}</KV>
-            <KV label="سجّله">{d.created_by}</KV>
-            {d.captured_at ? <KV label="وقت التصوير"><Num>{d.captured_at}</Num></KV> : null}
-          </dl>
-        </Block>
+        {/* بيانات الشيك في مربعات من عمودين */}
+        <dl className="m-0 grid grid-cols-2 gap-2">
+          <Fact label="رقم الشيك">{d.cheque_number ? <Num>{d.cheque_number}</Num> : ''}</Fact>
+          <Fact label="تاريخ الاستلام"><Num>{fmtDate(d.date)}</Num></Fact>
+          {d.deposit_date ? <Fact label="تاريخ الإيداع"><Num>{fmtDate(d.deposit_date)}</Num></Fact> : null}
+          <Fact label="الموقع">{d.location}</Fact>
+          <Fact label="سجّله">{d.created_by}</Fact>
+          <Fact label="الوجهة">{d.destination ? DEST_LABELS[d.destination] || d.destination : 'غير محددة'}</Fact>
+        </dl>
 
         {/* بيانات المحاسبة في زوهو للمدير وحده */}
         {isAdmin ? (
@@ -213,6 +220,59 @@ export function DetailPage({ id, isAdmin, onBack }: { id: string; isAdmin: boole
 
       {undoOpen && u ? <UndoDialog d={d} onClose={(after) => { setUndoOpen(false); if (after === 'gone') navigate('#cheques'); else if (after === 'reload') reload(); }} /> : null}
     </>
+  );
+}
+
+// مربع بيانات: العنوان بلون خافت، والقيمة تحته
+function Fact({ label, children }: { label: string; children: React.ReactNode }) {
+  const empty = children === '' || children === null || children === undefined;
+  return (
+    <div className="min-w-0 border border-line bg-surface px-3 py-2">
+      <dt className="text-sm text-muted">{label}</dt>
+      <dd className="m-0 font-semibold [overflow-wrap:anywhere]">{empty ? <span className="font-normal text-muted">—</span> : children}</dd>
+    </div>
+  );
+}
+
+// مسار الشيك من التسجيل إلى نهايته، بتواريخه من زوهو. المرحلة الحالية حمراء، والقادمة باهتة.
+function ChequePath({ d }: { d: Detail }) {
+  type Step = { label: string; when: string; state: 'done' | 'now' | 'todo'; alert?: boolean };
+  const st: string = d.status || '';
+  const days = d.date ? Math.max(0, Math.round((Date.parse(todayIso()) - Date.parse(String(d.date).slice(0, 10))) / 86_400_000)) : 0;
+  const short = (iso?: string) => (iso ? fmtDate(iso).slice(0, 5) : '—');
+  const deposited = !!d.deposit_date || st === 'مودع في البنك' || st === 'محصّل' || st === 'مرفوض';
+  const steps: Step[] = [
+    { label: 'سُجّل' + (d.created_by ? ' · ' + d.created_by : ''), when: short(d.date), state: 'done' },
+    st === 'في الحوزة'
+      ? { label: 'في الحوزة · ' + daysText(days), when: 'الآن', state: 'now' }
+      : { label: 'في الحوزة', when: '', state: 'done' },
+  ];
+  if (st === 'مظهّر لمورد') steps.push({ label: 'ظُهّر لمورد', when: 'الآن', state: 'now' });
+  else if (st === 'مرفوض') steps.push({ label: 'أُودع', when: short(d.deposit_date), state: 'done' }, { label: 'مرفوض', when: 'الآن', state: 'now', alert: true });
+  else if (st && !['في الحوزة', 'مودع في البنك', 'محصّل'].includes(st)) steps.push({ label: st, when: 'الآن', state: 'now' });
+  else {
+    steps.push({ label: 'أُودع في البنك', when: short(d.deposit_date), state: st === 'مودع في البنك' ? 'now' : deposited ? 'done' : 'todo' });
+    steps.push({ label: 'حُصّل', when: '', state: st === 'محصّل' ? 'now' : 'todo' });
+  }
+  return (
+    <section aria-label="مسار الشيك">
+      <h2 className="mb-2 mt-0 text-sm font-bold text-muted">مسار الشيك</h2>
+      <ol className="m-0 list-none p-0">
+        {steps.map((s, i) => (
+          <li key={i} className="flex items-stretch gap-3" aria-current={s.state === 'now' ? 'step' : undefined}>
+            <div className="flex w-4 flex-none flex-col items-center">
+              <span aria-hidden className={cn('mt-1 size-3.5 flex-none [clip-path:polygon(4px_0,100%_0,100%_calc(100%-4px),calc(100%-4px)_100%,0_100%,0_4px)]',
+                s.state === 'done' ? 'bg-foreground' : s.state === 'now' ? 'bg-brand' : 'bg-line-strong')} />
+              {i < steps.length - 1 ? <span aria-hidden className={cn('w-0.5 flex-1', s.state === 'done' ? 'bg-foreground' : 'bg-line')} /> : null}
+            </div>
+            <div className="flex flex-1 justify-between gap-2 pb-2.5">
+              <span className={cn(s.state === 'todo' ? 'text-muted' : 'font-semibold', s.alert && 'text-danger')}>{s.label}</span>
+              {s.when ? <span className="text-sm text-muted">{s.when}</span> : null}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 

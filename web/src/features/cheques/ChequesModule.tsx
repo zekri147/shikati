@@ -1,14 +1,14 @@
 // قسم «الشيكات»: ثلاث شاشات (الإيداع، كل الشيكات، التنبيهات)، والتسجيل، وصفحة تفاصيل لكل شيك.
 // العنوان بعد # يحدد الشاشة: #cheques و#cheques/all و#cheques/alerts و#cheques/new و#cheques/c/<معرّف الدفعة>
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Bell, ChevronDown, Landmark, List, RefreshCw, SquarePlus } from 'lucide-react';
+import { Bell, ChevronDown, Landmark, List, RefreshCw, Search, SquarePlus, X } from 'lucide-react';
 import { SearchBox } from '@/components/search';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal, ModalActions, Sheet } from '@/components/ui/dialog';
 import { Segmented } from '@/components/ui/segmented';
 import { Amount, Num } from '@/components/ltr';
-import { Empty, ErrorBox, FormError } from '@/components/shell';
+import { Empty, ErrorBox, FormError, Slab } from '@/components/shell';
 import { toast } from '@/components/toast';
 import { api, errText, isCutOff, type Me } from '@/lib/api';
 import { useFixedBottom } from '@/lib/layout';
@@ -81,6 +81,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   const [selected, setSelected] = useState<Map<string, Cheque>>(new Map());
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [sheet, setSheet] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [depositing, setDepositing] = useState<Cheque[] | null>(null);
   const [, setLearnedTick] = useState(0);
   const busyRef = useRef(false);
@@ -183,6 +184,16 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   }
 
   // ——— الشاشات ———
+  // زر التحديث بوقته: في اللوح الأحمر في شاشة الإيداع، وفي سطر الحالة في غيرها
+  const refresh = (onRed: boolean) => (
+    <Button variant="ghost" size="sm" disabled={busy} onClick={() => load(true)}
+      className={cn('flex-none gap-1.5 font-normal', onRed ? '-me-2 text-white hover:bg-black/15 active:bg-black/15 disabled:opacity-80' : 'text-muted')}
+      aria-label={busy ? 'جارٍ التحديث…' : 'تحديث. آخر تحديث ' + (loadedAt ? relTime(loadedAt) : '')}>
+      <RefreshCw aria-hidden className={cn('size-4.5', onRed ? 'text-white' : 'text-foreground', busy && 'animate-spin')} />
+      <span className="whitespace-nowrap">{busy ? 'جارٍ التحديث…' : loadedAt ? relTime(loadedAt) : 'تحديث'}</span>
+    </Button>
+  );
+  const onDeposit = route.view === 'deposit';
   let summary: React.ReactNode = null;
   let statusText: React.ReactNode = null;
   let body: React.ReactNode = null;
@@ -192,21 +203,25 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     const rost = pick(data.rostomia_in_hand.items);
     const noDest = pick(data.no_destination.items);
     const waiting = [...agb, ...rost, ...noDest];
-    summary = (
-      <div className="cut bg-brand px-4 py-3 text-white">
-        <div className="flex items-baseline justify-between gap-3 text-sm">
-          <span className="font-semibold">تنتظر الإيداع{loc ? ` — ${loc}` : ''}</span>
-          <span>{chequeWord(waiting.length)} في الحوزة</span>
-        </div>
-        <Amount value={sum(waiting)} className="mt-1 block font-display text-3xl font-semibold tracking-tight [overflow-wrap:anywhere] max-[360px]:text-2xl" />
-      </div>
-    );
     // ما أُودع اليوم: من تاريخ الإيداع في زوهو، فيشمل ما أودعته دالة رسائل البنك أيضاً
     const today = todayIso();
     const doneToday = pick(data.all.filter((c) => c.deposit_date && c.deposit_date.slice(0, 10) === today));
-    statusText = doneToday.length
-      ? <>أُودع اليوم: <span className="font-semibold text-foreground">{chequeWord(doneToday.length)}</span> · <Amount value={sum(doneToday)} /></>
-      : 'لم يُسجَّل إيداع اليوم بعد.';
+    const lateCount = waiting.filter((c) => c.days > 7).length;
+    // اللوح الأحمر ملاصق للشريط العلوي: ما ينتظر الإيداع، ثم سطر هادئ بالأرقام الثلاثة
+    summary = (
+      <Slab>
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span className="font-semibold">تنتظر الإيداع{loc ? ` — ${loc}` : ''}</span>
+          {refresh(true)}
+        </div>
+        <Amount value={sum(waiting)} className="block font-display text-3xl font-semibold leading-tight tracking-tight [overflow-wrap:anywhere] max-[360px]:text-2xl" />
+        <div className="mt-1.5 flex flex-wrap gap-x-3 text-sm" aria-live="polite">
+          <span><span className="font-semibold">{waiting.length}</span> في الحوزة</span>
+          {lateCount ? <span><span className="font-semibold">{lateCount}</span> متأخرة</span> : null}
+          <span>{doneToday.length ? <>أُودع اليوم <span className="font-semibold">{doneToday.length}</span> · <Amount value={sum(doneToday)} /></> : 'لم يُودَع شيء اليوم بعد'}</span>
+        </div>
+      </Slab>
+    );
     const opts = { selected: false, onToggle: toggle, link: true };
     const rejected = pick(data.rejected.items);
     const inBank = pick(data.agb_pending_collection.items);
@@ -321,27 +336,32 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     <>
       {isList ? (
         <>
-          {summary}
-          {/* سطر الحالة: معلومة قصيرة يميناً، وزر التحديث بوقته يساراً */}
-          <div className={cn('flex min-h-11 items-center justify-between gap-3', summary && 'mt-2')}>
-            <div className="min-w-0 text-sm text-muted" aria-live="polite">{data ? statusText : null}</div>
-            <Button variant="ghost" size="sm" className="flex-none gap-1.5 font-normal text-muted" disabled={busy} onClick={() => load(true)}
-              aria-label={busy ? 'جارٍ التحديث…' : 'تحديث. آخر تحديث ' + (loadedAt ? relTime(loadedAt) : '')}>
-              <RefreshCw aria-hidden className={cn('size-4.5 text-foreground', busy && 'animate-spin')} />
-              <span className="whitespace-nowrap">{busy ? 'جارٍ التحديث…' : loadedAt ? relTime(loadedAt) : 'تحديث'}</span>
-            </Button>
-          </div>
-          <div className="mt-2 flex flex-col gap-2">
+          {onDeposit && !data ? <Slab><div className="pt-2 text-sm">تنتظر الإيداع</div></Slab> : summary}
+          {/* سطر الحالة: معلومة قصيرة يميناً، وزر التحديث بوقته يساراً. في الإيداع صار في اللوح الأحمر */}
+          {!onDeposit ? (
+            <div className={cn('flex min-h-11 items-center justify-between gap-3', summary && 'mt-2')}>
+              <div className="min-w-0 text-sm text-muted" aria-live="polite">{data ? statusText : null}</div>
+              {refresh(false)}
+            </div>
+          ) : null}
+          <div className={cn('flex flex-col gap-2', onDeposit ? 'mt-3' : 'mt-2')}>
             <div className="flex gap-2">
               <Segmented label="الموقع" className="min-w-0 flex-1" value={loc} options={LOCATIONS} onChange={(v) => { setLoc(v); saveKey(LOC_KEY, v); setLimit(PAGE); }} />
               {route.view === 'all' ? (
-                <Button className={cn('status-btn max-w-[45%] flex-none justify-between gap-1 pe-2 ps-3', status && 'border-selected bg-selected text-selected-ink hover:bg-selected')}
+                <Button className={cn('status-btn cut-sm max-w-[45%] flex-none justify-between gap-1 border-0 bg-chip pe-2 ps-3 text-muted', status && 'bg-selected text-selected-ink hover:bg-selected')}
                   aria-haspopup="dialog" aria-label={'تصفية بالحالة: ' + statusDef[1]} onClick={() => { if (data) setSheet(true); }}>
                   <span className="truncate">{statusDef[1]}</span><ChevronDown aria-hidden className="size-4.5" />
                 </Button>
               ) : null}
+              {onDeposit ? (
+                // في الإيداع يُفتح البحث بزر العدسة، لأن الموظف يلمس الشيكات أكثر مما يبحث
+                <Button aria-label={searchOpen ? 'إغلاق البحث' : 'بحث'} aria-expanded={searchOpen} className={cn('cut-sm w-11 flex-none border-0 bg-chip px-0', searchOpen && 'bg-selected text-selected-ink hover:bg-selected')}
+                  onClick={() => { if (searchOpen) { setQ(''); setLimit(PAGE); } setSearchOpen(!searchOpen); }}>
+                  {searchOpen ? <X aria-hidden className="size-5" /> : <Search aria-hidden className="size-5" />}
+                </Button>
+              ) : null}
             </div>
-            <SearchBox placeholder="بحث باسم العميل أو رقم الشيك أو الفاتورة" onChange={(v) => { setQ(norm(v)); setLimit(PAGE); }} />
+            {!onDeposit || searchOpen ? <SearchBox autoFocus={onDeposit} placeholder="بحث باسم العميل أو رقم الشيك أو الفاتورة" onChange={(v) => { setQ(norm(v)); setLimit(PAGE); }} /> : null}
           </div>
           {error && !data ? <ErrorBox>{error}</ErrorBox> : !data ? <p className="mt-4 text-muted">جارٍ التحميل…</p> : <div aria-live="polite">{body}</div>}
         </>
@@ -409,8 +429,10 @@ function BottomNav({ view, alerts }: { view: View; alerts: number }) {
         const on = id === view;
         return (
           <a key={id} href={href} data-view={id} aria-current={on ? 'page' : undefined}
-            className={cn('tab -mt-px flex min-h-[60px] flex-1 flex-col items-center justify-center gap-0.5 border-t-3 border-transparent text-sm font-semibold text-muted no-underline active:bg-surface-alt',
-              on && 'border-t-brand text-foreground')}>
+            className={cn('tab relative flex min-h-[60px] flex-1 flex-col items-center justify-center gap-0.5 text-sm font-semibold text-muted no-underline active:bg-surface-alt',
+              on && 'text-foreground')}>
+            {/* علامة حمراء مائلة فوق التبويب الحالي */}
+            {on ? <span aria-hidden className="absolute -top-px h-[5px] w-10 bg-brand [clip-path:polygon(3px_0,100%_0,100%_calc(100%-3px),calc(100%-3px)_100%,0_100%,0_3px)]" /> : null}
             <span className="relative inline-flex">
               <Icon aria-hidden className="size-5.5" />
               {id === 'alerts' && alerts ? <span className="num absolute -end-4 -top-1.5 min-w-5 bg-brand px-1.5 py-0.5 text-center text-sm leading-none text-white">{alerts}</span> : null}

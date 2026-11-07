@@ -11,14 +11,14 @@ import { Segmented } from '@/components/ui/segmented';
 import { Fold } from '@/components/ui/collapsible';
 import { SearchBox } from '@/components/search';
 import { Amount, Ltr, Num } from '@/components/ltr';
-import { Empty, ErrorBox, FormError, Note } from '@/components/shell';
+import { Empty, ErrorBox, FormError, Note, Slab, SlabBack } from '@/components/shell';
 import { toast } from '@/components/toast';
 import { api, errText, type Me } from '@/lib/api';
 import { useFixedBottom } from '@/lib/layout';
 import { load as loadKey, save as saveKey } from '@/lib/storage';
 import { customersWord, daysWord, fmtAmount, fmtDate, fmtDateTime, invoicesWord, norm, relTime, round2 } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { LateMark } from '@/features/cheques/ui';
+import { LIST_BOX, LateMark } from '@/features/cheques/ui';
 import { Block, KV } from '@/features/cheques/pickers';
 
 const STALE_MS = 5 * 60_000;
@@ -167,19 +167,26 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
 
   return (
     <>
+      {/* اللوح الأحمر الملاصق للشريط العلوي، كما في شاشة الإيداع: المجموع، وزر التحديث بوقته */}
+      <Slab>
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span className="font-semibold">{who ? `مجموع ديون ${who}` : <>مجموع ديون عملاء <Ltr>{rep}</Ltr></>}</span>
+          <Button variant="ghost" size="sm" className="-me-2 gap-1.5 font-normal text-white hover:bg-black/15 active:bg-black/15 disabled:opacity-80" disabled={busy} onClick={() => load(true)}
+            aria-label={busy ? 'جارٍ التحديث…' : 'تحديث. آخر تحديث ' + (loadedAt ? relTime(loadedAt) : '')}>
+            <RefreshCw aria-hidden className={cn('size-4.5 text-white', busy && 'animate-spin')} />
+            <span>{busy ? 'جارٍ التحديث…' : loadedAt ? relTime(loadedAt) : 'تحديث'}</span>
+          </Button>
+        </div>
+        <Amount value={total(list)} className="block font-display text-3xl font-semibold leading-tight tracking-tight max-[360px]:text-2xl" />
+        <div className="mt-1.5 text-sm">{list.length ? `على ${customersWord(list.length)}` : 'لا رصيد مفتوح'} · الأرصدة من زوهو بوكس</div>
+      </Slab>
+
       {data.is_admin ? (
-        <Segmented label="المندوب" scroll className="mb-3" value={rep} onChange={pickRep}
+        <Segmented label="المندوب" scroll className="mt-3" value={rep} onChange={pickRep}
           options={[{ value: '', label: 'الكل' }, ...(data.reps || []).map((r) => ({ value: r.rep || '-', label: r.rep ? <Ltr>{r.rep}</Ltr> : 'بلا مندوب' }))]} />
       ) : null}
 
-      <div className="flex flex-col gap-2">
-        <div className="cut bg-brand px-4 py-3 text-white">
-          <div className="flex items-baseline justify-between gap-3 text-sm">
-            <span className="font-semibold">{who ? `مجموع ديون ${who}` : <>مجموع ديون عملاء <Ltr>{rep}</Ltr></>}</span>
-            <span>{list.length ? `على ${customersWord(list.length)}` : 'لا رصيد مفتوح'}</span>
-          </div>
-          <Amount value={total(list)} className="mt-1 block font-display text-3xl font-semibold tracking-tight max-[360px]:text-2xl" />
-        </div>
+      <div className="mt-3 flex flex-col gap-2">
         {/* المربع الأسود للديون القديمة زر: يعرض عملاءها فقط */}
         <button type="button" aria-pressed={cat === 'old'} onClick={() => { setCat(cat === 'old' ? '' : 'old'); setLimit(PAGE); }}
           className={cn('kpi-btn cut-sm flex min-h-11 w-full items-center justify-between gap-3 bg-tile px-4 py-2.5 text-start text-white active:opacity-85', cat === 'old' && 'outline-3 -outline-offset-3 outline-brand')}>
@@ -190,14 +197,7 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
         </button>
       </div>
 
-      <div className="mt-2 flex min-h-11 items-center justify-between gap-3">
-        <span className="text-sm text-muted">الأرصدة من زوهو بوكس</span>
-        <Button variant="ghost" size="sm" className="gap-1.5 font-normal text-muted" disabled={busy} onClick={() => load(true)}>
-          <RefreshCw aria-hidden className={cn('size-4.5 text-foreground', busy && 'animate-spin')} />
-          <span>{busy ? 'جارٍ التحديث…' : loadedAt ? relTime(loadedAt) : 'تحديث'}</span>
-        </Button>
-      </div>
-      <div className="mt-2 flex flex-col gap-2">
+      <div className="mt-3 flex flex-col gap-2">
         <Segmented label="الفئة حسب التأخر" scroll value={cat} onChange={(v) => { setCat(v); setLimit(PAGE); }} options={catOptions} />
         <SearchBox placeholder="بحث باسم العميل أو رقم الفاتورة" onChange={(v) => { setQ(norm(v)); setLimit(PAGE); }} />
       </div>
@@ -212,7 +212,7 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
         </div>
         {cat ? <p className="mb-2 mt-0 text-sm text-muted">{CAT_NOTE[cat]}</p> : null}
         {items.length ? (
-          <ul className="m-0 flex list-none flex-col gap-2 p-0">
+          <ul className={LIST_BOX}>
             {shown.map((c) => <CustomerItem key={c.id} c={c} d={data} rep={rep} onReview={(r) => setReviewing({ c, r })} />)}
           </ul>
         ) : <Empty>{q ? 'لا عميل يطابق البحث.' : list.length ? 'لا عملاء في هذه الفئة.'
@@ -236,7 +236,7 @@ function CustomerItem({ c, d, rep, onReview }: { c: Cust; d: CollData; rep: stri
   return (
     <li role="link" tabIndex={0} aria-label={`${c.name}، ${fmtAmount(c.balance)}، ${lateText(c)}`}
       onClick={open} onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(); } }}
-      className={cn('item flex min-h-[60px] cursor-pointer items-center gap-1 border border-line bg-surface py-2 pe-3 active:bg-surface-alt', canToggle ? 'ps-0' : 'ps-3')}>
+      className={cn('item flex min-h-[60px] cursor-pointer items-center gap-1 bg-surface py-2 pe-3 active:bg-surface-alt', canToggle ? 'ps-0' : 'ps-3.5')}>
       {canToggle ? (
         // زر «راجعت» بجانب العميل: يفتح بطاقة التأكيد، لأن المراجعة تُكتب في زوهو فوراً
         <button type="button" aria-pressed={!!r} aria-label={r ? `${c.name}: ${ZOHO_WORD[r.zoho] || 'راجعته'}` : 'راجعت ' + c.name}
@@ -281,11 +281,11 @@ function RepSummary({ data, onPick }: { data: CollData; onPick: (code: string) =
   return (
     <Fold open={open} onOpenChange={setOpen} className="mt-3"
       head={<div className="flex items-center justify-between gap-3"><span className="font-bold">حسب المندوب</span><span className="text-sm text-muted">{reps.length} مندوبين</span></div>}>
-      <ul className="m-0 flex list-none flex-col gap-2 p-0">
+      <ul className={LIST_BOX}>
         {reps.map((r) => (
           <li key={r.rep || '-'} role="button" tabIndex={0} onClick={() => onPick(r.rep || '-')}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(r.rep || '-'); } }}
-            className="flex cursor-pointer items-center gap-1 border border-line bg-raised px-3 py-2 active:bg-surface-alt">
+            className="flex min-h-[60px] cursor-pointer items-center gap-1 bg-raised px-3.5 py-2 active:bg-surface-alt">
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-3"><span className="font-semibold">{r.rep ? <Ltr>{r.rep}</Ltr> : 'بلا مندوب'}</span><Amount value={r.total} className="font-display font-semibold" /></div>
               <div className="text-sm text-muted">{customersWord(r.count)} · أكثر من 90 يوماً <Amount value={r.old} /></div>
@@ -487,14 +487,10 @@ function CustomerPage({ data, id, me, onBack, onReview, onCancelled }: {
   const c = data?.customers.find((x) => x.id === id);
   useFixedBottom(68, !!c);
   const [cancelling, setCancelling] = useState(false);
-  const top = (
-    <div className="mb-3 flex items-center gap-3">
-      <Button onClick={onBack} className="gap-1 pe-3 ps-3.5"><ChevronRight aria-hidden className="size-4.5" /><span>رجوع</span></Button>
-      <h1 className="m-0 text-lg font-bold">رصيد العميل</h1>
-    </div>
-  );
-  if (!data) return <>{top}<p className="text-muted">جارٍ التحميل…</p></>;
-  if (!c) return <>{top}<Empty>لم يعد لهذا العميل رصيد مفتوح، أو ليس من عملائك.</Empty></>;
+  // رأس الصفحة: لوح أحمر ملاصق للشريط العلوي، كما في صفحة الشيك
+  const top = <Slab><SlabBack onClick={onBack} /><h1 className="m-0 text-lg font-bold">رصيد العميل</h1></Slab>;
+  if (!data) return <>{top}<p className="mt-4 text-muted">جارٍ التحميل…</p></>;
+  if (!c) return <>{top}<div className="mt-4"><Empty>لم يعد لهذا العميل رصيد مفتوح، أو ليس من عملائك.</Empty></div></>;
 
   const msg = `السلام عليكم، معك ${me.user.display_name} من ELONAC. نتصل بخصوص رصيدك عندنا، ${fmtAmount(c.balance).replace(' DA', '')} دج. متى يناسبك أن نسوّيه؟`;
   const rv = data.review;
@@ -515,17 +511,17 @@ function CustomerPage({ data, id, me, onBack, onReview, onCancelled }: {
 
   return (
     <>
-      {top}
-      <div className="flex flex-col gap-3">
-        <div className="cut bg-brand px-4.5 pb-3.5 pt-4 text-white">
-          <Ltr className="block text-lg font-bold leading-snug [overflow-wrap:anywhere]">{c.name}</Ltr>
-          <Amount value={c.balance} className="mt-1 block font-display text-[30px] font-semibold leading-tight" />
-          <div className="mt-2.5 flex flex-wrap gap-1.5">
-            <Badge tone={isOld(c) ? 'dark' : 'inverse'}>{lateText(c)}</Badge>
-            {c.invoices.length ? <Badge tone="inverse">{invoicesWord(c.invoices.length)}</Badge> : null}
-            {data.is_admin ? <Badge tone="inverse">{c.owner ? <Ltr>{c.owner}</Ltr> : 'بلا مندوب'}</Badge> : null}
-          </div>
+      <Slab>
+        <SlabBack onClick={onBack} />
+        <h1 className="m-0"><Ltr className="block text-lg font-bold leading-snug [overflow-wrap:anywhere]">{c.name}</Ltr></h1>
+        <Amount value={c.balance} className="mt-0.5 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
+        <div className="mt-2.5 flex flex-wrap gap-2">
+          <Badge tone={isOld(c) ? 'dark' : 'inverse'}>{lateText(c)}</Badge>
+          {c.invoices.length ? <Badge tone="inverse">{invoicesWord(c.invoices.length)}</Badge> : null}
+          {data.is_admin ? <Badge tone="inverse">{c.owner ? <Ltr>{c.owner}</Ltr> : 'بلا مندوب'}</Badge> : null}
         </div>
+      </Slab>
+      <div className="mt-4 flex flex-col gap-3">
 
         {rv && needsReview(c) ? (
           !r ? (

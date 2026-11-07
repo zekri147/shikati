@@ -12,8 +12,8 @@ export function applyTheme(t: Theme) {
   const root = document.documentElement;
   root.classList.toggle('dark', t === 'dark');
   root.setAttribute('data-theme', t);
-  // لون شريط المتصفح يطابق الشريط العلوي
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', t === 'dark' ? '#1a1a1a' : '#ffffff');
+  // لون شريط المتصفح يطابق الشريط العلوي الأحمر في الوضعين
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#d73237');
 }
 
 export function toggleTheme() {
