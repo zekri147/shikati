@@ -14,7 +14,7 @@ export function Modal({ open, onClose, title, busy, children, className, labelle
   return (
     <D.Root open={open} onOpenChange={(v) => { if (!v) close(); }}>
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-40 bg-black/65" />
+        <D.Overlay className="fixed inset-0 z-40 bg-scrim" />
         <D.Content
           aria-describedby={undefined}
           onPointerDownOutside={(e) => e.preventDefault()}
@@ -22,8 +22,8 @@ export function Modal({ open, onClose, title, busy, children, className, labelle
           className={cn('fixed left-1/2 top-1/2 z-50 max-h-[calc(100dvh-24px)] w-[min(440px,calc(100vw-24px))] -translate-x-1/2 -translate-y-1/2 overflow-y-auto bg-surface text-foreground focus:outline-none', className)}
           dir="rtl"
         >
-          <D.Title className="m-0 bg-brand px-4.5 py-3.5 text-lg font-bold text-white" aria-label={labelledTitle}>{title}</D.Title>
-          <div className="px-4.5 pb-4.5 pt-2">{children}</div>
+          <D.Title className="m-0 bg-brand px-4 py-3 text-lg font-bold text-white" aria-label={labelledTitle}>{title}</D.Title>
+          <div className="px-4 pb-4 pt-2">{children}</div>
         </D.Content>
       </D.Portal>
     </D.Root>
@@ -43,7 +43,7 @@ export function Sheet({ open, onClose, title, children, action }: {
   return (
     <D.Root open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-40 bg-black/65" />
+        <D.Overlay className="fixed inset-0 z-40 bg-scrim" />
         <D.Content
           aria-describedby={undefined}
           dir="rtl"

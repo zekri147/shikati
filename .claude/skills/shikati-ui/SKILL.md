@@ -160,6 +160,10 @@ description: "Design system and UX rules for the Shikati cheque app (web/: React
 - **المكونات المشتركة للشيكات** في `web/src/features/cheques/ui.tsx` (بطاقة الشيك، والأقسام، والشارات، و`LateMark`). لا تكرر بطاقة في ملف آخر.
 - **زر الرجوع:** `Modal` و`Sheet` والعارض تستعمل `useBackClose`. للانتقال إلى عنوان بعد إغلاق نافذة استعمل `navigate()` من `web/src/lib/back.ts`.
 - **الأشرطة الثابتة أسفل الشاشة** تسجّل ارتفاعها بـ `useFixedBottom` (`web/src/lib/layout.ts`)، فيترك المحتوى مسافة بقدرها وتظهر الرسائل فوقها.
+- **الملاحظة** (سطر بخط ملوّن على طرفه) بالمكوّن `Note` في `shell.tsx`، و`compact` داخل البطاقة. **القسم بعنوان** في صفحات التفاصيل بـ `Block` في `pickers.tsx`. **عنوان قسم القائمة** بـ `SectionHead`. لا تكتب أياً منها يدوياً.
+- **حالة «المختار»** بطريقة واحدة: `bg-selected text-selected-ink` على الزر أو الشارة.
+- **الألوان** من رموز السمة فقط، ومنها: `bar` (شريط الإيداع والرسائل)، و`scrim` (خلف النوافذ)، و`press-on-brand` و`press-on-dark` (الضغط على الأحمر والأسود)، و`line-on-dark`، و`chip` (الشارة غير المختارة). لا `bg-black` ولا `white/35` ولا قيمة سداسية.
+- **المسافات** بمضاعفات 4 فقط: لا تستعمل أنصاف الخطوات (`p-2.5`، `gap-1.5`…) في الحشوة والهامش والفراغ.
 - **الرسائل القصيرة** بالدالة `toast()` من `web/src/components/toast.tsx`. القيم اللاتينية بـ `Ltr` و`Num` و`Amount` من `web/src/components/ltr.tsx`.
 - خصائص منطقية دائماً: `ps-` و`pe-` و`ms-` و`me-` و`start-` و`end-` و`border-s`، لا `left` و`right`، إلا لقطع الزوايا الذي لا ينعكس.
 - لا تضف مكتبة تضيف وسم `<style>` أو تحمّل ملفاً من الإنترنت. جرّب كل صفحة في المتصفح وتأكد أن لا خطأ «Content Security Policy» في السجل.

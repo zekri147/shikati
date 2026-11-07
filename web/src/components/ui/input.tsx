@@ -23,7 +23,7 @@ Textarea.displayName = 'Textarea';
 export function Field({ label, hint, children, className }: { label: React.ReactNode; hint?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
     <label className={cn('block py-2', className)}>
-      <span className="mb-1.5 block text-base font-semibold">{label}</span>
+      <span className="mb-2 block text-base font-semibold">{label}</span>
       {children}
       {hint ? <span className="mt-1 block text-sm text-muted">{hint}</span> : null}
     </label>
