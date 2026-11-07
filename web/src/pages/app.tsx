@@ -8,8 +8,8 @@ import { load, save } from '@/lib/storage';
 import { readCache, writeCache } from '@/lib/cache';
 import { ChequesModule } from '@/features/cheques/ChequesModule';
 import { CollModule } from '@/features/coll/CollModule';
+import { AppNav } from '@/components/nav';
 
-const LABEL: Record<string, string> = { cheques: 'الشيكات', coll: 'التحصيل' };
 const MODULES: Record<string, React.ComponentType<{ me: Me; hash: string }>> = { cheques: ChequesModule, coll: CollModule };
 
 // الهيكل العام: يقرأ المستخدم والأقسام المتاحة له، ويعرض القسم المطلوب بحسب العنوان بعد #
@@ -28,8 +28,8 @@ export function AppPage() {
   useEffect(() => { if (mod) document.title = mod.title; }, [mod?.id]);
 
   // روابط القائمة: الأقسام الأخرى، والإدارة للمدير، والمساعدة
+  // الأقسام في شريط التنقل السفلي، فلا تُكرَّر في القائمة
   const links: MenuLink[] = [
-    ...available.filter((m) => m.id !== mod?.id).map((m) => ({ href: '/#' + m.id, label: LABEL[m.id] || m.title })),
     ...(me?.user.role === 'admin' ? [{ href: '/admin', label: 'الإدارة' }] : []),
     { href: '/help', label: 'المساعدة وطريقة الاستعمال' },
   ];
@@ -45,6 +45,7 @@ export function AppPage() {
               : <Mod key={mod!.id} me={me} hash={hash} />}
       </Main>
       <Footer />
+      {me ? <AppNav hash={hash} modules={available.map((m) => m.id)} /> : null}
       {me && mod?.id === 'cheques' ? <Welcome name={me.user.display_name} /> : null}
     </>
   );

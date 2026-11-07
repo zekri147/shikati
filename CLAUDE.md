@@ -78,6 +78,8 @@
 | `web/src/components/ui/datefield.tsx` | حقل التاريخ: اليوم وأمس وتاريخ آخر، والتاريخ مكتوباً بالعربية |
 | `web/src/lib/motion.ts` و`web/src/lib/hash.ts` | الحركة: الانتقال بين الصفحات والعنصر المشترك والاهتزاز، وحفظ موضع التمرير |
 | `web/src/components/pull.tsx` | السحب للتحديث |
+| `web/src/components/nav.tsx` | شريط التنقل الموحّد أسفل الشاشة وعدد التنبيهات |
+| `web/src/features/cheques/deposit.tsx` | بطاقة تأكيد الإيداع، من شاشة الإيداع ومن صفحة الشيك |
 | `web/src/lib/cache.ts` | آخر بيانات على الهاتف للعرض الفوري، تُمسح عند الخروج |
 | `web/src/index.css` | رموز الألوان والخطوط (Tailwind) |
 | `web/src/pages/` | صفحات الدخول والإعداد والإدارة والتطبيق |

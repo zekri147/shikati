@@ -14,11 +14,12 @@ import { navigate } from '@/lib/back';
 import { useFixedBottom } from '@/lib/layout';
 import { daysText, fmtDate, fmtDateTime, todayIso } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { sharedStyle } from '@/lib/motion';
+import { haptic, sharedStyle } from '@/lib/motion';
 import { DEST_LABELS, StatusBadge } from './ui';
 import { ChequeImage } from './media';
 import { AllocList, Block, KV, PartyPicker, type Party } from './pickers';
 import { EditPanel } from './edit';
+import { DepositDialog } from './deposit';
 import type { Cheque, Line } from './types';
 
 const LOCK_TEXT: Record<string, string> = {
@@ -38,7 +39,10 @@ const ACTION_TEXT: Record<string, string> = {
 export type Detail = any;
 
 // preview: الشيك من القائمة، فيظهر رأسه فوراً قبل وصول التفاصيل
-export function DetailPage({ id, isAdmin, onBack, preview }: { id: string; isAdmin: boolean; onBack: () => void; preview?: Cheque }) {
+export function DetailPage({ id, isAdmin, onBack, preview, depositable, onDeposited }: {
+  id: string; isAdmin: boolean; onBack: () => void; preview?: Cheque; depositable?: Cheque | null; onDeposited?: () => void;
+}) {
+  const [depositing, setDepositing] = useState(false);
   const [d, setD] = useState<Detail | null>(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
@@ -58,7 +62,7 @@ export function DetailPage({ id, isAdmin, onBack, preview }: { id: string; isAdm
   }, [id]);
   useEffect(() => { setD(null); reload(); }, [reload]);
 
-  const hasBar = !!d && !editing && (d.can_endorse || d.edit || d.undo);
+  const hasBar = !!d && !editing && (d.can_endorse || d.edit || d.undo || !!depositable);
   useFixedBottom(68, hasBar);
 
   // رأس الصفحة: لوح أحمر ملاصق للشريط العلوي، فيه الرجوع ثم العميل والمبلغ والحالة والوجهة
@@ -103,20 +107,16 @@ export function DetailPage({ id, isAdmin, onBack, preview }: { id: string; isAdm
         {d.box_alert ? <Note tone="alert">صندوق غير مطابق: {d.box_alert}</Note> : null}
         {lock && lock.state === 'unknown' ? <Note tone="alert">بانتظار التحقق: انقطع الرد بعد محاولة إيداع هذا الشيك. تحقق في صفحة الإدارة قبل أي محاولة جديدة.</Note> : null}
 
-        <ChequePath d={d} />
+        {/* الصورة أولاً وكبيرة: هي الدليل الذي يطابقه الموظف مع الشيك في يده. تُكبَّر باللمس */}
+        {d.has_image ? (
+          <figure className="m-0">
+            <ChequeImage id={d.id} hasImage v={d.edit ? d.edit.version : ''} size="big" />
+            <figcaption className="mt-1 text-sm text-muted">اضغط الصورة لتكبيرها{d.captured_at ? <> · صُوّرت <Num>{d.captured_at}</Num></> : null}</figcaption>
+          </figure>
+        ) : d.drive_url ? <a className="flex min-h-11 items-center justify-center bg-surface-alt p-2 text-center text-sm font-semibold text-danger no-underline" href={d.drive_url} target="_blank" rel="noopener noreferrer">الصورة في غوغل درايف</a>
+          : <div className="flex min-h-11 items-center justify-center bg-surface-alt p-2 text-center text-sm text-soft">لا توجد صورة لهذا الشيك</div>}
 
-        {/* الصورة مصغّرة بجانب وقت التصوير، وتُكبَّر باللمس */}
-        <div className="flex items-stretch gap-3">
-          <div className="w-[132px] flex-none">
-            {d.has_image ? <ChequeImage id={d.id} hasImage v={d.edit ? d.edit.version : ''} size="mid" />
-              : d.drive_url ? <a className="flex h-[72px] items-center justify-center bg-surface-alt p-2 text-center text-sm font-semibold text-danger no-underline" href={d.drive_url} target="_blank" rel="noopener noreferrer">في غوغل درايف</a>
-                : <div className="flex h-[72px] items-center justify-center bg-surface-alt p-2 text-center text-sm text-soft">لا صورة</div>}
-          </div>
-          <div className="flex flex-col justify-center gap-1 text-sm text-muted">
-            {d.has_image ? <span>اضغط الصورة لتكبيرها</span> : d.drive_url ? <span>الصورة محفوظة في غوغل درايف</span> : <span>لا توجد صورة لهذا الشيك</span>}
-            {d.captured_at ? <span>صُوّرت <Num>{d.captured_at}</Num></span> : null}
-          </div>
-        </div>
+        <ChequePath d={d} />
 
         {/* بيانات الشيك: سطور «عنوان وقيمة» في مجموعة واحدة، لا مربع لكل معلومة */}
         <Block title="بيانات الشيك">
@@ -202,6 +202,8 @@ export function DetailPage({ id, isAdmin, onBack, preview }: { id: string; isAdm
       {/* شريط العمليات الثابت: العمل الرئيسي، ثم «تعديل»، ثم «المزيد» */}
       {hasBar ? (
         <div className="detailbar fixed inset-x-0 bottom-0 z-20 flex gap-2 border-t border-line-strong bg-surface px-4 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 [&>*]:flex-1">
+          {/* العمل الأنسب لحالة الشيك زراً رئيسياً: الإيداع للشيك في الحوزة لبنك AGB */}
+          {depositable && !d.can_endorse ? <Button variant="primary" className="!flex-[2] whitespace-nowrap py-2" onClick={() => setDepositing(true)}>أودِع هذا الشيك</Button> : null}
           {d.can_endorse ? (
             <Button variant="primary" className="py-2" onClick={() => {
               endorseRef.current?.scrollIntoView({ block: 'start' });
@@ -231,6 +233,12 @@ export function DetailPage({ id, isAdmin, onBack, preview }: { id: string; isAdm
         </div>
       ) : null}
 
+      {depositing && depositable ? <DepositDialog items={[depositable]} onClosed={(r) => {
+        setDepositing(false);
+        if (!r.attempted) return;
+        if (r.done.length) { haptic('success'); toast('تم إيداع الشيك في بنك AGB'); }
+        onDeposited?.(); reload();
+      }} /> : null}
       {undoOpen && u ? <UndoDialog d={d} onClose={(after) => { setUndoOpen(false); if (after === 'gone') navigate('#cheques'); else if (after === 'reload') reload(); }} /> : null}
     </>
   );
