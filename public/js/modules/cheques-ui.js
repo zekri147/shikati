@@ -2,6 +2,9 @@
 (function () {
   const { el, ltr, fmtAmount, fmtDate } = window.Shikati;
   const LATE_DAYS = 7;
+  // بعد 14 يوماً يصير التأخير عاجلاً: شارة حمراء. قبلها نص بلون التحذير
+  const URGENT_DAYS = 14;
+  const lateClass = (n) => 'age late' + (n > URGENT_DAYS ? ' urgent' : '');
   const LOCK_LABELS = { pending: 'الإيداع قيد التنفيذ', unknown: 'بانتظار التحقق', done: 'سُجّل إيداعه' };
   const STATUS_CLASS = {
     'في الحوزة': 'st-hand', 'مودع في البنك': 'st-bank', 'محصّل': 'st-done',
@@ -80,9 +83,9 @@
     if (c.status === 'مودع في البنك' && c.deposit_days !== undefined) {
       // التحصيل المتأخر لبنك AGB وحده: الرستمية لا تتحوّل إلى «محصّل» في زوهو
       const slow = c.destination === 'ELONAC' && c.deposit_days > LATE_DAYS;
-      age = el('span', { class: 'age' + (slow ? ' late' : ''), text: slow ? 'تحصيل متأخر ' + daysCount(c.deposit_days) : 'في البنك ' + daysText(c.deposit_days) });
+      age = el('span', { class: slow ? lateClass(c.deposit_days) : 'age', text: slow ? 'تحصيل متأخر ' + daysCount(c.deposit_days) : 'في البنك ' + daysText(c.deposit_days) });
     } else if (!noAge && (late || !opts.lateOnly)) {
-      age = el('span', { class: 'age' + (late ? ' late' : ''), text: late ? 'متأخر ' + daysCount(c.days) : daysText(c.days) });
+      age = el('span', { class: late ? lateClass(c.days) : 'age', text: late ? 'متأخر ' + daysCount(c.days) : daysText(c.days) });
     }
     const marks = el('div', { class: 'marks' },
       opts.selectable && c.lock ? el('span', { class: 'badge lock-' + c.lock, text: LOCK_LABELS[c.lock] || c.lock }) : null,
@@ -249,6 +252,6 @@
   }
 
   window.ShikatiChequesUI = {
-    daysText, relTime, norm, sum, chequeWord, statusBadge, chequeItem, section, chequeImage, rotateDataUrl, openDetail, detailHash,
+    daysText, daysCount, relTime, norm, sum, chequeWord, statusBadge, chequeItem, section, chequeImage, rotateDataUrl, openDetail, detailHash,
   };
 })();
