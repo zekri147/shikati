@@ -2,7 +2,7 @@
 // العنوان بعد # يحدد الشاشة: #cheques و#cheques/all و#cheques/alerts و#cheques/c/<معرّف الدفعة>
 (function () {
   const { api, toast, el, ltr, fmtAmount } = window.Shikati;
-  const { relTime, norm, sum, chequeWord, chequeItem, section, chequeImage } = window.ShikatiChequesUI;
+  const { relTime, norm, sum, chequeWord, chequeItem, section, chequeImage, sheet } = window.ShikatiChequesUI;
   const MAX_BATCH = 15;
   const STALE_MS = 60_000;
   const PAGE = 60;
@@ -220,13 +220,40 @@
       return row;
     };
     const locChips = chipRow(LOCATIONS, 'loc', 'الموقع', (v) => { saveLoc(v); st.limit = PAGE; });
-    const statusChips = chipRow(STATUS_FILTERS, 'status', 'الحالة', () => { st.limit = PAGE; });
-    statusChips.classList.add('scroll');
+    // الحالة زر بجانب الموقع يفتح لوحة سفلية فيها كل الحالات بعددها ومجموعها
+    const statusLabel = el('span', { class: 'sb-label' });
+    const statusBtn = el('button', { type: 'button', class: 'btn-plain status-btn', 'aria-haspopup': 'dialog' },
+      statusLabel, el('span', { class: 'ico ico-down', 'aria-hidden': 'true' }));
+    const updateStatusBtn = () => {
+      const def = STATUS_FILTERS.find(([v]) => v === st.status) || STATUS_FILTERS[0];
+      statusLabel.textContent = st.status ? def[1] : 'كل الحالات';
+      statusBtn.classList.toggle('on', !!st.status);
+      statusBtn.setAttribute('aria-label', 'تصفية بالحالة: ' + (st.status ? def[1] : 'كل الحالات'));
+    };
+    updateStatusBtn();
+    statusBtn.addEventListener('click', async () => {
+      if (!st.data) return;
+      const base = st.data.all.filter(matches);
+      const options = STATUS_FILTERS.map(([value, label]) => {
+        const items = base.filter((c) => byStatus(c, value));
+        return { value, label: value ? label : 'كل الحالات', count: items.length, total: sum(items) };
+      });
+      st.dialogOpen = true;
+      const v = await sheet('تصفية بالحالة', options, st.status);
+      st.dialogOpen = false;
+      if (v === undefined || v === st.status) return;
+      st.status = v;
+      st.limit = PAGE;
+      updateStatusBtn();
+      draw();
+      window.scrollTo(0, 0);
+    });
 
     const search = el('input', { type: 'search', class: 'search', placeholder: 'بحث باسم العميل أو رقم الشيك أو الفاتورة', 'aria-label': 'بحث', enterkeyhint: 'search' });
     search.addEventListener('input', () => { st.q = norm(search.value); st.limit = PAGE; draw(); });
     const statusLine = el('div', { class: 'statusline' }, statusText, refreshBtn);
-    const filters = el('div', { class: 'filters' }, locChips, statusChips, search);
+    const filterRow = el('div', { class: 'filter-row' }, locChips, statusBtn);
+    const filters = el('div', { class: 'filters' }, filterRow, search);
 
     // شريط الإيداع أسفل الشاشة، يظهر عند تحديد شيك أو أكثر
     const barInfo = el('div', { class: 'ab-info' });
@@ -280,6 +307,7 @@
       (!st.loc || c.location === st.loc) &&
       (!st.q || norm(c.customer).includes(st.q) || norm(c.cheque_number).includes(st.q) || norm(c.invoices).includes(st.q) || norm(c.number) === st.q);
     const pick = (items) => items.filter(matches);
+    const byStatus = (c, s) => !s || (s === 'other' ? !MAIN_STATUSES.includes(c.status) : c.status === s);
 
     function drawDeposit(d) {
       const agb = pick(d.agb_in_hand.items);
@@ -329,8 +357,7 @@
     }
 
     function drawAll(d) {
-      const byStatus = (c) => !st.status || (st.status === 'other' ? !MAIN_STATUSES.includes(c.status) : c.status === st.status);
-      const items = d.all.filter((c) => byStatus(c) && matches(c));
+      const items = d.all.filter((c) => byStatus(c, st.status) && matches(c));
       const shown = items.slice(0, st.limit);
       const more = items.length - shown.length;
       const moreBtn = more > 0 ? el('button', { type: 'button', class: 'btn-plain more', text: `عرض المزيد (${more})` }) : null;
@@ -341,7 +368,7 @@
         : [el('span', { text: 'لا نتائج' })]));
       listBox.replaceChildren(
         items.length
-          ? el('ul', { class: 'list' }, shown.map((c) => chequeItem(c, { link: true, showStatus: true, ageInHandOnly: true, lateOnly: true })))
+          ? el('ul', { class: 'list' }, shown.map((c) => chequeItem(c, { link: true, showStatus: !st.status || st.status === 'other', ageInHandOnly: true, lateOnly: true })))
           : el('div', { class: 'empty', text: 'لا شيك يطابق البحث أو التصفية.' }),
         ...(moreBtn ? [moreBtn] : []));
     }
@@ -393,7 +420,7 @@
       detailBox.classList.toggle('hidden', isList);
       tabs.classList.toggle('hidden', v === 'detail');
       document.body.classList.toggle('has-nav', v !== 'detail');
-      statusChips.classList.toggle('hidden', v !== 'all');
+      statusBtn.classList.toggle('hidden', v !== 'all');
       updateBar();
       const d = st.data;
       if (!isList || !d) return;
