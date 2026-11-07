@@ -24,11 +24,14 @@ export interface Env {
   SETUP_TOKEN?: string;
 }
 
-export type Role = 'admin' | 'depositor';
+// المندوب (rep) يرى قسم التحصيل وحده، لعملائه فقط
+export type Role = 'admin' | 'depositor' | 'rep';
 
 export interface User {
   id: number;
   username: string;
   display_name: string;
   role: Role;
+  // رمز المندوب كما في الحقل «Owner» (cf_owner) على العميل في زوهو. فارغ لمن ليس مندوباً.
+  rep_code?: string | null;
 }

@@ -22,7 +22,8 @@
   </button>
   <div class="menu hidden" id="menu" role="menu" aria-label="القائمة" data-me>
     <div class="menu-who" id="who"></div>
-    <a class="menu-item" href="/" role="menuitem">الشيكات</a>
+    <a class="menu-item" href="/#cheques" role="menuitem">الشيكات</a>
+    <a class="menu-item" href="/#coll" role="menuitem">التحصيل</a>
     <a class="menu-item" href="/help" role="menuitem">المساعدة وطريقة الاستعمال</a>
     <button type="button" class="menu-item" data-theme-toggle="long" role="menuitem">الوضع الفاتح</button>
     <button type="button" class="menu-item danger" id="logout" role="menuitem">خروج</button>
@@ -41,7 +42,8 @@
         <div><label for="nu-display">الاسم الظاهر</label><input id="nu-display" name="display_name" required></div>
         <div><label for="nu-username">اسم الدخول</label><input id="nu-username" name="username" dir="ltr" autocapitalize="none" spellcheck="false" required></div>
         <div><label for="nu-role">الدور</label>
-          <select id="nu-role" name="role"><option value="depositor">مودِع</option><option value="admin">مدير</option></select></div>
+          <select id="nu-role" name="role"><option value="depositor">مودِع</option><option value="rep">مندوب</option><option value="admin">مدير</option></select></div>
+        <div><label for="nu-rep">رمز المندوب (كما في حقل «Owner» في زوهو)</label><input id="nu-rep" name="rep_code" dir="ltr" autocapitalize="characters" spellcheck="false" placeholder="AMINE"></div>
         <div><label for="nu-password">الرمز السري (8 أحرف على الأقل)</label><input id="nu-password" name="password" type="password" autocomplete="new-password" dir="ltr" required></div>
       </div>
       <div class="form-error" id="nu-error" role="alert"></div>

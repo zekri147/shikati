@@ -23,8 +23,18 @@
     const wanted = location.hash.slice(1).split('/')[0];
     const mod = available.find((m) => m.id === wanted) || available[0];
     document.title = mod.title;
+    // روابط الأقسام الأخرى في القائمة (للمدير، ولمن يرى الشيكات والتحصيل معاً)
+    const who = document.getElementById('who');
+    const LABEL = { cheques: 'الشيكات', coll: 'التحصيل' };
+    who.after(...available.filter((m) => m.id !== mod.id).map((m) =>
+      el('a', { class: 'menu-item', href: '/#' + m.id, role: 'menuitem', text: LABEL[m.id] || m.title })));
+    // الانتقال إلى قسم آخر يعيد تحميل الصفحة، لأن كل قسم يبني أشرطته بنفسه
+    window.addEventListener('hashchange', () => {
+      const next = location.hash.slice(1).split('/')[0];
+      if (next && next !== mod.id && available.some((m) => m.id === next)) location.reload();
+    });
     window.ShikatiModules[mod.id].render(view, me);
-    welcome(me);
+    if (mod.id === 'cheques') welcome(me);
   }
 
   // بطاقة ترحيب تظهر مرة واحدة على كل جهاز عند أول دخول: ثلاث خطوات، ومكان المساعدة

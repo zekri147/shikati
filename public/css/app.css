@@ -568,7 +568,7 @@ tbody tr:nth-child(even) td.empty-cell { background: transparent; }
 /* بطاقة المستخدم في الإدارة */
 .item.user { align-items: stretch; }
 .item.user.off .customer { color: var(--ink-muted); }
-.user-actions { display: flex; gap: 8px; margin-top: 6px; }
+.user-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .user-actions button { flex: 1; padding: 9px 10px; }
 .help ol, .help ul { padding-inline-start: 22px; margin: 6px 0; }
 .help li { margin: 5px 0; }
@@ -580,6 +580,22 @@ tbody tr:nth-child(even) td.empty-cell { background: transparent; }
 .photo-btns.first { flex-direction: column; }
 .photo-btns.first .shoot { padding: 18px; font-size: 17px; border-color: var(--ink-muted); }
 .photo-btns.first .shoot .ico { width: 26px; height: 26px; }
+
+/* ———————————————— قسم التحصيل ———————————————— */
+
+/* المربع الأسود للديون القديمة زر: يعرض عملاءها فقط */
+button.kpi-btn {
+  width: 100%; min-height: var(--tap); border: 0; text-align: start; color: var(--white); font: inherit; cursor: pointer;
+}
+button.kpi-btn:active { opacity: .85; }
+button.kpi-btn[aria-pressed="true"] { outline: 3px solid var(--brand); outline-offset: -3px; }
+.coll-reps:not(:empty) { margin-bottom: 12px; }
+.coll-updated { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.coll-hint { margin: 0 0 8px; }
+.coll-foot { margin: 16px 0 0; }
+.coll-late { color: var(--accent-text); font-weight: 600; }
+.chip .num { margin-inline-start: 2px; }
+.detailbar > .btn { flex: 1; text-align: center; padding: 11px 12px; font-size: 15px; }
 
 /* ———————————————— عارض الصورة ———————————————— */
 dialog.viewer {
