@@ -32,6 +32,11 @@ const SCREENS = [
     await p.locator('.actionbar .btn-primary').click();
   }, full: false },
   { name: 'all', path: '/#cheques/all' },
+  { name: 'all-sheet', path: '/#cheques/all', act: async (p) => { await p.locator('.status-btn').click(); }, full: false },
+  { name: 'all-hand', path: '/#cheques/all', act: async (p) => {
+    await p.locator('.status-btn').click();
+    await p.locator('.sheet-opt', { hasText: 'في الحوزة' }).click();
+  }, full: false },
   { name: 'alerts', path: '/#cheques/alerts' },
   { name: 'register', path: '/#cheques/new' },
   { name: 'detail', path: '/#cheques/c/7418400000000001' },

@@ -185,6 +185,7 @@ button:disabled { opacity: .55; cursor: default; }
 
 /* سطر الحالة تحت الملخص: معلومة قصيرة يميناً، وزر التحديث بوقته يساراً */
 .statusline { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); margin-top: var(--sp-2); min-height: var(--tap); }
+div:empty + .statusline { margin-top: 0; }
 .statusline .st-text { font-size: var(--fs-sm); color: var(--ink-muted); min-width: 0; }
 .statusline .st-text .strong { color: var(--ink); }
 
@@ -215,6 +216,7 @@ button:disabled { opacity: .55; cursor: default; }
 .ico-chevron { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 6l-6 6 6 6'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 6l-6 6 6 6'/%3E%3C/svg%3E"); }
 .ico-camera { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8h4l2-3h6l2 3h4v11H3zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8h4l2-3h6l2 3h4v11H3zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8'/%3E%3C/svg%3E"); }
 .ico-back { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 6l6 6-6 6'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 6l6 6-6 6'/%3E%3C/svg%3E"); }
+.ico-down { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); }
 .ico-more { -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 15l6-6 6 6'/%3E%3C/svg%3E"); mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 15l6-6 6 6'/%3E%3C/svg%3E"); }
 
 /* ———————————————— شريط التنقل أسفل الشاشة ———————————————— */
@@ -247,6 +249,18 @@ body.has-nav { padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
 }
 .btn-plain.refresh .ico { width: 18px; height: 18px; color: var(--ink); }
 .refresh-time { white-space: nowrap; }
+/* صف التصفية في «كل الشيكات»: الموقع ثم زر الحالة في سطر واحد */
+.filter-row { display: flex; gap: var(--sp-2); }
+.filter-row .chips { flex: 1; min-width: 0; }
+.status-btn {
+  flex: none; display: inline-flex; align-items: center; justify-content: space-between; gap: var(--sp-1);
+  max-width: 45%; padding: 0 var(--sp-2) 0 var(--sp-3); font-size: var(--fs-md); font-weight: 600;
+}
+.status-btn .sb-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-btn .ico { width: 18px; height: 18px; }
+/* حالة مختارة: لون «المختار» كزر التصفية */
+.status-btn.on { background: var(--black); color: var(--white); border-color: var(--black); }
+:root[data-theme="dark"] .status-btn.on { background: var(--white); color: var(--black); border-color: var(--white); }
 .chips { display: flex; border: 1px solid var(--line-strong); background: var(--surface); }
 .chip {
   flex: 1; padding: 9px 6px; font-size: var(--fs-md); background: transparent; color: var(--ink-muted);
@@ -549,6 +563,37 @@ dialog.confirm > .dlg-actions { margin-bottom: 18px; }
 .form-ok, .form-warn { color: var(--ink); font-size: 14px; padding: 8px 12px; margin-top: 10px; background: var(--surface-alt); }
 .form-ok { border-inline-start: 3px solid var(--success); }
 .form-warn { border-inline-start: 3px solid var(--warning); background: var(--warning-tint); }
+
+/* ———————————————— اللوحة السفلية ———————————————— */
+
+/* اختيار من قائمة قريباً من الإبهام: تصفية الحالة في «كل الشيكات» */
+dialog.sheet {
+  border: 0; padding: 0; margin: auto 0 0; width: 100%; max-width: none; max-height: 80dvh;
+  background: var(--surface); color: var(--ink); border-top: 1px solid var(--line-strong);
+  display: flex; flex-direction: column;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+dialog.sheet:not([open]) { display: none; }
+dialog.sheet::backdrop { background: rgba(0, 0, 0, .65); }
+.sheet-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4); border-bottom: 1px solid var(--line); flex: none;
+}
+.sheet-head h2 { font-size: var(--fs-lg); font-weight: 700; margin: 0; }
+.sheet-list { overflow-y: auto; padding: var(--sp-2) 0; }
+.sheet-opt {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); width: 100%;
+  min-height: 52px; padding: var(--sp-2) var(--sp-4); background: transparent; color: var(--ink);
+  border: 0; border-bottom: 1px solid var(--line); text-align: start; font-size: var(--fs-md); font-weight: 600;
+}
+.sheet-opt:last-child { border-bottom: 0; }
+.sheet-opt:active { background: var(--surface-alt); }
+.sheet-opt .so-meta { display: flex; flex-direction: column; align-items: flex-end; font-size: var(--fs-sm); font-weight: 400; color: var(--ink-muted); line-height: 1.4; }
+.sheet-opt.zero .so-label { color: var(--ink-muted); font-weight: 400; }
+/* المختار: الأسود في الفاتح والأبيض في الداكن، مع علامة ✓ */
+.sheet-opt.on { background: var(--ink); color: var(--page); }
+.sheet-opt.on .so-meta { color: var(--page); }
+.sheet-opt.on .so-label::before { content: "✓ "; }
 
 /* ———————————————— الرسائل القصيرة ———————————————— */
 

@@ -87,9 +87,10 @@
     } else if (!noAge && (late || !opts.lateOnly)) {
       age = el('span', { class: late ? lateClass(c.days) : 'age', text: late ? 'متأخر ' + daysCount(c.days) : daysText(c.days) });
     }
+    // شارة واحدة في البطاقة حين lateOnly: نص العمر («متأخر…» أو «في البنك منذ…») يكفي عن شارة الحالة
     const marks = el('div', { class: 'marks' },
       opts.selectable && c.lock ? el('span', { class: 'badge lock-' + c.lock, text: LOCK_LABELS[c.lock] || c.lock }) : null,
-      opts.showStatus ? statusBadge(c.status) : null,
+      opts.showStatus && !(opts.lateOnly && age) ? statusBadge(c.status) : null,
       age);
 
     // في شاشة الإيداع: لمس البطاقة يحددها، والسهم وحده يفتح التفاصيل
@@ -155,6 +156,47 @@
     const d = el('details', { class: 'block fold ' + (opts.noteClass || ''), open }, head('summary', title, items, opts.hideTotal), note, list);
     d.addEventListener('toggle', () => { if (!st.q) st.open[id] = d.open; });
     return d;
+  }
+
+  // ——— اللوحة السفلية: اختيار واحد من قائمة، قريب من الإبهام ———
+  // options: [{ value, label, count, total }]. زر الرجوع في الهاتف يغلقها، واختيار سطر يغلقها ويعيده.
+  function sheet(title, options, current) {
+    return new Promise((resolve) => {
+      const rows = options.map((o) => {
+        const on = o.value === current;
+        const b = el('button', { type: 'button', class: 'sheet-opt' + (on ? ' on' : '') + (o.count ? '' : ' zero'), 'aria-pressed': String(on) },
+          el('span', { class: 'so-label', text: o.label }),
+          el('span', { class: 'so-meta' },
+            el('span', { class: 'so-count', text: o.count ? chequeWord(o.count) : 'لا شيكات' }),
+            o.count ? ltr(fmtAmount(o.total), 'num') : null));
+        b.addEventListener('click', () => done(o.value));
+        return b;
+      });
+      const closeBtn = el('button', { type: 'button', class: 'btn-plain', text: 'إغلاق' });
+      const dlg = el('dialog', { class: 'sheet', 'aria-labelledby': 'sheet-title' },
+        el('div', { class: 'sheet-head' }, el('h2', { id: 'sheet-title', text: title }), closeBtn),
+        el('div', { class: 'sheet-list', role: 'group', 'aria-label': title }, rows));
+      let closed = false;
+      let picked;
+      const finish = () => {
+        if (closed) return;
+        closed = true;
+        window.removeEventListener('popstate', finish);
+        dlg.close();
+        dlg.remove();
+        resolve(picked);
+      };
+      const done = (v) => { picked = v; if (!closed) history.back(); };
+      history.pushState({ sheet: true }, '');
+      window.addEventListener('popstate', finish);
+      closeBtn.addEventListener('click', () => done(undefined));
+      dlg.addEventListener('cancel', (e) => { e.preventDefault(); done(undefined); });
+      // لمس الخلفية خارج اللوحة يغلقها
+      dlg.addEventListener('click', (e) => { if (e.target === dlg) done(undefined); });
+      document.body.append(dlg);
+      dlg.showModal();
+      (dlg.querySelector('.sheet-opt.on') || closeBtn).focus();
+    });
   }
 
   // ——— صورة الشيك ———
@@ -252,6 +294,6 @@
   }
 
   window.ShikatiChequesUI = {
-    daysText, daysCount, relTime, norm, sum, chequeWord, statusBadge, chequeItem, section, chequeImage, rotateDataUrl, openDetail, detailHash,
+    daysText, daysCount, relTime, norm, sum, chequeWord, statusBadge, chequeItem, section, sheet, chequeImage, rotateDataUrl, openDetail, detailHash,
   };
 })();
