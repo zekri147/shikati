@@ -15,6 +15,7 @@ import { toast } from '@/components/toast';
 import { api, errText, type Me } from '@/lib/api';
 import { fmtDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { NotifyTab } from './admin-notify';
 
 // دوران فقط منذ 7/11/2026: كل مستخدم غير المدير مندوب، يرى كل الشيكات ويسجّل ويودع
 const ROLE: Record<string, string> = { admin: 'مدير', rep: 'مندوب' };
@@ -23,6 +24,7 @@ const ACTION: Record<string, string> = {
   'user.password': 'تغيير رمز سري', 'user.rep': 'تغيير رمز المندوب', 'coll.review': 'مراجعة عميل', 'coll.review.cancel': 'إلغاء مراجعة',
   'coll.comment': 'تعليق مراجعة في زوهو', 'passkey.add': 'تفعيل البصمة', 'passkey.clear': 'حذف البصمة', 'coll.comment.resolve': 'حسم تعليق مراجعة', setup: 'الإعداد الأولي',
   deposit: 'إيداع شيك', 'deposit.release': 'تحرير إيداع', 'deposit.reverted': 'إيداع أُلغي في زوهو',
+  'push.subscribe': 'تفعيل الإشعارات', 'push.unsubscribe': 'إيقاف الإشعارات', 'notify.settings': 'إعدادات الإشعارات', 'notify.send': 'إشعار يدوي',
 };
 const RESULT: Record<string, string> = { ok: 'تمّ', denied: 'مرفوض', error: 'خطأ' };
 const DEP_STATE: Record<string, string> = { pending: 'قيد التنفيذ', done: 'تم', failed: 'لم يتم', unknown: 'بانتظار التحقق' };
@@ -167,9 +169,11 @@ export function AdminPage() {
       <TopBar name={me?.user.display_name} links={[{ href: '/', label: 'التطبيق' }, { href: '/help', label: 'المساعدة وطريقة الاستعمال' }]} />
       <Main>
         <h1 className="m-0 text-2xl font-bold">الإدارة</h1>
-        {/* تبويبات بدل صفحة طويلة: يفتح المدير ما يريده مباشرة، وتنبيه الإيداعات المعلّقة على تبويبها */}
-        <Segmented label="أقسام الإدارة" className="mt-3" value={tab} onChange={(v) => { setTab(v); save(TAB_KEY, v); }}
-          options={[{ value: 'users', label: 'المستخدمون' }, { value: 'deposits', label: attention ? '⚠ الإيداعات' : 'الإيداعات' }, { value: 'audit', label: 'السجل' }, { value: 'reconcile', label: 'المطابقة' }]} />
+        {/* تبويبات بدل صفحة طويلة: يفتح المدير ما يريده مباشرة، وتنبيه الإيداعات المعلّقة على تبويبها. ثلاثة في كل صف حتى لا تتجاوز عرض الهاتف */}
+        <Segmented label="أقسام الإدارة" className="mt-3 grid grid-cols-3" value={tab} onChange={(v) => { setTab(v); save(TAB_KEY, v); }}
+          options={[{ value: 'users', label: 'المستخدمون' }, { value: 'deposits', label: attention ? '⚠ الإيداعات' : 'الإيداعات' }, { value: 'audit', label: 'السجل' }, { value: 'reconcile', label: 'المطابقة' }, { value: 'notify', label: 'الإشعارات' }]} />
+
+        {tab === 'notify' ? <Section title="الإشعارات" meta="لكل المستخدمين" className="border-0 bg-transparent px-0"><NotifyTab /></Section> : null}
 
         {tab === 'users' ? <Section title="المستخدمون">
           {!users ? <p className="text-muted">جارٍ التحميل…</p> : (
