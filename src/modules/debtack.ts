@@ -145,6 +145,17 @@ export async function saveAck(req: Request, env: Env, user: User): Promise<Respo
     if (!r.meta.changes) throw busy();
     return json({ ok: true, answer: 'ok' });
   }
+  // التراجع عن الإقرار (بطلب ZEKRI يوم 8/11/2026): يعود العميل «لم يُجب» في الدورة نفسها، فيعود القفل حتى يجيب.
+  // الإقرار وحده: الاعتراض المكتوب في زوهو لا يُتراجع عنه من التطبيق.
+  if (b.answer === 'clear') {
+    const r = await env.DB.prepare(
+      "UPDATE debt_snapshot SET answer = NULL, reason = NULL, note = '', user_id = NULL, username = NULL, answered_at = NULL, zoho_state = 'skip', zoho_error = NULL "
+      + "WHERE cycle = ? AND customer_id = ? AND answer = 'ok'",
+    ).bind(cycle, id).run();
+    if (!r.meta.changes) throw new HttpError(409, 'لا إقرار تتراجع عنه لهذا العميل.');
+    await audit(env, user, 'coll.ack.undo', 'ok', row.customer_name);
+    return json({ ok: true, answer: null });
+  }
   if (b.answer !== 'dispute') throw new HttpError(400, 'الجواب غير صالح.');
   const reason = String(b.reason || '');
   if (!ACK_REASONS[reason]) throw new HttpError(400, 'اختر سبب الاعتراض.');

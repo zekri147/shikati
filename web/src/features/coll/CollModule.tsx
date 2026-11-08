@@ -25,7 +25,7 @@ import { cn } from '@/lib/utils';
 import { haptic, isShared, markShared, sharedStyle } from '@/lib/motion';
 import { LIST_BOX, LateMark } from '@/features/cheques/ui';
 import { Block, KV } from '@/features/cheques/pickers';
-import { peekAfterAck, setAckCounts, takeAfterAck } from '@/lib/ack';
+import { loadAckStatus, peekAfterAck, setAckCounts, takeAfterAck } from '@/lib/ack';
 
 const STALE_MS = 5 * 60_000;
 const PAGE = 40;
@@ -155,7 +155,7 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
 
   if (route.view === 'customer') {
     return (
-      <CustomerPage data={data} id={route.id} me={me} onBack={() => { if (fromList.current) history.back(); else location.hash = '#coll'; }} />
+      <CustomerPage data={data} id={route.id} me={me} onBack={() => { if (fromList.current) history.back(); else location.hash = '#coll'; }} onChanged={() => load(false)} />
     );
   }
 
@@ -507,6 +507,8 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
   const [pos, setPos] = useState(0);
   const [dispute, setDispute] = useState(false);
   const [cool, setCool] = useState(false);
+  // آخر عميل أقرّ المندوب بدينه: سطر «تراجع» في أعلى الشاشة حتى الجواب التالي
+  const [lastOk, setLastOk] = useState('');
   const coolT = useRef(0);
   const changed = useRef(false);
   const go = (i: number) => {
@@ -555,6 +557,7 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
     const after = rows.map((x) => (x.id === r.id ? { ...x, answer: 'ok' as const, reason: null, note: '', zoho: 'skip' } : x));
     setList({ ...list, rows: after });
     go(nextFrom(pos, after));
+    setLastOk(before.id);
     haptic('success');
     changed.current = true;
     try {
@@ -565,6 +568,32 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
       toast(`لم يُحفظ إقرار ${before.name}: ${errText(e)}`, 'err');
     }
   }
+  // التراجع عن الإقرار (بطلب ZEKRI يوم 8/11/2026): يعود العميل دون جواب ويظهر من جديد، ويعود القفل حتى يجيب
+  async function undo(id: string) {
+    if (!list) return;
+    const i = rows.findIndex((x) => x.id === id);
+    const before = rows[i];
+    if (!before || before.answer !== 'ok') return;
+    patch(id, { answer: null, at: null });
+    setLastOk('');
+    go(i);
+    changed.current = true;
+    try {
+      await api('/api/m/coll/ack', { method: 'POST', body: { cycle: list.cycle, customer_id: id, answer: 'clear' } });
+      toast('تراجعت عن إقرار دين ' + before.name);
+    } catch (e) {
+      patch(id, before);
+      toast(`لم يُحفظ التراجع: ${errText(e)}`, 'err');
+    }
+  }
+  const last = rows.find((x) => x.id === lastOk && x.answer === 'ok' && x.id !== r?.id);
+  const undoLine = last ? (
+    <div className="flex min-h-11 items-center justify-between gap-3 border-b border-line text-sm">
+      <span className="flex min-w-0 items-center gap-1"><Check aria-hidden className="size-4 flex-none" strokeWidth={3} />أقررت بدين <Ltr className="truncate font-semibold">{last.name}</Ltr></span>
+      <Button variant="ghost" className="ack-undo -me-2 flex-none px-2 font-semibold underline underline-offset-4" onClick={() => undo(last.id)}>تراجع</Button>
+    </div>
+  ) : null;
+
   function disputed(row: AckRow, res: { zoho: string; error?: string }, reason: string, note: string) {
     const after = rows.map((x) => (x.id === row.id ? { ...x, answer: 'dispute' as const, reason, note, zoho: res.zoho, error: res.error || null } : x));
     setList((l) => (l ? { ...l, rows: after } : l));
@@ -633,6 +662,7 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
       <>
         <Slab>{head}<h1 className="m-0 text-lg font-bold">{rows.length ? 'أنهيت إقرار دين عملائك ✓' : 'لا ديون على عملائك في هذه الصورة'}</h1></Slab>
         <div className="mt-4 flex flex-col gap-3">
+          {undoLine}
           {rows.length ? (
             <Block title="الخلاصة">
               <dl className="m-0 flex flex-col">
@@ -671,7 +701,9 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
         </div>
       </Slab>
 
-      <div key={r.id} className="mt-4 flex animate-fade-in flex-col gap-3">
+      {undoLine ? <div className="mt-2">{undoLine}</div> : null}
+      {/* مفتاح مختلف عن مفتاح اللوحة السفلية أدناه: مفتاحان متطابقان بين الإخوة يُبقيان محتوى العميل السابق */}
+      <div key={'body-' + r.id} className="mt-4 flex animate-fade-in flex-col gap-3">
         <dl className="m-0 flex flex-col">
           <KV label="في الصورة السابقة" after={diff ? <>{diff > 0 ? 'زاد ' : 'نقص '}<Amount value={Math.abs(diff)} /></> : undefined}>
             {r.prev === null ? <span className="font-normal text-muted">{list.had_prev ? 'جديد في قائمتك' : 'أول صورة'}</span>
@@ -698,7 +730,12 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
             </ul>
           </Block>
         ) : null}
-        {r.answer === 'ok' ? <Note plain className="text-foreground"><Check aria-hidden className="size-4" strokeWidth={3} />أقررت بدينه. يمكنك تغيير جوابك.</Note> : null}
+        {r.answer === 'ok' ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Note plain className="text-foreground">أقررت بدينه.</Note>
+            <Button className="ack-clear" onClick={() => undo(r.id)}>تراجع عن الإقرار</Button>
+          </div>
+        ) : null}
         {r.answer === 'dispute' ? (
           <Block title="اعترضت على دينه" className="border-s-3 border-s-warning ps-3">
             <p className="my-1 text-base [overflow-wrap:anywhere]">{reasonText(r.reason)}{r.note ? ': ' + r.note : '.'}</p>
@@ -719,7 +756,7 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
         )}
       </div>
 
-      <DisputeSheet key={r.id} open={dispute} row={r} cycle={list.cycle} rep={list.rep || ''} takenAt={list.taken_at} onClose={() => setDispute(false)} onSaved={disputed} />
+      <DisputeSheet key={'sheet-' + r.id} open={dispute} row={r} cycle={list.cycle} rep={list.rep || ''} takenAt={list.taken_at} onClose={() => setDispute(false)} onSaved={disputed} />
     </>
   );
 }
@@ -770,9 +807,10 @@ function DisputeSheet({ open, row, cycle, rep, takenAt, onClose, onSaved }: {
 }
 
 // ——— بطاقة العميل ———
-function CustomerPage({ data, id, me, onBack }: { data: CollData | null; id: string; me: Me; onBack: () => void }) {
+function CustomerPage({ data, id, me, onBack, onChanged }: { data: CollData | null; id: string; me: Me; onBack: () => void; onChanged: () => void }) {
   const c = data?.customers.find((x) => x.id === id);
   useFixedBottom(68, !!c);
+  const [undoing, setUndoing] = useState(false);
   // رأس الصفحة: لوح أحمر ملاصق للشريط العلوي، كما في صفحة الشيك
   const top = <Slab><SlabTop onBack={onBack} /><h1 className="m-0 text-lg font-bold">رصيد العميل</h1></Slab>;
   if (!data) return <>{top}<SkeletonList rows={3} /></>;
@@ -783,6 +821,21 @@ function CustomerPage({ data, id, me, onBack }: { data: CollData | null; id: str
   const a = ak?.items[c.id];
   const mine = isMine(data, c);
   const day = ak ? dayOf(ak.taken_at) : '';
+  // التراجع عن إقرار المستخدم نفسه في الدورة الحالية. للمندوب يعود القفل حتى يجيب من جديد
+  async function undoAck() {
+    if (!ak || !c) return;
+    setUndoing(true);
+    try {
+      await api('/api/m/coll/ack', { method: 'POST', body: { cycle: ak.cycle, customer_id: c.id, answer: 'clear' } });
+      toast('تراجعت عن إقرار دين ' + c.name);
+      onChanged();
+      loadAckStatus().catch(() => { /* تُحدَّث لاحقاً */ });
+    } catch (e) {
+      toast(errText(e), 'err');
+    } finally {
+      setUndoing(false);
+    }
+  }
 
   return (
     <>
@@ -806,7 +859,10 @@ function CustomerPage({ data, id, me, onBack }: { data: CollData | null; id: str
               </Block>
             ) : <Note tone="warn">{`لم يُقرّ المندوب بدين هذا العميل في صورة يوم ${day}.`}</Note>)
               : a.answer === 'ok' ? (
-                <Note plain className="text-foreground"><Check aria-hidden className="size-4" strokeWidth={3} />{`${mine ? 'أقررت' : 'أقرّ ' + (a.by || '')} بدينه في صورة يوم ${day}، ${a.at ? timeOf(a.at) : ''}.`.replace('  ', ' ')}</Note>
+                <div className="flex flex-col gap-2">
+                  <Note plain className="text-foreground">{`${mine ? 'أقررت' : 'أقرّ ' + (a.by || '')} بدينه في صورة يوم ${day}، ${a.at ? timeOf(a.at) : ''}.`.replace('  ', ' ')}</Note>
+                  {mine ? <Button className="w-full" disabled={undoing} onClick={undoAck}>{undoing ? 'جارٍ التراجع…' : 'تراجع عن إقرارك'}</Button> : null}
+                </div>
               ) : (
                 <Block title={`اعتراض ${mine ? '' : (a.by || '') + ' '}${a.at ? timeOf(a.at) : ''}`.replace('  ', ' ')} className="border-s-3 border-s-warning ps-3">
                   <p className="my-1 text-base [overflow-wrap:anywhere]">{reasonText(a.reason)}{a.note ? ': ' + a.note : '.'}</p>
