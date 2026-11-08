@@ -94,12 +94,16 @@ export function useChequePhoto(reader: boolean, kind: 'in' | 'out', fill: (amoun
   return { image, reading, readNote, onFile };
 }
 
+// العميل المختار مسبقاً: من زر «سجّل شيكاً منه» في صفحة العميل (8/11/2026، بطلب ZEKRI). يُؤخذ مرة واحدة
+let preset: Party | null = null;
+export function registerFor(p: Party) { preset = p; location.hash = '#cheques/new'; }
+
 export function RegisterPage({ onDone }: { onDone: (pid: string) => void }) {
   const [opts, setOpts] = useState<Options | null>(null);
   const [loadError, setLoadError] = useState('');
   const [kind, setKind] = useState<'in' | 'out'>('in');
   const [outKey, setOutKey] = useState(0);
-  const [customer, setCustomer] = useState<Party | null>(null);
+  const [customer, setCustomer] = useState<Party | null>(() => { const p = preset; preset = null; return p; });
   const [suggest, setSuggest] = useState<Suggest | null>(null);
   const [vendor, setVendor] = useState<Party | null>(null);
   const [amount, setAmount] = useState('');

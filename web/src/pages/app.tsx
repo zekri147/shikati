@@ -94,7 +94,8 @@ export function AppPage() {
       </Main>
       <Footer />
       {me ? <AppNav hash={hash} modules={available.map((m) => m.id)} locked={locked} left={ackLeft(ack)} /> : null}
-      {me && mod?.id === 'cheques' ? <Welcome name={me.user.display_name} /> : null}
+      {/* الترحيب بعد القفل لا فوقه: ينتظر حالة الإقرار، فيراه المندوب حين يُفتح له التطبيق */}
+      {me && (!hasAck || ack) && !locked && hash !== ACK ? <Welcome name={me.user.display_name} rep={me.user.role === 'rep'} /> : null}
       {me ? <PasskeyOffer /> : null}
       {me ? <NotifyOffer admin={me.user.role === 'admin'} /> : null}
     </>
@@ -120,18 +121,33 @@ function useAckRefresh(on: boolean) {
 
 // بطاقة ترحيب تظهر مرة واحدة على كل جهاز عند أول دخول: ثلاث خطوات، ومكان المساعدة
 const WELCOME_KEY = 'shikati-welcome-seen';
-function Welcome({ name }: { name: string }) {
+function Welcome({ name, rep }: { name: string; rep: boolean }) {
   const [open, setOpen] = useState(() => load(WELCOME_KEY) !== '1');
   const close = () => { save(WELCOME_KEY, '1'); setOpen(false); };
   if (!open) return null;
   return (
     <Modal open={open} onClose={close} title={'مرحباً ' + name}>
-      <p>ميداني مكانك لشيكات العملاء وتحصيلهم. عمل الشيكات اليومي في ثلاث خطوات:</p>
-      <ol className="my-1 mb-3 ps-6 [&>li]:my-2">
-        <li>سلّم الشيكات للبنك، ثم المس في شاشة «الإيداع» كل شيك سلّمته.</li>
-        <li>اضغط «أودعت المحدد» في أسفل الشاشة، ثم «تأكيد الإيداع».</li>
-        <li>لتسجيل شيك استلمته: تبويب «تسجيل» في الأسفل، ثم «تصوير الشيك».</li>
-      </ol>
+      {rep ? (
+        // المندوب (8/11/2026): التسجيل أولاً، ثم عملاؤه، ثم الإيداع، والإقرار كل أسبوعين
+        <>
+          <p>ميداني مكانك لعملائك وشيكاتهم. عملك فيه:</p>
+          <ol className="my-1 mb-3 ps-6 [&>li]:my-2">
+            <li>كل شيك تستلمه: زر «تسجيل» الأحمر في الأسفل، ثم «تصوير الشيك». أو من صفحة العميل: «سجّل شيكاً من هذا العميل».</li>
+            <li>عملاؤك وديونهم وفواتيرهم في «التحصيل»، مع الاتصال وواتساب.</li>
+            <li>الشيكات التي سلّمتها للبنك: في «الإيداع» المسها، ثم «أودعت المحدد».</li>
+            <li>كل أسبوعين صباح السبت: أقِرّ بدين عملائك قبل أي عمل آخر.</li>
+          </ol>
+        </>
+      ) : (
+        <>
+          <p>ميداني مكانك لشيكات العملاء وتحصيلهم. عمل الشيكات اليومي في ثلاث خطوات:</p>
+          <ol className="my-1 mb-3 ps-6 [&>li]:my-2">
+            <li>سلّم الشيكات للبنك، ثم المس في شاشة «الإيداع» كل شيك سلّمته.</li>
+            <li>اضغط «أودعت المحدد» في أسفل الشاشة، ثم «تأكيد الإيداع».</li>
+            <li>لتسجيل شيك استلمته: تبويب «تسجيل» في الأسفل، ثم «تصوير الشيك».</li>
+          </ol>
+        </>
+      )}
       <Note>المساعدة في زر «القائمة» أعلى الشاشة، متى احتجتها.</Note>
       <ModalActions>
         <Button variant="primary" onClick={close} autoFocus>فهمت، ابدأ</Button>

@@ -26,6 +26,7 @@ import { haptic, isShared, markShared, sharedStyle } from '@/lib/motion';
 import { LIST_BOX, LateMark } from '@/features/cheques/ui';
 import { Block, KV } from '@/features/cheques/pickers';
 import { loadAckStatus, peekAfterAck, setAckCounts, takeAfterAck } from '@/lib/ack';
+import { registerFor } from '@/features/cheques/register';
 
 const STALE_MS = 5 * 60_000;
 const PAGE = 40;
@@ -873,6 +874,9 @@ function CustomerPage({ data, id, me, onBack, onChanged }: { data: CollData | nu
                 </Block>
               )
         ) : null}
+
+        {/* المندوب أمام العميل واستلم شيكاً: التسجيل والعميل مختار */}
+        <Button className="reg-for w-full" onClick={() => registerFor({ id: c.id, name: c.name })}><PenLine aria-hidden className="size-4.5" />سجّل شيكاً من هذا العميل</Button>
 
         <Block title="الرصيد">
           <dl className="m-0 flex flex-col">
