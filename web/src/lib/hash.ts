@@ -27,6 +27,14 @@ if (typeof window !== 'undefined') {
   });
 }
 
+// تبديل العنوان دون انتقال ولا سطر جديد في سجل الرجوع: لشاشة البداية عند فتح التطبيق
+export function replaceHash(next: string) {
+  if (next === current) return;
+  history.replaceState(history.state, '', next);
+  current = next;
+  subs.forEach((s) => s());
+}
+
 export function useHash(): string {
   return useSyncExternalStore((cb) => { subs.add(cb); return () => { subs.delete(cb); }; }, () => current);
 }

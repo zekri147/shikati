@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Modal, ModalActions } from '@/components/ui/dialog';
 import { ErrorBox, Footer, Main, Note, SkeletonList, TopBar, type MenuLink } from '@/components/shell';
 import { api, errText, type Me } from '@/lib/api';
-import { useHash } from '@/lib/hash';
+import { replaceHash, useHash } from '@/lib/hash';
 import { load, save } from '@/lib/storage';
 import { readCache, writeCache } from '@/lib/cache';
 import { ChequesModule } from '@/features/cheques/ChequesModule';
@@ -15,6 +15,9 @@ import { disablePush, enablePush, pushState, syncPush, testPush, type PushState 
 
 const MODULES: Record<string, React.ComponentType<{ me: Me; hash: string }>> = { cheques: ChequesModule, coll: CollModule };
 
+// العنوان لحظة فتح التطبيق: فارغ عند الفتح من الأيقونة وبعد الدخول، وفيه الشاشة عند الفتح من إشعار أو رابط
+const OPENED_AT = typeof location !== 'undefined' ? location.hash.replace(/^#/, '') : '';
+
 // الهيكل العام: يقرأ المستخدم والأقسام المتاحة له، ويعرض القسم المطلوب بحسب العنوان بعد #
 export function AppPage() {
   const hash = useHash();
@@ -24,6 +27,15 @@ export function AppPage() {
   useEffect(() => {
     api<Me>('/api/me').then((m) => { setMe(m); writeCache('me', m); }).catch((e) => setMe((old) => { if (!old) setError(errText(e)); return old; }));
   }, []);
+
+  // شاشة البداية للمندوب (بطلب ZEKRI يوم 8/11/2026): التسجيل في كل فتح للتطبيق.
+  // مرة واحدة عند الفتح، وقبل الرسم، فلا تظهر شاشة الإيداع لحظة. الفتح من إشعار أو رابط يبقى على شاشته.
+  const landed = useRef(false);
+  useLayoutEffect(() => {
+    if (!me || landed.current) return;
+    landed.current = true;
+    if (!OPENED_AT && me.user.role === 'rep') replaceHash('#cheques/new');
+  }, [me]);
 
   const available = me ? me.modules.filter((m) => MODULES[m.id]) : [];
   const wanted = hash.slice(1).split('/')[0];
