@@ -5,14 +5,15 @@ import { cacheGet, cachePut, zohoGet } from '../zoho';
 import { todayAlgiers } from './constants';
 import type { AppModule } from './types';
 import { commentText, postReviewComment, type CommentResult } from './collcomment';
+import { ackAdmin, ackAdminResolve, ackAdminSend, ackItems, ackList, ackStatus, ensureSnapshot, saveAck } from './debtack';
 
 // قسم «التحصيل» (7/11/2026، بطلب ZEKRI): أرصدة العملاء المدينين لكل مندوب، قراءة فقط من زوهو.
 // نقل من تبويب «التحصيل» في قائمة الاتصال، لكن الأرقام هنا حيّة بدل سكربت الصباح.
 // العميل ينسب إلى مندوبه بالحقل المخصص «Owner» (cf_owner) على العميل في زوهو.
 // المندوب يرى عملاءه فقط، والتصفية في الخادم. المدير يرى الكل ويختار المندوب.
-// المراجعة الأسبوعية تُحفظ في الجدول coll_reviews، ثم تُرسل فوراً تعليقاً على العميل في زوهو.
-// منذ 7/11/2026 (بطلب ZEKRI) تشمل كل عميل مدين، وعدد ما يحتاجه كل مندوب يُحفظ في coll_week_need.
-// الكتابة في زوهو نفسها في collcomment.ts وحده (بموافقة ZEKRI يوم 7/11/2026).
+// منذ 8/11/2026 (بطلب ZEKRI) إقرار الدين كل 14 يوماً بدل المراجعة الأسبوعية: في debtack.ts.
+// المراجعات القديمة باقية في coll_reviews، وللمدير إرسال ما لم يصل منها إلى زوهو.
+// الكتابة في زوهو نفسها في collcomment.ts وحده.
 
 const CACHE_KEY = 'coll_snapshot';
 const TTL = 600;            // عشر دقائق
@@ -136,7 +137,7 @@ async function fetchUnpaidInvoices(env: Env): Promise<ZohoInvoice[]> {
   return out;
 }
 
-async function getSnapshot(env: Env, refresh: boolean): Promise<Snapshot> {
+export async function getSnapshot(env: Env, refresh: boolean): Promise<Snapshot> {
   const cached = await cacheGet(env, CACHE_KEY);
   if (cached) {
     const snap = JSON.parse(cached) as Snapshot;
@@ -146,77 +147,22 @@ async function getSnapshot(env: Env, refresh: boolean): Promise<Snapshot> {
   const [contacts, invoices] = await Promise.all([fetchDebtors(env), fetchUnpaidInvoices(env)]);
   const snap: Snapshot = { at: nowSec(), today, customers: buildSnapshot(contacts, invoices, today) };
   await cachePut(env, CACHE_KEY, JSON.stringify(snap), TTL);
-  await recordNeed(env, snap.customers);
   return snap;
 }
 
 const isOld = (c: CollCustomer) => c.late === null || c.late > 90;
-// من يحتاج مراجعة هذا الأسبوع: كل عميل مدين له مندوب (منذ 7/11/2026، بطلب ZEKRI).
-// قبلها: من تأخر دينه أكثر من 90 يوماً أو عليه رصيد افتتاحي فقط.
+// من يدخل صورة الدين: كل عميل مدين له مندوب (منذ 7/11/2026، بطلب ZEKRI)
 export const needsReview = (c: CollCustomer) => c.balance >= 1 && !!c.owner;
 
-// عدد من يحتاج مراجعة لكل مندوب هذا الأسبوع: يُستبدل كاملاً مع كل تحديث للأرصدة، فيبقى آخر رقم بعد نهاية الأسبوع
-export function needByRep(customers: CollCustomer[]): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const c of customers) if (needsReview(c)) out.set(c.owner, (out.get(c.owner) || 0) + 1);
-  return out;
-}
-async function recordNeed(env: Env, customers: CollCustomer[]) {
-  const week = reviewWeek(todayAlgiers());
-  const stmts = [env.DB.prepare('DELETE FROM coll_week_need WHERE week = ?').bind(week)];
-  for (const [rep, need] of needByRep(customers)) {
-    stmts.push(env.DB.prepare('INSERT INTO coll_week_need (week, rep, need) VALUES (?, ?, ?)').bind(week, rep, need));
-  }
-  try { await env.DB.batch(stmts); } catch (e) { console.error('coll_week_need', e); }
-}
+// ——— المراجعات الأسبوعية القديمة (قبل 8/11/2026): للمدير إرسال ما لم يصل منها إلى زوهو ———
 
-// ——— المراجعة الأسبوعية: الأسبوع من السبت إلى الخميس، والأجل الخميس 12:00 بتوقيت الجزائر ———
-
-const NOTE_MAX = 400;
 const ID_RE = /^\d{10,25}$/;
-
-// تاريخ سبت الأسبوع الذي فيه اليوم (بتوقيت الجزائر). الجمعة تتبع الأسبوع الذي بدأ قبلها.
-export function reviewWeek(today: string): string {
-  const d = new Date(today + 'T12:00:00Z');
-  const back = (d.getUTCDay() + 1) % 7; // السبت 0، الأحد 1، ... الجمعة 6
-  d.setUTCDate(d.getUTCDate() - back);
-  return d.toISOString().slice(0, 10);
-}
-// الخميس 12:00 بتوقيت الجزائر (غرينتش +1 طوال السنة) = 11:00 بتوقيت غرينتش
-export function reviewDeadline(week: string): number {
-  return Date.parse(week + 'T11:00:00Z') + 5 * 86_400_000;
-}
 
 interface ReviewRow {
   week: string; customer_id: string; rep: string; customer_name: string; balance: number; note: string;
   username: string; reviewed_at: string; late: number; zoho_state: string; zoho_error: string | null;
 }
 const REVIEW_COLS = 'week, customer_id, rep, customer_name, balance, note, username, reviewed_at, late, zoho_state, zoho_error';
-
-async function weekReviews(env: Env, week: string, rep?: string): Promise<ReviewRow[]> {
-  const sql = `SELECT ${REVIEW_COLS} FROM coll_reviews WHERE week = ?` + (rep ? ' AND rep = ?' : '');
-  const stmt = rep ? env.DB.prepare(sql).bind(week, rep) : env.DB.prepare(sql).bind(week);
-  return (await stmt.all<ReviewRow>()).results || [];
-}
-
-// تقدّم المراجعة لكل مندوب: كم يحتاج، وكم راجع، وآخر مراجعة
-function reviewProgress(customers: CollCustomer[], rows: ReviewRow[]) {
-  const done = new Map(rows.map((r) => [r.customer_id, r]));
-  const out = new Map<string, { rep: string; need: number; done: number; last: string; late: number }>();
-  for (const c of customers) {
-    if (!c.owner || !needsReview(c)) continue;
-    const p = out.get(c.owner) || { rep: c.owner, need: 0, done: 0, last: '', late: 0 };
-    p.need++;
-    const r = done.get(c.id);
-    if (r) {
-      p.done++;
-      if (r.late) p.late++;
-      if (r.reviewed_at > p.last) p.last = r.reviewed_at;
-    }
-    out.set(c.owner, p);
-  }
-  return [...out.values()].sort((a, b) => a.rep.localeCompare(b.rep));
-}
 
 // ——— الإرسال إلى زوهو (المرحلة الثالثة): الكتابة نفسها في collcomment.ts ———
 
@@ -247,53 +193,6 @@ async function sendRow(env: Env, actor: User, week: string, id: string): Promise
   await audit(env, actor, 'coll.comment', result.state === 'done' ? 'ok' : 'error', row.customer_name,
     result.state === 'done' ? undefined : `${result.state}: ${result.error}`);
   return result.state === 'done' ? { state: 'done' } : { state: result.state, error: result.error };
-}
-
-// تسجيل المراجعة ثم إرسالها فوراً تعليقاً على العميل في زوهو. المندوب يراجع عملاءه فقط.
-// بعد الإرسال تُقفل المراجعة. والمرفوضة من زوهو تُعدَّل ملاحظتها وتُرسل من جديد.
-async function saveReview(req: Request, env: Env, user: User): Promise<Response> {
-  const b = await readJson<{ customer_id?: string; note?: string }>(req);
-  const id = String(b.customer_id || '');
-  if (!ID_RE.test(id)) throw new HttpError(400, 'العميل غير صالح.');
-  const note = String(b.note ?? '').replace(/\s+/g, ' ').trim().slice(0, NOTE_MAX);
-  const own = normRep(user.rep_code);
-  // المدير يراجع أيضاً عملاء رمزه إن كان له رمز (بطلب ZEKRI يوم 7/11/2026)
-  if (!own) throw new HttpError(403, 'المراجعة للمندوب صاحب العميل فقط.');
-  const snap = await getSnapshot(env, false);
-  const c = snap.customers.find((x) => x.id === id);
-  if (!c || c.owner !== own) throw new HttpError(403, 'هذا العميل ليس من عملائك.');
-  if (!needsReview(c)) throw new HttpError(400, 'هذا العميل لا يحتاج مراجعة هذا الأسبوع.');
-  const now = Date.now();
-  const week = reviewWeek(todayAlgiers(new Date(now)));
-  const late = now > reviewDeadline(week) ? 1 : 0;
-  // مراجعة جديدة، أو تعديل ملاحظة مراجعة لم تصل إلى زوهو
-  const up = await env.DB.prepare(
-    'INSERT INTO coll_reviews (week, customer_id, rep, customer_name, balance, note, user_id, username, late, zoho_state) ' +
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'none') " +
-    `ON CONFLICT(week, customer_id) DO UPDATE SET note = excluded.note WHERE coll_reviews.zoho_state IN ${SENDABLE}`,
-  ).bind(week, id, own, c.name, c.balance, note, user.id, user.username, late).run();
-  if (!up.meta.changes) {
-    const cur = await env.DB.prepare('SELECT zoho_state FROM coll_reviews WHERE week = ? AND customer_id = ?').bind(week, id).first<{ zoho_state: string }>();
-    throw new HttpError(409, cur?.zoho_state === 'done'
-      ? 'سُجّلت هذه المراجعة في زوهو، فلا تُعدَّل.'
-      : 'لم يصل رد واضح من زوهو لهذه المراجعة. لا تعد المحاولة: الإدارة تتحقق منها.');
-  }
-  await audit(env, user, 'coll.review', 'ok', c.name, note ? 'note' : undefined);
-  const sent = await sendRow(env, user, week, id);
-  return json({ ok: true, week, late: !!late, zoho: sent.state, error: sent.error });
-}
-
-// الإلغاء ممكن فقط لمراجعة لم تصل إلى زوهو
-async function cancelReview(env: Env, user: User, id: string): Promise<Response> {
-  if (!ID_RE.test(id)) throw new HttpError(400, 'العميل غير صالح.');
-  const own = normRep(user.rep_code);
-  if (!own) throw new HttpError(403, 'المراجعة للمندوب صاحب العميل فقط.');
-  const week = reviewWeek(todayAlgiers());
-  const r = await env.DB.prepare(`DELETE FROM coll_reviews WHERE week = ? AND customer_id = ? AND rep = ? AND zoho_state IN ${SENDABLE}`)
-    .bind(week, id, own).run();
-  if (!r.meta.changes) throw new HttpError(409, 'لا مراجعة قابلة للإلغاء: ما سُجّل في زوهو لا يُلغى من التطبيق.');
-  await audit(env, user, 'coll.review.cancel', 'ok', id);
-  return json({ ok: true });
 }
 
 // ——— للمدير: المراجعات التي لم تصل إلى زوهو، في كل الأسابيع ———
@@ -332,48 +231,6 @@ async function adminResolve(req: Request, env: Env, user: User): Promise<Respons
   return json({ ok: true });
 }
 
-// ——— التذكير: كم بقي للمندوب هذا الأسبوع، لسطر التذكير الثابت في كل الشاشات ———
-
-async function reviewStatus(env: Env, user: User): Promise<Response> {
-  const own = normRep(user.rep_code);
-  const week = reviewWeek(todayAlgiers());
-  const deadline = reviewDeadline(week);
-  if (!own) return json({ week, deadline, need: 0, done: 0 });
-  const snap = await getSnapshot(env, false);
-  const mine = snap.customers.filter((c) => c.owner === own && needsReview(c));
-  const rows = await weekReviews(env, week, own);
-  const done = new Set(rows.map((r) => r.customer_id));
-  return json({ week, deadline, need: mine.length, done: mine.filter((c) => done.has(c.id)).length });
-}
-
-// للإشعارات (src/notify.ts): كم بقي لكل مندوب من عملائه المدينين دون مراجعة هذا الأسبوع
-export async function reviewLeftByRep(env: Env, today = todayAlgiers()): Promise<{ week: string; deadline: number; left: Map<string, number> }> {
-  const week = reviewWeek(today);
-  const snap = await getSnapshot(env, false);
-  const done = new Set((await weekReviews(env, week)).map((r) => r.customer_id));
-  const left = new Map<string, number>();
-  for (const c of snap.customers) if (needsReview(c) && !done.has(c.id)) left.set(c.owner, (left.get(c.owner) || 0) + 1);
-  return { week, deadline: reviewDeadline(week), left };
-}
-
-// للمدير: الأسابيع الماضية لكل مندوب، كم احتاج وكم راجع وكم بعد الأجل (آخر 8 أسابيع)
-async function reviewHistory(env: Env, week: string) {
-  const { results } = await env.DB.prepare(
-    'SELECT n.week AS week, n.rep AS rep, n.need AS need, ' +
-    '(SELECT COUNT(*) FROM coll_reviews r WHERE r.week = n.week AND r.rep = n.rep) AS done, ' +
-    '(SELECT COUNT(*) FROM coll_reviews r WHERE r.week = n.week AND r.rep = n.rep AND r.late = 1) AS late ' +
-    'FROM coll_week_need n WHERE n.week < ? ORDER BY n.week DESC, n.rep LIMIT 80',
-  ).bind(week).all<{ week: string; rep: string; need: number; done: number; late: number }>();
-  const weeks = new Map<string, { week: string; reps: { rep: string; need: number; done: number; late: number }[] }>();
-  for (const r of results || []) {
-    const w = weeks.get(r.week) || { week: r.week, reps: [] };
-    // من سدّد دينه بعد مراجعته يخرج من العدد، فلا يتجاوز ما راجعه ما احتاجه
-    w.reps.push({ rep: r.rep, need: r.need, done: Math.min(r.done, r.need), late: Math.min(r.late, r.done, r.need) });
-    weeks.set(r.week, w);
-  }
-  return [...weeks.values()].slice(0, 8);
-}
-
 function summarize(customers: CollCustomer[]) {
   const reps = new Map<string, { rep: string; total: number; old: number; count: number }>();
   for (const c of customers) {
@@ -400,17 +257,9 @@ export async function handleCollect(req: Request, env: Env, user: User): Promise
   const customers = rep === ''
     ? (isAdmin ? snap.customers : [])
     : snap.customers.filter((c) => (rep === '-' ? c.owner === '' : c.owner === rep));
-  // المراجعة: أسبوع اليوم، لا أسبوع الصورة المحفوظة
-  const week = reviewWeek(todayAlgiers());
-  const rows = await weekReviews(env, week, isAdmin ? undefined : own);
-  const shown = new Set(customers.map((c) => c.id));
-  const reviews: Record<string, { at: string; note: string; late: boolean; by: string; zoho: string }> = {};
-  for (const r of rows) if (shown.has(r.customer_id)) reviews[r.customer_id] = { at: r.reviewed_at, note: r.note, late: !!r.late, by: r.username, zoho: r.zoho_state };
-  // مراجعة الأسبوع الماضي لكل عميل ظاهر: يراها المندوب في شاشة المراجعة قبل أن يتصل
-  const prevWeek = new Date(Date.parse(week + 'T12:00:00Z') - 7 * 86_400_000).toISOString().slice(0, 10);
-  const prevRows = await weekReviews(env, prevWeek, isAdmin ? undefined : own);
-  const prev: Record<string, { at: string; note: string }> = {};
-  for (const r of prevRows) if (shown.has(r.customer_id)) prev[r.customer_id] = { at: r.reviewed_at, note: r.note };
+  // إقرار الدين: صورة الدورة الحالية، وجواب كل عميل فيها
+  const cs = await ensureSnapshot(env);
+  const ackRep = isAdmin ? (rep && rep !== '-' ? rep : undefined) : own;
   return json({
     at: snap.at * 1000,
     today: snap.today,
@@ -419,21 +268,14 @@ export async function handleCollect(req: Request, env: Env, user: User): Promise
     is_admin: isAdmin,
     customers,
     reps: isAdmin ? summarize(snap.customers) : undefined,
-    review: {
-      week,
-      deadline: reviewDeadline(week),
-      // كل من له رمز مندوب يراجع عملاء رمزه، والمدير منهم
-      can_review: !!own,
-      items: reviews,
-      prev,
-      // المدير: تقدّم كل مندوب، وكل الملاحظات المكتوبة هذا الأسبوع
-      progress: isAdmin ? reviewProgress(snap.customers, rows) : undefined,
-      notes: isAdmin ? rows.filter((r) => r.note).sort((a, b) => b.reviewed_at.localeCompare(a.reviewed_at))
-        .map((r) => ({ rep: r.rep, name: r.customer_name, note: r.note, at: r.reviewed_at, late: !!r.late })) : undefined,
-      // المدير: ما لم يصل إلى زوهو، مع سببه
-      unsent: isAdmin ? await unsent(env) : undefined,
-      // المدير: سجل الالتزام في الأسابيع الماضية
-      history: isAdmin ? await reviewHistory(env, week) : undefined,
+    ack: {
+      ...cs,
+      // كل من له رمز مندوب يقرّ بدين عملاء رمزه، والمدير منهم (دون قفل)
+      can_ack: !!own,
+      items: cs.state === 'ready' && (ackRep || isAdmin) ? await ackItems(env, cs.cycle, ackRep) : {},
+      // المدير: تقدّم المندوبين والاعتراضات والدورات الماضية، والمراجعات القديمة التي لم تصل إلى زوهو
+      admin: isAdmin && cs.state === 'ready' ? await ackAdmin(env, cs.cycle) : undefined,
+      old_unsent: isAdmin ? await unsent(env) : undefined,
     },
   });
 }
@@ -446,12 +288,14 @@ export const collectModule: AppModule = {
   allow: (user) => user.role === 'admin' || !!normRep(user.rep_code),
   async handle(req, env, user, subpath) {
     if (req.method === 'GET' && (subpath === '' || subpath === '/')) return handleCollect(req, env, user);
-    if (req.method === 'GET' && subpath === '/status') return reviewStatus(env, user);
-    if (req.method === 'POST' && subpath === '/review') return saveReview(req, env, user);
+    if (req.method === 'GET' && subpath === '/status') return ackStatus(env, user);
+    if (req.method === 'GET' && subpath === '/ack') return ackList(env, user);
+    if (req.method === 'POST' && subpath === '/ack') return saveAck(req, env, user);
+    if (req.method === 'POST' && subpath === '/ack/send' && user.role === 'admin') return ackAdminSend(req, env, user);
+    if (req.method === 'POST' && subpath === '/ack/resolve' && user.role === 'admin') return ackAdminResolve(req, env, user);
+    // المراجعات الأسبوعية القديمة: للمدير وحده
     if (req.method === 'POST' && subpath === '/review/send' && user.role === 'admin') return adminSend(req, env, user);
     if (req.method === 'POST' && subpath === '/review/resolve' && user.role === 'admin') return adminResolve(req, env, user);
-    const m = subpath.match(/^\/review\/(\d{10,25})$/);
-    if (req.method === 'DELETE' && m) return cancelReview(env, user, m[1]);
     throw new HttpError(404, 'غير موجود.');
   },
 };

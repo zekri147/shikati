@@ -24,10 +24,10 @@ const TYPES: { key: keyof Settings; title: string; desc: string }[] = [
   { key: 'handover', title: 'شيك سُلّم إليك', desc: 'فوراً للمستلم، ولمن سلّمه إن رُفض الاستلام.' },
   { key: 'rejected', title: 'شيك مرفوض', desc: 'للمدير، ولمندوب العميل، ولمن سجّله، ولمن كان في عهدته.' },
   { key: 'late', title: 'شيكات تأخر إيداعها', desc: 'كل صباح لمن هي في عهدته.' },
-  { key: 'review', title: 'تذكير المراجعة الأسبوعية', desc: 'مرة في اليوم حتى يكملها المندوب.' },
+  { key: 'review', title: 'تذكير إقرار الدين', desc: 'مرة في اليوم حتى يكمل المندوب إقرار صورة الدين.' },
   { key: 'admin_daily', title: 'ملخص تنبيهات اليوم', desc: 'كل صباح للمدير.' },
 ];
-// أيام الأسبوع بالترتيب الذي يبدأ به أسبوع المراجعة (السبت). القيمة رقم اليوم: 0 الأحد ... 6 السبت
+// أيام الأسبوع بالترتيب الذي تبدأ به دورة إقرار الدين (السبت). القيمة رقم اليوم: 0 الأحد ... 6 السبت
 const DAYS = [['6', 'السبت'], ['0', 'الأحد'], ['1', 'الإثنين'], ['2', 'الثلاثاء'], ['3', 'الأربعاء'], ['4', 'الخميس'], ['5', 'الجمعة']] as const;
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 7);
 const LATE = [3, 4, 5, 6, 7, 8, 10, 12, 14, 21, 30];
@@ -128,14 +128,14 @@ export function NotifyTab() {
             {[...new Set([...LATE, s.late_days])].sort((a, b) => a - b).map((d) => <option key={d} value={d}>{dayCount(d)} في الحوزة</option>)}
           </Select>
         </Field>
-        <Field label="ساعة تذكير المراجعة">
-          <Select label="ساعة تذكير المراجعة" value={String(s.review_hour)} onChange={(v) => set('review_hour', Number(v))}>
+        <Field label="ساعة تذكير الإقرار">
+          <Select label="ساعة تذكير الإقرار" value={String(s.review_hour)} onChange={(v) => set('review_hour', Number(v))}>
             {HOURS.map((h) => <option key={h} value={h}>{h}:00</option>)}
           </Select>
         </Field>
         <div className="mb-3">
-          <span className="mb-2 block text-sm font-semibold">أيام تذكير المراجعة</span>
-          <ToggleChips label="أيام تذكير المراجعة" value={s.review_days.map(String)} onChange={(v) => set('review_days', v.map(Number))}
+          <span className="mb-2 block text-sm font-semibold">أيام تذكير الإقرار</span>
+          <ToggleChips label="أيام تذكير الإقرار" value={s.review_days.map(String)} onChange={(v) => set('review_days', v.map(Number))}
             options={DAYS.map(([value, label]) => ({ value, label }))} />
         </div>
       </Block>

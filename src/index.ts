@@ -87,7 +87,7 @@ export default {
       return errorResponse(e);
     }
   },
-  // المهمة المجدولة (wrangler.toml): إشعارات الشيكات المرفوضة والمتأخرة والمراجعة الأسبوعية
+  // المهمة المجدولة (wrangler.toml): صورة الدين، وإشعارات الشيكات المرفوضة والمتأخرة وإقرار الدين
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(runScheduled(env, new Date(event.scheduledTime)));
   },

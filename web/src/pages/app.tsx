@@ -8,7 +8,8 @@ import { load, save } from '@/lib/storage';
 import { readCache, writeCache } from '@/lib/cache';
 import { ChequesModule } from '@/features/cheques/ChequesModule';
 import { CollModule } from '@/features/coll/CollModule';
-import { AppNav, setReviewLeft } from '@/components/nav';
+import { AppNav } from '@/components/nav';
+import { ackLeft, initAck, loadAckStatus, useAckStatus } from '@/lib/ack';
 import { toast } from '@/components/toast';
 import { enablePasskey, passkeyOnDevice, passkeySupported } from '@/lib/passkey';
 import { disablePush, enablePush, pushState, syncPush, testPush, type PushState } from '@/lib/push';
@@ -17,6 +18,10 @@ const MODULES: Record<string, React.ComponentType<{ me: Me; hash: string }>> = {
 
 // العنوان لحظة فتح التطبيق: فارغ عند الفتح من الأيقونة وبعد الدخول، وفيه الشاشة عند الفتح من إشعار أو رابط
 const OPENED_AT = typeof location !== 'undefined' ? location.hash.replace(/^#/, '') : '';
+// ما يبقى مفتوحاً للمندوب قبل أن ينهي إقرار الدين: شاشة الإقرار، وتسجيل الشيك (اختيار ZEKRI يوم 8/11/2026)
+const ACK = '#coll/ack';
+const REGISTER = '#cheques/new';
+const LOCK_OPEN = [ACK, REGISTER];
 
 // الهيكل العام: يقرأ المستخدم والأقسام المتاحة له، ويعرض القسم المطلوب بحسب العنوان بعد #
 export function AppPage() {
@@ -28,16 +33,31 @@ export function AppPage() {
     api<Me>('/api/me').then((m) => { setMe(m); writeCache('me', m); }).catch((e) => setMe((old) => { if (!old) setError(errText(e)); return old; }));
   }, []);
 
-  // شاشة البداية للمندوب (بطلب ZEKRI يوم 8/11/2026): التسجيل في كل فتح للتطبيق.
+  const available = me ? me.modules.filter((m) => MODULES[m.id]) : [];
+
+  // إقرار الدين (8/11/2026، بطلب ZEKRI): المندوب الذي لم يُنهِ إقرار صورة الدورة لا يفتح إلا الإقرار والتسجيل.
+  // المدير لا يُقفل عليه. الحالة الأخيرة محفوظة على الهاتف، فيعمل القفل فوراً، ثم تُحدَّث من الخادم.
+  if (me) initAck(me.user.username);
+  const ack = useAckStatus();
+  const hasAck = !!me && !!me.user.rep_code && available.some((m) => m.id === 'coll');
+  useAckRefresh(hasAck);
+  const locked = hasAck && me!.user.role === 'rep' && ackLeft(ack) > 0;
+
+  // شاشة البداية للمندوب (بطلب ZEKRI يوم 8/11/2026): التسجيل في كل فتح للتطبيق، أو الإقرار ما دام لم ينهه.
   // مرة واحدة عند الفتح، وقبل الرسم، فلا تظهر شاشة الإيداع لحظة. الفتح من إشعار أو رابط يبقى على شاشته.
   const landed = useRef(false);
+  const autoHash = useRef('');
   useLayoutEffect(() => {
     if (!me || landed.current) return;
     landed.current = true;
-    if (!OPENED_AT && me.user.role === 'rep') replaceHash('#cheques/new');
+    if (!OPENED_AT && me.user.role === 'rep') { autoHash.current = locked ? ACK : REGISTER; replaceHash(autoHash.current); }
   }, [me]);
+  // القفل: أي شاشة أخرى تعود إلى الإقرار. وإن وصلت الحالة بعد أن فتح التطبيق على التسجيل تلقائياً، يُنقل إلى الإقرار
+  useLayoutEffect(() => {
+    if (!locked) return;
+    if (!LOCK_OPEN.includes(hash) || (hash === REGISTER && autoHash.current === REGISTER)) { autoHash.current = ACK; replaceHash(ACK); }
+  }, [locked, hash]);
 
-  const available = me ? me.modules.filter((m) => MODULES[m.id]) : [];
   const wanted = hash.slice(1).split('/')[0];
   const mod = available.find((m) => m.id === wanted) || available[0];
   useEffect(() => { if (mod) document.title = mod.title; }, [mod?.id]);
@@ -51,7 +71,6 @@ export function AppPage() {
     { href: '/help', label: 'المساعدة وطريقة الاستعمال' },
   ];
   const Mod = mod ? MODULES[mod.id] : null;
-  useReviewReminder(me, available.some((m) => m.id === 'coll'));
 
   return (
     <>
@@ -63,7 +82,7 @@ export function AppPage() {
               : <Mod key={mod!.id} me={me} hash={hash} />}
       </Main>
       <Footer />
-      {me ? <AppNav hash={hash} modules={available.map((m) => m.id)} /> : null}
+      {me ? <AppNav hash={hash} modules={available.map((m) => m.id)} locked={locked} left={ackLeft(ack)} /> : null}
       {me && mod?.id === 'cheques' ? <Welcome name={me.user.display_name} /> : null}
       {me ? <PasskeyOffer /> : null}
       {me ? <NotifyOffer admin={me.user.role === 'admin'} /> : null}
@@ -71,25 +90,21 @@ export function AppPage() {
   );
 }
 
-// تذكير المراجعة الأسبوعية لصاحب رمز المندوب (المندوب، والمدير إن كان له رمز): كم بقي من عملائه المدينين، لسطر التذكير فوق شريط التنقل.
-// يُطلب عند الفتح، وعند العودة إلى التطبيق بعد خمس دقائق. قسم التحصيل يحدّثه بعد كل مراجعة.
-function useReviewReminder(me: Me | null, hasColl: boolean) {
-  // كل من له رمز مندوب، والمدير منهم إن كان له عملاء
-  const rep = !!me && hasColl && !!me.user.rep_code;
+// حالة إقرار الدين لصاحب رمز المندوب: تُطلب عند الفتح، وعند العودة إلى التطبيق بعد خمس دقائق.
+// شاشة الإقرار تحدّثها بعد كل جواب.
+function useAckRefresh(on: boolean) {
   useEffect(() => {
-    if (!rep) { setReviewLeft({ left: 0, deadline: 0 }); return; }
+    if (!on) return;
     let at = 0;
     const get = () => {
       at = Date.now();
-      api<{ need: number; done: number; deadline: number }>('/api/m/coll/status')
-        .then((r) => setReviewLeft({ left: Math.max(0, r.need - r.done), deadline: r.deadline }))
-        .catch(() => { /* التذكير ثانوي: لا رسالة خطأ */ });
+      loadAckStatus().catch(() => { /* إن تعذّر الطلب تبقى الحالة الأخيرة */ });
     };
     get();
     const onVis = () => { if (document.visibilityState === 'visible' && Date.now() - at > 5 * 60_000) get(); };
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
-  }, [rep]);
+  }, [on]);
 }
 
 // بطاقة ترحيب تظهر مرة واحدة على كل جهاز عند أول دخول: ثلاث خطوات، ومكان المساعدة
@@ -199,8 +214,8 @@ function NotifyOffer({ admin }: { admin: boolean }) {
   }
   if (!state) return null;
   const what = admin
-    ? 'سُلّم إليك شيك، أو رُفض شيك، أو تأخر إيداع شيك في عهدتك، أو اقترب أجل المراجعة الأسبوعية لعملائك. وكل صباح ملخص تنبيهات اليوم.'
-    : 'سُلّم إليك شيك، أو رُفض شيك لعميلك، أو تأخر إيداع شيك في عهدتك، أو اقترب أجل المراجعة الأسبوعية.';
+    ? 'سُلّم إليك شيك، أو رُفض شيك، أو تأخر إيداع شيك في عهدتك، أو جاءت صورة دين عملائك للإقرار. وكل صباح ملخص تنبيهات اليوم.'
+    : 'سُلّم إليك شيك، أو رُفض شيك لعميلك، أو تأخر إيداع شيك في عهدتك، أو جاءت صورة دين عملائك للإقرار.';
   return (
     <Modal open onClose={close} busy={!!busy} title="إشعارات الهاتف">
       {state === 'on' ? (

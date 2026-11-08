@@ -1,7 +1,8 @@
 import type { Env } from '../env';
 import { zohoRequest, ZohoTimeout } from '../zoho';
 
-// كتابة في زوهو: تعليق المراجعة الأسبوعية على العميل (بموافقة ZEKRI يوم 7/11/2026).
+// كتابة في زوهو: تعليق المراجعة الأسبوعية على العميل (بموافقة ZEKRI يوم 7/11/2026)،
+// ومنذ 8/11/2026 تعليق الاعتراض على صورة الدين (بموافقة ZEKRI: الاعتراض وحده يُكتب في زوهو، والإقرار في التطبيق).
 // هذا الملف وحده يكتب تعليقات العملاء. يحتاج رمز التجديد الصلاحية ZohoBooks.contacts.CREATE.
 // لا إعادة تلقائية بعد الإرسال: إن انقطع الرد صارت الحالة «unknown» ولا يُعاد الطلب حتى يتحقق المدير.
 // الإعادة الوحيدة هي عند 401 أو الرمز 57 داخل zohoRequest، لأن زوهو لم ينفّذ الطلب.
@@ -46,11 +47,39 @@ export function commentText(r: ReviewForComment): string {
     + ' — من تطبيق ميداني';
 }
 
-export async function postReviewComment(env: Env, r: ReviewForComment): Promise<CommentResult> {
+// أسباب الاعتراض على صورة الدين، كما يختارها المندوب
+export const ACK_REASONS: Record<string, string> = {
+  paid: 'دفع ولم يُسجَّل',
+  not_mine: 'ليس عميلي',
+  amount: 'المبلغ خطأ',
+  other: 'سبب آخر',
+};
+
+export interface AckForComment {
+  customer_id: string;
+  rep: string;
+  balance: number;
+  reason: string;
+  note: string;
+  taken_at: string; // وقت الصورة بتوقيت غرينتش
+}
+
+// نص تعليق الاعتراض كما يظهر في سجل العميل في زوهو، ويُعرض للمندوب قبل الإرسال
+export function ackCommentText(r: AckForComment): string {
+  return `اعتراض على صورة الدين ليوم ${algiersTime(r.taken_at).date}: المندوب ${r.rep} لا يقرّ برصيد ${fmtAmount(r.balance)}. `
+    + `السبب: ${ACK_REASONS[r.reason] || r.reason}.`
+    + (r.note ? ` الملاحظة: ${r.note}` : '')
+    + ' — من تطبيق ميداني';
+}
+
+export const postReviewComment = (env: Env, r: ReviewForComment) => postComment(env, r.customer_id, commentText(r));
+export const postAckComment = (env: Env, r: AckForComment) => postComment(env, r.customer_id, ackCommentText(r));
+
+async function postComment(env: Env, customerId: string, text: string): Promise<CommentResult> {
   let res;
   try {
     res = await zohoRequest<{ contact_comment?: { comment_id?: string }; comment?: { comment_id?: string } }>(
-      env, 'POST', `/contacts/${r.customer_id}/comments`, { body: { description: commentText(r) }, timeoutMs: 20_000 });
+      env, 'POST', `/contacts/${customerId}/comments`, { body: { description: text }, timeoutMs: 20_000 });
   } catch (e) {
     if (e instanceof ZohoTimeout) return { state: 'unknown', error: 'انقطع الرد بعد الإرسال' };
     throw e;
@@ -62,13 +91,13 @@ export async function postReviewComment(env: Env, r: ReviewForComment): Promise<
   }
   // رد صريح من زوهو برمز خطأ: لم يُنفَّذ الطلب
   if (d && typeof d.code === 'number' && d.code !== 0 && res.status < 500) {
-    console.error('zoho comment rejected', r.customer_id, res.status, d.code, d.message);
+    console.error('zoho comment rejected', customerId, res.status, d.code, d.message);
     const hint = d.code === 57 ? 'رمز التجديد لا يملك صلاحية التعليق على العملاء (ZohoBooks.contacts.CREATE)' : String(d.message || '').slice(0, 160);
     return { state: 'failed', error: `زوهو رفض التعليق (${d.code}): ${hint}` };
   }
   // 401 بعد تجديد الرمز: زوهو لم ينفّذ الطلب
   if (res.status === 401) return { state: 'failed', error: 'زوهو رفض رمز الوصول (401)' };
   // خطأ في الخادم أو رد غير مفهوم: لا نعرف إن كُتب التعليق
-  console.error('zoho comment unclear', r.customer_id, res.status, d?.code);
+  console.error('zoho comment unclear', customerId, res.status, d?.code);
   return { state: 'unknown', error: `رد غير واضح من زوهو (HTTP ${res.status})` };
 }

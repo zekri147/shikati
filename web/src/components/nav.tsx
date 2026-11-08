@@ -10,15 +10,6 @@ const subs = new Set<() => void>();
 export function setAlertCount(n: number) { if (n !== alerts) { alerts = n; subs.forEach((s) => s()); } }
 const useAlertCount = () => useSyncExternalStore((cb) => { subs.add(cb); return () => { subs.delete(cb); }; }, () => alerts);
 
-// تذكير المراجعة الأسبوعية (7/11/2026، بطلب ZEKRI): كم بقي للمندوب من عملائه المدينين هذا الأسبوع.
-// يكتبه هيكل التطبيق عند الفتح، وقسم التحصيل بعد كل مراجعة. deadline بالمللي ثانية.
-export type ReviewLeft = { left: number; deadline: number };
-let review: ReviewLeft = { left: 0, deadline: 0 };
-export function setReviewLeft(r: ReviewLeft) {
-  if (r.left !== review.left || r.deadline !== review.deadline) { review = r; subs.forEach((s) => s()); }
-}
-const useReviewLeft = () => useSyncExternalStore((cb) => { subs.add(cb); return () => { subs.delete(cb); }; }, () => review);
-
 const NAV_H = 60;
 const STRIP_H = 44;
 
@@ -27,10 +18,10 @@ type Tab = { id: string; label: string; href: string; Icon: React.ComponentType<
 // شريط التنقل الموحّد أسفل الشاشة لكل الأقسام (الدفعة «ج»، بموافقة ZEKRI يوم 7/11/2026):
 // الإيداع، والشيكات، وزر التسجيل الأحمر في الوسط، والتنبيهات، والتحصيل لمن له. يختفي في صفحات التفاصيل
 // ولمن له قسم واحد (المندوب).
-// فوقه سطر تذكير المراجعة للمندوب ما دام له عملاء لم يراجعهم هذا الأسبوع، إلا في التحصيل نفسه وشاشة التسجيل.
-export function AppNav({ hash, modules }: { hash: string; modules: string[] }) {
+// المندوب الذي لم يُنهِ إقرار الدين (locked): لا تبويبات، بل سطر واحد فوق شاشة التسجيل يعيده إلى الإقرار
+// (8/11/2026، بطلب ZEKRI، بدل سطر تذكير المراجعة الأسبوعية).
+export function AppNav({ hash, modules, locked, left }: { hash: string; modules: string[]; locked: boolean; left: number }) {
   const count = useAlertCount();
-  const rv = useReviewLeft();
   const tabs: Tab[] = [];
   if (modules.includes('cheques')) {
     tabs.push(
@@ -42,35 +33,31 @@ export function AppNav({ hash, modules }: { hash: string; modules: string[] }) {
   }
   if (modules.includes('coll')) tabs.push({ id: 'coll', label: 'التحصيل', href: '#coll', Icon: HandCoins });
   const h = hash.replace(/^#/, '');
-  // صفحات التفاصيل وشاشة المراجعة لها شريطها الثابت، فيختفي التنقل
-  const detail = /\/c\//.test(h) || h.startsWith('coll/review');
-  const shown = tabs.length > 1 && !detail;
+  // صفحات التفاصيل وشاشة الإقرار لها شريطها الثابت، فيختفي التنقل
+  const detail = /\/c\//.test(h) || h.startsWith('coll/ack');
+  const strip = locked && !detail;
+  const shown = (tabs.length > 1 || strip) && !detail;
   const first = modules[0] === 'coll' ? 'coll' : 'deposit';
   const current = h.startsWith('coll') ? 'coll' : h === 'cheques/all' ? 'all' : h === 'cheques/alerts' ? 'alerts' : h === 'cheques/new' ? 'new' : h.startsWith('cheques') ? 'deposit' : first;
-  const strip = shown && rv.left > 0 && modules.includes('coll') && current !== 'coll' && current !== 'new';
-  const height = NAV_H + (strip ? STRIP_H : 0);
+  const height = strip ? STRIP_H : NAV_H;
   useFixedBottom(height, shown);
   // الأشرطة الثابتة فوق التنقل (الإيداع والتسجيل) تقرأ ارتفاعه من --nav-h
   useEffect(() => {
     document.documentElement.style.setProperty('--nav-h', `${shown ? height : 0}px`);
   }, [shown, height]);
   if (!shown) return null;
-  const past = Date.now() > rv.deadline;
 
   return (
     <nav aria-label="التنقل بين الشاشات" style={{ viewTransitionName: 'bottomnav' } as React.CSSProperties}
       className="bottomnav fixed inset-x-0 bottom-0 z-20 border-t border-line-strong bg-surface pb-[env(safe-area-inset-bottom)]">
       {strip ? (
-        // سطر التذكير: يفتح شاشة المراجعة على أول من بقي. بعد الأجل بالأحمر
-        <a href="#coll/review" className={cn('review-strip flex min-h-11 items-center gap-2 border-b border-s-3 border-line px-4 text-sm no-underline active:bg-surface-alt',
-          past ? 'border-s-brand bg-brand-tint font-semibold text-foreground' : 'border-s-warning bg-warning-tint text-foreground')}>
-          <span className="min-w-0 flex-1">
-            {past ? <>انتهى أجل المراجعة، وبقي {customersWord(rv.left)} دون مراجعة.</>
-              : <>مراجعة الأسبوع: بقي {customersWord(rv.left)}. الأجل الخميس الساعة 12:00.</>}
-          </span>
+        // سطر القفل: بقية التطبيق تنتظر إقرار الدين، والتسجيل وحده مفتوح
+        <a href="#coll/ack" className="ack-strip flex min-h-11 items-center gap-2 border-s-3 border-s-brand bg-brand-tint px-4 text-sm font-semibold text-foreground no-underline active:bg-surface-alt">
+          <span className="min-w-0 flex-1">إقرار الدين: بقي {customersWord(left)}. أكمله لتفتح باقي التطبيق.</span>
           <ChevronLeft aria-hidden className="size-4.5 flex-none text-soft" />
         </a>
       ) : null}
+      {strip ? null : (
       <div className="flex">
       {tabs.map(({ id, label, href, Icon, center }) => {
         const on = id === current;
@@ -96,6 +83,7 @@ export function AppNav({ hash, modules }: { hash: string; modules: string[] }) {
         );
       })}
       </div>
+      )}
     </nav>
   );
 }
