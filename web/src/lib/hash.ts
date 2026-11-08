@@ -6,6 +6,9 @@ import { withTransition } from './motion';
 // كل تغيير يمر بالانتقال بين الصفحات: الصفحة الجديدة تُرسم داخل الانتقال (flushSync)، فيلتقط المتصفح الصورتين.
 let current = typeof location !== 'undefined' ? location.hash : '';
 const subs = new Set<() => void>();
+// العنوان السابق داخل التطبيق: زر الرجوع في صفحة الشيك يعود إليه (مثل صفحة العميل) بدل شاشة ثابتة
+let previous = '';
+export const cameFrom = () => previous;
 // موضع التمرير لكل عنوان، يُحفظ لحظة مغادرته قبل رسم الصفحة الجديدة، فيعود إليه الرجوع
 const scrolls = new Map<string, number>();
 export const savedScroll = (h: string) => scrolls.get(h) || 0;
@@ -22,7 +25,7 @@ if (typeof window !== 'undefined') {
     const a = depth(current);
     const b = depth(next);
     withTransition(b > a ? 'forward' : b < a ? 'back' : 'tab', () => {
-      flushSync(() => { current = next; subs.forEach((s) => s()); });
+      flushSync(() => { previous = current; current = next; subs.forEach((s) => s()); });
     });
   });
 }

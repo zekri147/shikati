@@ -5,7 +5,7 @@ import { cacheGet, cachePut, zohoGet } from '../zoho';
 import { todayAlgiers } from './constants';
 import type { AppModule } from './types';
 import { commentText, postReviewComment, type CommentResult } from './collcomment';
-import { ackAdmin, ackAdminClose, ackAdminResolve, ackAdminSend, ackItems, ackList, ackStatus, ensureSnapshot, saveAck } from './debtack';
+import { ackAdmin, ackAdminClose, ackAdminResolve, ackAdminSend, ackItems, ackList, ackStatus, cycleCollected, ensureSnapshot, saveAck } from './debtack';
 
 // قسم «التحصيل» (7/11/2026، بطلب ZEKRI): أرصدة العملاء المدينين لكل مندوب، قراءة فقط من زوهو.
 // نقل من تبويب «التحصيل» في قائمة الاتصال، لكن الأرقام هنا حيّة بدل سكربت الصباح.
@@ -298,6 +298,8 @@ export async function handleCollect(req: Request, env: Env, user: User): Promise
       // المدير: تقدّم المندوبين والاعتراضات والدورات الماضية، والمراجعات القديمة التي لم تصل إلى زوهو
       admin: isAdmin && cs.state === 'ready' ? await ackAdmin(env, cs.cycle) : undefined,
       old_unsent: isAdmin ? await unsent(env) : undefined,
+      // تحصيل الدورة لكل مندوب: للمندوب رمزه وحده، وللمدير الكل
+      collected: noAck ? {} : await cycleCollected(env, cs, snap.customers, isAdmin ? undefined : own || '-'),
     },
   });
 }

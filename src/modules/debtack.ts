@@ -2,7 +2,7 @@ import type { Env, User } from '../env';
 import { HttpError, json, readJson } from '../http';
 import { audit } from '../audit';
 import { todayAlgiers } from './constants';
-import { getSnapshot, needsReview, normRep } from './collect';
+import { getSnapshot, needsReview, normRep, type CollCustomer } from './collect';
 import { ACK_REASONS, ackCommentText, postAckComment, type CommentResult } from './collcomment';
 
 // إقرار الدين (8/11/2026، بطلب ZEKRI)، بدل المراجعة الأسبوعية:
@@ -282,6 +282,29 @@ export async function ackAdminClose(req: Request, env: Env, user: User): Promise
   if (!r.meta.changes) throw new HttpError(409, 'هذا الاعتراض مغلق من قبل.');
   await audit(env, user, 'coll.dispute.close', 'ok', id);
   return json({ ok: true });
+}
+
+// ——— تحصيل الدورة (8/11/2026، بطلب ZEKRI): كم سُدّد من دين الصورة لكل مندوب ———
+// الباقي من دين الصورة = الرصيد الافتتاحي + الفواتير غير المسدّدة المؤرخة يوم الصورة أو قبله (لا يتجاوز رصيد الصورة).
+// فالمشتريات الجديدة بعد الصورة لا تُخفي ما حُصّل من الدين القديم. العميل الذي سدّد كل دينه باقيه صفر.
+export async function cycleCollected(env: Env, cs: CycleState, customers: CollCustomer[], rep?: string) {
+  const out: Record<string, { snap: number; collected: number }> = {};
+  if (cs.state !== 'ready' || !cs.taken_at) return out;
+  const day = todayAlgiers(new Date(cs.taken_at.replace(' ', 'T') + 'Z'));
+  const sql = 'SELECT customer_id, rep, balance FROM debt_snapshot WHERE cycle = ?' + (rep ? ' AND rep = ?' : '');
+  const stmt = rep ? env.DB.prepare(sql).bind(cs.cycle, rep) : env.DB.prepare(sql).bind(cs.cycle);
+  const { results } = await stmt.all<{ customer_id: string; rep: string; balance: number }>();
+  const now = new Map(customers.map((c) => [c.id, c]));
+  for (const r of results || []) {
+    const c = now.get(r.customer_id);
+    const old = c ? c.opening + c.invoices.filter((i) => (i.date || '').slice(0, 10) <= day).reduce((t, i) => t + i.balance, 0) : 0;
+    const left = Math.min(r.balance, Math.max(0, old));
+    const o = out[r.rep] || { snap: 0, collected: 0 };
+    o.snap = Math.round((o.snap + r.balance) * 100) / 100;
+    o.collected = Math.round((o.collected + r.balance - left) * 100) / 100;
+    out[r.rep] = o;
+  }
+  return out;
 }
 
 // ——— للإشعارات (src/notify.ts): كم بقي لكل مندوب دون إقرار في صورة الدورة ———

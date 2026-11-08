@@ -29,7 +29,7 @@
 //   4 ينقطع الرد بعد الإرسال    7 زوهو يرفض التسجيل    غير ذلك: نجاح
 // قسم التحصيل: GET /contacts دون بحث يعيد العملاء المدينين بحقل «Owner» (cf_owner)،
 // وGET /invoices?status=unpaid يعيد كل الفواتير غير المسدّدة. المندوبون: AMINE وZAKARIA وSMAIL،
-// وعميل بلا مندوب، وعميل برصيد افتتاحي فقط، وآخر بفواتير ورصيد افتتاحي معاً.
+// وعميل بلا مندوب، وعميل برصيد افتتاحي فقط، وآخر بفواتير ورصيد افتتاحي معاً، وSARL BATIMETAL له شيكات ودين معاً.
 // تعليق المراجعة (POST /contacts/<id>/comments) حسب نص الملاحظة:
 //   «#قطع» ينقطع الرد بعد الإرسال    «#رفض» زوهو يرفض بالرمز 57 (صلاحية ناقصة)    غير ذلك: نجاح
 // ودفعة المورد عند التظهير وشيك الشركة الصادر (POST /vendorpayments) حسب آخر رقم في رقم الشيك:
@@ -168,6 +168,11 @@ COLL.forEach(([name, owner, mobile, opening, invs], i) => {
   DEBTORS.push({ contact_id: id, contact_name: name, contact_type: 'customer', outstanding_receivable_amount: bal, mobile, phone: '',
     cf_owner: owner, custom_field_hash: { cf_owner: owner } });
 });
+// عميل له شيكات ودين معاً (معرّف الشيك رقم 4، SARL BATIMETAL)، لقسم «شيكاته» في صفحة العميل وتصفية «عملائي»
+COLL_INVOICES.push({ invoice_id: '74184000001000041', invoice_number: 'BL-26/950', customer_id: '7418400000100004', customer_name: 'SARL BATIMETAL',
+  date: day(-50), due_date: day(-20), balance: 260000, status: 'overdue', location_name: 'EL EULMA' });
+DEBTORS.push({ contact_id: '7418400000100004', contact_name: 'SARL BATIMETAL', contact_type: 'customer', outstanding_receivable_amount: 260000,
+  mobile: '0550998877', phone: '', cf_owner: 'AMINE', custom_field_hash: { cf_owner: 'AMINE' } });
 DEBTORS.sort((a, b) => b.outstanding_receivable_amount - a.outstanding_receivable_amount);
 // عميل بلا رصيد في آخر القائمة، كما يعيده زوهو
 DEBTORS.push({ contact_id: '7418400000200099', contact_name: 'SARL PAYE', contact_type: 'customer', outstanding_receivable_amount: 0, cf_owner: 'AMINE' });

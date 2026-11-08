@@ -14,7 +14,7 @@ import { Empty, ErrorBox, FormError, Note, RefreshButton, SkeletonList, Slab } f
 import { toast } from '@/components/toast';
 import { api, errText, isCutOff, type Me } from '@/lib/api';
 import { useFixedBottom } from '@/lib/layout';
-import { savedScroll } from '@/lib/hash';
+import { cameFrom, savedScroll } from '@/lib/hash';
 import { readCache, writeCache } from '@/lib/cache';
 import { load as loadKey, save as saveKey } from '@/lib/storage';
 import { cn } from '@/lib/utils';
@@ -424,7 +424,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
         <DetailPage id={route.id} isAdmin={isAdmin} preview={data?.all.find((c) => c.id === route.id)}
           // «أودِع هذا الشيك» في صفحته: لشيك في الحوزة لبنك AGB، دون قفل، وبعد وصول البيانات الجديدة
           depositable={fresh && data?.can_deposit ? data.agb_in_hand.items.find((c) => c.id === route.id && !c.lock) || null : null}
-          onDeposited={() => load(true)} onBack={() => { if (fromList.current) history.back(); else location.hash = '#cheques'; }} />
+          onDeposited={() => load(true)} onBack={() => { if (fromList.current || cameFrom()) history.back(); else location.hash = '#cheques'; }} />
       ) : route.view === 'new' ? (
         <RegisterPage onDone={(pid) => { load(true); location.hash = '#cheques/c/' + pid; }} />
       ) : null}

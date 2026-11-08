@@ -5,6 +5,7 @@ export type Cheque = {
   has_image?: boolean; lock?: string; deposit_date?: string; deposit_days?: number; v?: string; custody?: Custody;
   // «لي» لصاحب رمز المندوب: في عهدته أو سُلّم إليه، أو عميله
   own?: boolean;
+  customer_id?: string;
 };
 // العهدة: من يحمل الشيك، بالنسبة إلى المستخدم الحالي (src/modules/custody.ts)
 export type Custody = { holder: string | null; mine: boolean; to: string | null; incoming: boolean; outgoing: boolean; from: string | null };
