@@ -25,7 +25,7 @@ import { cn } from '@/lib/utils';
 import { haptic, isShared, markShared, sharedStyle } from '@/lib/motion';
 import { LIST_BOX, LateMark } from '@/features/cheques/ui';
 import { Block, KV } from '@/features/cheques/pickers';
-import { setAckCounts } from '@/lib/ack';
+import { peekAfterAck, setAckCounts, takeAfterAck } from '@/lib/ack';
 
 const STALE_MS = 5 * 60_000;
 const PAGE = 40;
@@ -53,7 +53,7 @@ type Ack = {
   items: Record<string, AckItem>;
   admin?: {
     progress: { rep: string; total: number; done: number; disputes: number; last: string | null }[];
-    disputes: { id: string; name: string; rep: string; balance: number; reason: string; note: string; at: string; zoho: string }[];
+    disputes: { cycle: string; id: string; name: string; rep: string; balance: number; reason: string; note: string; at: string; zoho: string }[];
     unsent: { cycle: string; id: string; name: string; rep: string; state: string; error: string | null; text: string }[];
     history: { cycle: string; reps: { rep: string; total: number; done: number; disputes: number }[] }[];
   };
@@ -285,7 +285,8 @@ function CustomerItem({ c, d, rep }: { c: Cust; d: CollData; rep: string }) {
 // إقرار الدين في شاشة التحصيل: للمدير سطر واحد يفتح التفاصيل في لوحة سفلية، وللمندوب التقدّم وزر الإقرار
 function AckBlock({ data, rep, cat, setCat, onOpen }: { data: CollData; list: Cust[]; rep: string; cat: string; setCat: (v: string) => void; onOpen: () => void }) {
   const ak = data.ack;
-  if (!ak) return null;
+  // «بلا مندوب»: لا إقرار لهؤلاء العملاء
+  if (!ak || rep === '-') return null;
   if (ak.state !== 'ready') {
     return <Note className="mt-3">{ak.state === 'pending' ? 'صورة الدين قيد الإعداد الآن.' : 'تعذّر أخذ صورة الدين من زوهو. تُعاد المحاولة وحدها بعد قليل.'}</Note>;
   }
@@ -302,7 +303,7 @@ function AckBlock({ data, rep, cat, setCat, onOpen }: { data: CollData; list: Cu
         className="ack-btn mt-3 flex min-h-11 w-full items-center gap-2 border-b border-line py-2 text-start active:bg-surface-alt">
         <span className="min-w-0 flex-1">
           <span className="block text-base font-semibold">إقرار الدين: أنهى <Num>{`${finished}/${prog.length}`}</Num>{finished === prog.length && prog.length ? ' ✓' : ''}
-            {disputes ? <span className="text-warning"> · اعتراضات {disputes}</span> : null}</span>
+            {disputes ? <span className="text-warning"> · اعتراضات مفتوحة {disputes}</span> : null}</span>
           <span className="block text-sm text-muted">{sub}</span>
           {unsent ? <span className="block text-sm font-semibold text-warning">لم تصل إلى زوهو: {unsent}</span> : null}
         </span>
@@ -343,10 +344,27 @@ function AckBlock({ data, rep, cat, setCat, onOpen }: { data: CollData; list: Cu
 // تفاصيل الإقرار للمدير في اللوحة السفلية: ما لم يصل إلى زوهو، وتقدّم كل مندوب، والاعتراضات، والدورات الماضية
 function AckDetails({ ack, reload }: { ack: Ack; reload: () => void }) {
   const [dispOpen, setDispOpen] = useState(true);
+  const [closing, setClosing] = useState('');
+  const [closed, setClosed] = useState<Set<string>>(new Set());
+  // «عولج»: يُغلق الاعتراض في التطبيق وحده، بعد أن يصحّحه المدير في زوهو
+  async function close(x: { cycle: string; id: string; name: string }) {
+    const key = x.cycle + x.id;
+    setClosing(key);
+    try {
+      await api('/api/m/coll/ack/close', { method: 'POST', body: { cycle: x.cycle, customer_id: x.id } });
+      setClosed((c) => new Set(c).add(key));
+      toast('أُغلق الاعتراض على ' + x.name);
+      reload();
+    } catch (e) {
+      toast(errText(e), 'err');
+    } finally {
+      setClosing('');
+    }
+  }
   const [histOpen, setHistOpen] = useState(false);
   const ad = ack.admin;
   const prog = ad?.progress || [];
-  const disputes = ad?.disputes || [];
+  const disputes = (ad?.disputes || []).filter((x) => !closed.has(x.cycle + x.id));
   const hist = ad?.history || [];
   const missed = hist.reduce((t, c) => t + c.reps.filter((p) => p.done < p.total).length, 0);
   const unsent: Unsent[] = [
@@ -376,13 +394,15 @@ function AckDetails({ ack, reload }: { ack: Ack; reload: () => void }) {
       ) : null}
       {disputes.length ? (
         <Fold open={dispOpen} onOpenChange={setDispOpen} tone="warn" className="mt-2"
-          head={<div className="flex items-center justify-between gap-3"><span className="font-bold">الاعتراضات</span><span className="text-sm text-muted">{disputes.length}</span></div>}>
+          head={<div className="flex items-center justify-between gap-3"><span className="font-bold">اعتراضات مفتوحة</span><span className="text-sm text-muted">{disputes.length}</span></div>}>
+          <p className="mb-2 mt-0 text-sm text-muted">صحّح الخطأ في زوهو، ثم اضغط «عولج». تبقى هنا من كل الدورات حتى تغلقها.</p>
           <ul className={LIST_BOX}>
             {disputes.map((x) => (
-              <li key={x.id} className="px-3 py-2">
+              <li key={x.cycle + x.id} className="px-3 py-2">
                 <div className="flex justify-between gap-3"><Ltr className="font-semibold">{x.name}</Ltr><Amount value={x.balance} className="text-sm" /></div>
                 <p className="my-1 text-base [overflow-wrap:anywhere]">{reasonText(x.reason)}{x.note ? ': ' + x.note : '.'}</p>
-                <div className="flex justify-between gap-3 text-sm text-muted"><Ltr>{x.rep}</Ltr><span>{x.at ? timeOf(x.at) : ''}</span></div>
+                <div className="flex justify-between gap-3 text-sm text-muted"><Ltr>{x.rep}</Ltr><span>{x.cycle !== ack.cycle ? `دورة السبت ${dm(x.cycle)}` : x.at ? timeOf(x.at) : ''}</span></div>
+                <Button className="mt-2 w-full" disabled={closing === x.cycle + x.id} onClick={() => close(x)}>{closing === x.cycle + x.id ? 'جارٍ الإغلاق…' : 'عولج'}</Button>
               </li>
             ))}
           </ul>
@@ -467,9 +487,14 @@ function UnsentList({ list, reload }: { list: Unsent[]; reload: () => void }) {
 // المندوب الذي لم ينهِ لا يخرج منها إلا إلى تسجيل الشيك (القفل في app.tsx). المدير يرجع إلى التحصيل.
 type AckRow = {
   id: string; name: string; balance: number; late: number | null; invoices: number; prev: number | null;
+  now: number; opening: number; inv: Inv[];
   answer: 'ok' | 'dispute' | null; reason: string | null; note: string; at: string | null; zoho: string; error: string | null;
 };
-type AckList = { cycle: string; next: string; state: 'ready' | 'pending' | 'error'; taken_at: string | null; can_ack: boolean; rep?: string; had_prev: boolean; rows: AckRow[] };
+type AckList = { cycle: string; next: string; state: 'ready' | 'pending' | 'error'; taken_at: string | null; can_ack: boolean; rep?: string; had_prev: boolean; now_ok?: boolean; rows: AckRow[] };
+// بعد كل انتقال يتوقف زرّا الجواب لحظة، فلا تقع لمسة مزدوجة على العميل التالي
+const COOL_MS = 450;
+// اسم الشاشة التي طلبها المندوب والتطبيق مقفل، لزر آخر الإقرار
+const afterLabel = (h: string) => (h.startsWith('#cheques/c/') ? 'افتح الشيك' : h === '#cheques/alerts' ? 'إلى التنبيهات' : h.startsWith('#coll') ? 'إلى التحصيل' : 'تابع إلى ما طلبته');
 
 // الاعتراض المرسل إلى زوهو (أو المنقطع) لا يُغيَّر
 const fixed = (r: AckRow) => r.answer === 'dispute' && r.zoho !== 'none' && r.zoho !== 'failed';
@@ -481,7 +506,16 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
   const [error, setError] = useState('');
   const [pos, setPos] = useState(0);
   const [dispute, setDispute] = useState(false);
+  const [cool, setCool] = useState(false);
+  const coolT = useRef(0);
   const changed = useRef(false);
+  const go = (i: number) => {
+    setPos(i);
+    setCool(true);
+    window.clearTimeout(coolT.current);
+    coolT.current = window.setTimeout(() => setCool(false), COOL_MS);
+  };
+  useEffect(() => () => window.clearTimeout(coolT.current), []);
 
   async function load() {
     setError('');
@@ -516,15 +550,15 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
   const patch = (id: string, p: Partial<AckRow>) => setList((l) => (l ? { ...l, rows: l.rows.map((x) => (x.id === id ? { ...x, ...p } : x)) } : l));
 
   async function confirm() {
-    if (!r || !list) return;
+    if (!r || !list || cool) return;
     const before = r;
     const after = rows.map((x) => (x.id === r.id ? { ...x, answer: 'ok' as const, reason: null, note: '', zoho: 'skip' } : x));
     setList({ ...list, rows: after });
-    setPos(nextFrom(pos, after));
+    go(nextFrom(pos, after));
     haptic('success');
     changed.current = true;
     try {
-      await api('/api/m/coll/ack', { method: 'POST', body: { customer_id: before.id, answer: 'ok' } });
+      await api('/api/m/coll/ack', { method: 'POST', body: { cycle: list.cycle, customer_id: before.id, answer: 'ok' } });
     } catch (e) {
       // لم يُحفظ: يعود العميل دون جواب
       patch(before.id, before);
@@ -540,7 +574,7 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
     else toast(res.zoho === 'unknown'
       ? 'سُجّل الاعتراض في التطبيق، لكن لم يصل رد واضح من زوهو. لا تعد المحاولة: الإدارة تتحقق منه.'
       : 'سُجّل الاعتراض في التطبيق، وزوهو رفض التعليق. الإدارة تعيد إرساله.', 'warn');
-    setPos(nextFrom(pos, after));
+    go(nextFrom(pos, after));
   }
 
   const back = () => { location.hash = '#coll'; };
@@ -560,7 +594,7 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
         <>
           <div className="mt-1 flex items-baseline justify-between gap-3 text-sm">
             <span>صورة الدين يوم {dayOf(list.taken_at)}</span>
-            <span>أقررت <Num>{`${done}/${rows.length}`}</Num></span>
+            <span>أجبت عن <Num>{`${done}/${rows.length}`}</Num></span>
           </div>
           <div role="progressbar" aria-label="تقدّم الإقرار" aria-valuemin={0} aria-valuemax={rows.length} aria-valuenow={done} className="mb-3 mt-2 h-1 bg-press-on-brand">
             <div className="h-full bg-white transition-[width] duration-200" style={{ width: `${Math.round((done / rows.length) * 100)}%` }} />
@@ -611,7 +645,8 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
           {stuck.length ? <Note tone="warn">{`لم يصل إلى زوهو اعتراضك على ${customersWord(stuck.length)}. الإدارة تتابعه.`}</Note> : null}
         </div>
         <div className={bar}>
-          <Button variant="primary" className="!flex-[2] py-2" onClick={locked ? toRegister : back}>{locked ? 'إلى التسجيل' : 'رجوع إلى التحصيل'}</Button>
+          {peekAfterAck() ? <Button variant="primary" className="!flex-[2] py-2" onClick={() => { location.hash = takeAfterAck(); }}>{afterLabel(peekAfterAck())}</Button>
+            : <Button variant="primary" className="!flex-[2] py-2" onClick={locked ? toRegister : back}>{locked ? 'إلى التسجيل' : 'رجوع إلى التحصيل'}</Button>}
           {rows.length ? <Button className="py-2" onClick={() => setPos(0)}>راجع أجوبتك</Button> : null}
         </div>
       </>
@@ -619,25 +654,50 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
   }
 
   const diff = r.prev === null ? null : round2(r.balance - r.prev);
+  // الرصيد الآن يختلف عن الصورة (دفع أو اشترى بعدها). لا يُعرض إن تعذّرت قراءة الأرصدة
+  const moved = !!list.now_ok && Math.abs(r.now - r.balance) >= 1;
   return (
     <>
       <Slab>
         {head}
-        <h1 className="m-0"><Ltr className="block text-lg font-bold leading-snug [overflow-wrap:anywhere]">{r.name}</Ltr></h1>
-        <Amount value={r.balance} className="mt-1 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
-        <div className="mt-2 flex flex-wrap gap-2">
-          <Badge tone={r.late === null || r.late > 90 ? 'dark' : 'inverse'}>{snapLate(r)}</Badge>
-          {r.invoices ? <Badge tone="inverse">{invoicesWord(r.invoices)}</Badge> : null}
+        {/* العميل الجديد يظهر بحركة قصيرة، فيرى المندوب أن العميل تغيّر */}
+        <div key={r.id} className="animate-fade-in">
+          <h1 className="m-0"><Ltr className="block text-lg font-bold leading-snug [overflow-wrap:anywhere]">{r.name}</Ltr></h1>
+          <Amount value={r.balance} className="mt-1 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Badge tone={r.late === null || r.late > 90 ? 'dark' : 'inverse'}>{snapLate(r)}</Badge>
+            {r.invoices ? <Badge tone="inverse">{invoicesWord(r.invoices)}</Badge> : null}
+          </div>
         </div>
       </Slab>
 
-      <div className="mt-4 flex flex-col gap-3">
+      <div key={r.id} className="mt-4 flex animate-fade-in flex-col gap-3">
         <dl className="m-0 flex flex-col">
-          <KV label="الإقرار السابق" after={diff ? <>{diff > 0 ? 'زاد ' : 'نقص '}<Amount value={Math.abs(diff)} /></> : undefined}>
+          <KV label="في الصورة السابقة" after={diff ? <>{diff > 0 ? 'زاد ' : 'نقص '}<Amount value={Math.abs(diff)} /></> : undefined}>
             {r.prev === null ? <span className="font-normal text-muted">{list.had_prev ? 'جديد في قائمتك' : 'أول صورة'}</span>
               : diff === 0 ? <span className="font-normal">لم يتغير</span> : <Amount value={r.prev} />}
           </KV>
+          {moved ? <KV label="رصيده الآن" after={r.now > r.balance ? 'اشترى بعد الصورة' : r.now < 1 ? 'سدّد كل دينه بعد الصورة' : 'دفع بعد الصورة'}><Amount value={r.now} /></KV> : null}
         </dl>
+        {moved ? <Note plain>أقِرّ بالرصيد يوم الصورة. ما تغيّر بعدها يظهر في الصورة التالية.</Note> : null}
+        {!moved && (r.inv.length || r.opening > 0) ? (
+          // الفواتير غير المسدّدة الآن، ليتحقق المندوب مما يقرّ به
+          <Block title="الفواتير غير المسدّدة">
+            <ul className="m-0 list-none p-0">
+              {r.inv.map((i) => (
+                <li key={i.number} className="flex flex-wrap items-baseline justify-between gap-x-2 border-b border-line py-2 text-base last:border-b-0">
+                  <span><Ltr className="font-semibold">{i.number}</Ltr> <span className="text-sm text-muted">· <Num>{fmtDate(i.date)}</Num></span></span>
+                  <Amount value={i.balance} className="font-semibold" />
+                </li>
+              ))}
+              {r.opening > 0 ? (
+                <li className="flex items-baseline justify-between gap-x-2 py-2 text-base">
+                  <span className="font-semibold">رصيد افتتاحي</span><Amount value={r.opening} className="font-semibold" />
+                </li>
+              ) : null}
+            </ul>
+          </Block>
+        ) : null}
         {r.answer === 'ok' ? <Note plain className="text-foreground"><Check aria-hidden className="size-4" strokeWidth={3} />أقررت بدينه. يمكنك تغيير جوابك.</Note> : null}
         {r.answer === 'dispute' ? (
           <Block title="اعترضت على دينه" className="border-s-3 border-s-warning ps-3">
@@ -647,26 +707,26 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
             </p>
           </Block>
         ) : null}
-        {pos > 0 ? <Button variant="ghost" className="self-start px-2 text-muted" onClick={() => setPos(pos - 1)}>عُد إلى العميل السابق</Button> : null}
+        {pos > 0 ? <Button variant="ghost" className="self-start px-2 text-muted" onClick={() => go(pos - 1)}>عُد إلى العميل السابق</Button> : null}
       </div>
 
       <div className={bar}>
-        {fixed(r) ? <Button variant="primary" className="!flex-[2] py-2" onClick={() => setPos(nextFrom(pos, rows))}>التالي</Button> : (
+        {fixed(r) ? <Button variant="primary" className="!flex-[2] py-2" disabled={cool} onClick={() => go(nextFrom(pos, rows))}>التالي</Button> : (
           <>
-            <Button variant="primary" className="ack-ok !flex-[2] py-2" onClick={confirm}><Check aria-hidden className="size-5" strokeWidth={3} />الدين صحيح</Button>
-            <Button className="ack-no py-2" onClick={() => setDispute(true)}>فيه خطأ</Button>
+            <Button variant="primary" className="ack-ok !flex-[2] py-2 disabled:opacity-100" disabled={cool} onClick={confirm}><Check aria-hidden className="size-5" strokeWidth={3} />الدين صحيح</Button>
+            <Button className="ack-no py-2 disabled:opacity-100" disabled={cool} onClick={() => setDispute(true)}>فيه خطأ</Button>
           </>
         )}
       </div>
 
-      <DisputeSheet key={r.id} open={dispute} row={r} rep={list.rep || ''} takenAt={list.taken_at} onClose={() => setDispute(false)} onSaved={disputed} />
+      <DisputeSheet key={r.id} open={dispute} row={r} cycle={list.cycle} rep={list.rep || ''} takenAt={list.taken_at} onClose={() => setDispute(false)} onSaved={disputed} />
     </>
   );
 }
 
 // الاعتراض: السبب من قائمة، وملاحظة (إجبارية مع «سبب آخر»)، ونص التعليق كما سيُكتب في زوهو قبل الإرسال
-function DisputeSheet({ open, row, rep, takenAt, onClose, onSaved }: {
-  open: boolean; row: AckRow; rep: string; takenAt: string | null; onClose: () => void;
+function DisputeSheet({ open, row, cycle, rep, takenAt, onClose, onSaved }: {
+  open: boolean; row: AckRow; cycle: string; rep: string; takenAt: string | null; onClose: () => void;
   onSaved: (row: AckRow, res: { zoho: string; error?: string }, reason: string, note: string) => void;
 }) {
   const [reason, setReason] = useState(row.answer === 'dispute' ? row.reason || '' : '');
@@ -682,7 +742,7 @@ function DisputeSheet({ open, row, rep, takenAt, onClose, onSaved }: {
     if (missing) { setErr(missing); return; }
     setBusy(true); setErr('');
     try {
-      const res = await api('/api/m/coll/ack', { method: 'POST', body: { customer_id: row.id, answer: 'dispute', reason, note: clean } });
+      const res = await api('/api/m/coll/ack', { method: 'POST', body: { cycle, customer_id: row.id, answer: 'dispute', reason, note: clean } });
       onSaved(row, res, reason, clean);
     } catch (e) {
       setErr(errText(e));

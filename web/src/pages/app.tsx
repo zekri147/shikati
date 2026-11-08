@@ -9,7 +9,7 @@ import { readCache, writeCache } from '@/lib/cache';
 import { ChequesModule } from '@/features/cheques/ChequesModule';
 import { CollModule } from '@/features/coll/CollModule';
 import { AppNav } from '@/components/nav';
-import { ackLeft, initAck, loadAckStatus, useAckStatus } from '@/lib/ack';
+import { ackLeft, initAck, loadAckStatus, setAfterAck, useAckStatus } from '@/lib/ack';
 import { toast } from '@/components/toast';
 import { enablePasskey, passkeyOnDevice, passkeySupported } from '@/lib/passkey';
 import { disablePush, enablePush, pushState, syncPush, testPush, type PushState } from '@/lib/push';
@@ -52,11 +52,22 @@ export function AppPage() {
     landed.current = true;
     if (!OPENED_AT && me.user.role === 'rep') { autoHash.current = locked ? ACK : REGISTER; replaceHash(autoHash.current); }
   }, [me]);
-  // القفل: أي شاشة أخرى تعود إلى الإقرار. وإن وصلت الحالة بعد أن فتح التطبيق على التسجيل تلقائياً، يُنقل إلى الإقرار
+  // القفل: أي شاشة أخرى تعود إلى الإقرار، وتُحفظ لتُفتح بعده. وإن وصلت الحالة بعد أن فتح التطبيق على التسجيل تلقائياً، يُنقل إلى الإقرار
   useLayoutEffect(() => {
     if (!locked) return;
-    if (!LOCK_OPEN.includes(hash) || (hash === REGISTER && autoHash.current === REGISTER)) { autoHash.current = ACK; replaceHash(ACK); }
+    const auto = hash === REGISTER && autoHash.current === REGISTER;
+    if (LOCK_OPEN.includes(hash) && !auto) return;
+    if (!auto && hash && hash !== '#') {
+      setAfterAck(hash);
+      // بعد تسجيل شيك: رسالة النجاح نفسها تذكر أن الشيك يُفتح بعد الإقرار
+      if (prevHash.current === REGISTER && hash.startsWith('#cheques/c/')) toast('تم تسجيل الشيك. أكمل إقرار الدين، ثم افتحه من آخر الشاشة.');
+      else toast('أكمل إقرار الدين أولاً، ثم تُفتح لك الشاشة التي طلبتها.', 'warn');
+    }
+    autoHash.current = ACK;
+    replaceHash(ACK);
   }, [locked, hash]);
+  const prevHash = useRef(hash);
+  useEffect(() => { prevHash.current = hash; }, [hash]);
 
   const wanted = hash.slice(1).split('/')[0];
   const mod = available.find((m) => m.id === wanted) || available[0];
