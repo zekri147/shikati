@@ -6,6 +6,8 @@ import { handleAdmin } from './admin';
 import { canUse, modules } from './modules';
 import { handleSetup, setupAvailable } from './setup';
 import { loginOptions, loginVerify, registerOptions, registerVerify } from './passkey';
+import { handlePush } from './push';
+import { runScheduled } from './notify';
 
 async function handleApi(req: Request, env: Env, path: string): Promise<Response> {
   assertSameOrigin(req);
@@ -26,6 +28,9 @@ async function handleApi(req: Request, env: Env, path: string): Promise<Response
       modules: modules.filter((m) => canUse(m, user)).map((m) => ({ id: m.id, title: m.title })),
     });
   }
+
+  // إشعارات الهاتف: الاشتراك والإيقاف والتجربة، لكل مستخدم
+  if (path.startsWith('/api/push/')) return handlePush(req, env, await requireUser(req, env), path.slice('/api/push'.length));
 
   if (path.startsWith('/api/admin/')) {
     const admin = await requireUser(req, env, ['admin']);
@@ -81,5 +86,9 @@ export default {
     } catch (e) {
       return errorResponse(e);
     }
+  },
+  // المهمة المجدولة (wrangler.toml): إشعارات الشيكات المرفوضة والمتأخرة والمراجعة الأسبوعية
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(runScheduled(env, new Date(event.scheduledTime)));
   },
 } satisfies ExportedHandler<Env>;

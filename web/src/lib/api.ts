@@ -41,6 +41,8 @@ export type Me = {
 
 export async function logout() {
   clearCaches();
+  // الخروج يوقف إشعارات هذا الهاتف: لا تظهر أسماء العملاء والمبالغ لمن خرج
+  try { await (await import('./push')).disablePush(); } catch { /* نكمل */ }
   try { await api('/api/logout', { method: 'POST', body: {}, noRedirect: true }); } catch { /* نكمل */ }
   location.href = '/login';
 }

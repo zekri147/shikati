@@ -11,6 +11,7 @@ import { CollModule } from '@/features/coll/CollModule';
 import { AppNav, setReviewLeft } from '@/components/nav';
 import { toast } from '@/components/toast';
 import { enablePasskey, passkeyOnDevice, passkeySupported } from '@/lib/passkey';
+import { disablePush, enablePush, pushState, syncPush, testPush, type PushState } from '@/lib/push';
 
 const MODULES: Record<string, React.ComponentType<{ me: Me; hash: string }>> = { cheques: ChequesModule, coll: CollModule };
 
@@ -34,6 +35,7 @@ export function AppPage() {
   const links: MenuLink[] = [
     ...(me?.user.role === 'admin' ? [{ href: '/admin', label: 'الإدارة' }] : []),
     { href: '/?passkey=1', label: 'الدخول بالبصمة' },
+    { href: '/?notify=1', label: 'إشعارات الهاتف' },
     { href: '/help', label: 'المساعدة وطريقة الاستعمال' },
   ];
   const Mod = mod ? MODULES[mod.id] : null;
@@ -52,6 +54,7 @@ export function AppPage() {
       {me ? <AppNav hash={hash} modules={available.map((m) => m.id)} /> : null}
       {me && mod?.id === 'cheques' ? <Welcome name={me.user.display_name} /> : null}
       {me ? <PasskeyOffer /> : null}
+      {me ? <NotifyOffer admin={me.user.role === 'admin'} /> : null}
     </>
   );
 }
@@ -133,6 +136,84 @@ function PasskeyOffer() {
       <ModalActions>
         <Button variant="primary" disabled={busy} onClick={run}>{busy ? 'جارٍ التفعيل…' : 'فعّل البصمة'}</Button>
         <Button disabled={busy} onClick={close}>ليس الآن</Button>
+      </ModalActions>
+    </Modal>
+  );
+}
+
+// إشعارات الهاتف: تُعرض مرة واحدة بعد عرض البصمة (في فتح لاحق)، ومتى شاء الموظف من «القائمة» (العنوان ‎/?notify=1).
+// البطاقة نفسها تعرض حالة الهاتف: غير مفعّلة، أو مفعّلة (مع التجربة والإيقاف)، أو ممنوعة، أو تحتاج التثبيت في آيفون.
+const NOTIFY_KEY = 'shikati-notify-asked';
+function NotifyOffer({ admin }: { admin: boolean }) {
+  const asked = new URLSearchParams(location.search).get('notify') === '1';
+  const [state, setState] = useState<PushState | null>(null);
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (asked) history.replaceState(history.state, '', '/' + location.hash);
+    syncPush();
+    (async () => {
+      const st = await pushState();
+      if (asked) { setState(st); return; }
+      // العرض التلقائي: مرة واحدة، بعد بطاقة الترحيب وعرض البصمة، وعلى هاتف يدعم الإشعارات
+      if (st !== 'off' || load(NOTIFY_KEY) === '1' || load(WELCOME_KEY) !== '1') return;
+      if (!passkeyOnDevice() && load(ASKED_KEY) !== '1' && await passkeySupported()) return;
+      setState(st);
+    })();
+  }, []);
+  const close = () => { save(NOTIFY_KEY, '1'); setState(null); setError(''); };
+  async function run(what: 'enable' | 'test' | 'disable') {
+    setBusy(what); setError('');
+    try {
+      if (what === 'enable') {
+        const r = await enablePush();
+        if (!r.ok) { if (r.error) setError(r.error); setState(await pushState()); return; }
+        save(NOTIFY_KEY, '1'); setState(null);
+        toast('فُعّلت الإشعارات على هذا الهاتف');
+      } else if (what === 'test') {
+        await testPush();
+        setState(null);
+        toast('أُرسل إشعار تجريبي. يصل خلال ثوانٍ.');
+      } else {
+        await disablePush();
+        save(NOTIFY_KEY, '1'); setState(null);
+        toast('أُوقفت الإشعارات على هذا الهاتف');
+      }
+    } catch (e) {
+      setError(errText(e));
+    } finally {
+      setBusy('');
+    }
+  }
+  if (!state) return null;
+  const what = admin
+    ? 'سُلّم إليك شيك، أو رُفض شيك، أو تأخر إيداع شيك في عهدتك، أو اقترب أجل المراجعة الأسبوعية لعملائك. وكل صباح ملخص تنبيهات اليوم.'
+    : 'سُلّم إليك شيك، أو رُفض شيك لعميلك، أو تأخر إيداع شيك في عهدتك، أو اقترب أجل المراجعة الأسبوعية.';
+  return (
+    <Modal open onClose={close} busy={!!busy} title="إشعارات الهاتف">
+      {state === 'on' ? (
+        <>
+          <p>الإشعارات مفعّلة على هذا الهاتف. يصلك تنبيه حين {what}</p>
+          <Note>إن لم يصل الإشعار التجريبي، تحقق أن إشعارات ميداني مسموحة في إعدادات الهاتف، وأن وضع «عدم الإزعاج» متوقف.</Note>
+          <Button className="mt-3 w-full" disabled={!!busy} onClick={() => run('disable')}>{busy === 'disable' ? 'جارٍ الإيقاف…' : 'أوقف الإشعارات على هذا الهاتف'}</Button>
+        </>
+      ) : state === 'off' ? (
+        <>
+          <p>يصلك على هذا الهاتف تنبيه، حتى والتطبيق مغلق، حين {what}</p>
+          <Note>يظهر في الإشعار اسم العميل والمبلغ. وتتوقف الإشعارات عند الخروج من التطبيق.</Note>
+        </>
+      ) : state === 'denied' ? (
+        <p>منعت الإشعارات لميداني في هذا الهاتف. لتفعيلها: افتح إعدادات الهاتف، ثم التطبيقات، ثم ميداني (أو كروم)، ثم الإشعارات، واسمح بها. ثم عد إلى هنا.</p>
+      ) : state === 'install' ? (
+        <p>في آيفون تعمل الإشعارات بعد تثبيت ميداني على الشاشة الرئيسية: زر المشاركة في سفاري، ثم «إضافة إلى الشاشة الرئيسية»، ثم افتح ميداني من أيقونته وفعّل الإشعارات من «القائمة».</p>
+      ) : (
+        <p>متصفح هذا الهاتف لا يدعم الإشعارات. افتح ميداني من كروم، أو من أيقونته على الشاشة الرئيسية.</p>
+      )}
+      {error ? <p className="mt-2 text-base text-danger">{error}</p> : null}
+      <ModalActions>
+        {state === 'off' ? <Button variant="primary" disabled={!!busy} onClick={() => run('enable')}>{busy === 'enable' ? 'جارٍ التفعيل…' : 'فعّل الإشعارات'}</Button> : null}
+        {state === 'on' ? <Button variant="primary" disabled={!!busy} onClick={() => run('test')}>{busy === 'test' ? 'جارٍ الإرسال…' : 'أرسل إشعاراً تجريبياً'}</Button> : null}
+        <Button disabled={!!busy} onClick={close}>{state === 'off' ? 'ليس الآن' : 'إغلاق'}</Button>
       </ModalActions>
     </Modal>
   );
