@@ -11,12 +11,13 @@ import { hasSubscribers, notifySafe, notifyUsers, type PushMessage } from './pus
 // - كل ساعة من 7:00 إلى 20:00 بتوقيت الجزائر (المهمة المجدولة في wrangler.toml):
 //   · شيك صار «مرفوضاً»: للمدير، ولمندوب العميل (cf_owner)، ولمن سجّله، ولمن كان في عهدته.
 //   · 8:00 كل يوم: لكل من في عهدته شيكات تأخر إيداعها (أكثر من 7 أيام)، وللمدير ملخص التنبيهات.
-//   · الأربعاء 18:00 والخميس 9:00: تذكير المراجعة الأسبوعية لمن بقي له عملاء لم يراجعهم.
+//   · 9:00 كل يوم إلا الجمعة: تذكير المراجعة الأسبوعية لمن بقي له عملاء لم يراجعهم، مرة في اليوم حتى يكملها
+//     (بطلب ZEKRI يوم 8/11/2026، بدل الأربعاء 18:00 والخميس 9:00 فقط).
 // كل إشعار مجدول له مفتاح في notify_sent، فلا يتكرر إن تكررت المهمة. قراءة فقط من زوهو.
 
 const MORNING_HOUR = 8;
-const WED_HOUR = 18;
-const THU_HOUR = 9;
+const REVIEW_HOUR = 9;
+const FRIDAY = 5;
 
 // ——— النصوص ———
 
@@ -184,19 +185,24 @@ async function notifyAdmin(env: Env, users: UserRow[], today: string): Promise<v
   }
 }
 
-// ——— الأربعاء والخميس: تذكير المراجعة الأسبوعية ———
+// ——— كل يوم إلا الجمعة: تذكير المراجعة الأسبوعية حتى يكملها ———
 
-async function notifyReview(env: Env, users: UserRow[], when: 'wed' | 'thu', now: Date, today: string): Promise<void> {
+async function notifyReview(env: Env, users: UserRow[], now: Date, today: string, dow: number): Promise<void> {
   const reps = users.filter((u) => normRep(u.rep_code));
   if (!reps.length) return;
-  const { week, deadline, left } = await reviewLeftByRep(env, today);
-  if (now.getTime() > deadline) return;
+  const { deadline, left } = await reviewLeftByRep(env, today);
+  // بعد الأجل يستمر التذكير حتى يكملها، بنص يقول إن الأجل انتهى
+  const when = now.getTime() > deadline ? 'انتهى أجل المراجعة، فأكملها اليوم.'
+    : dow === 4 ? 'الأجل اليوم الساعة 12:00.'
+      : dow === 3 ? 'الأجل غداً الخميس الساعة 12:00.'
+        : 'الأجل الخميس الساعة 12:00.';
   for (const u of reps) {
     const n = left.get(normRep(u.rep_code)) || 0;
-    if (!n || !(await claim(env, `review:${week}:${when}:${u.id}`))) continue;
+    // مرة واحدة في اليوم لكل مندوب، ما دام له عملاء دون مراجعة
+    if (!n || !(await claim(env, `review:${today}:${u.id}`))) continue;
     await notifyUsers(env, [u.id], {
       title: 'المراجعة الأسبوعية',
-      body: `بقي لك ${customers(n)} دون مراجعة هذا الأسبوع. الأجل ${when === 'wed' ? 'غداً الخميس' : 'اليوم'} الساعة 12:00.`,
+      body: `بقي لك ${customers(n)} دون مراجعة هذا الأسبوع. ${when}`,
       url: '/#coll/review', tag: 'review',
     });
   }
@@ -220,8 +226,7 @@ export async function runScheduled(env: Env, now = new Date()): Promise<void> {
     await step('late', () => notifyLate(env, users, today));
     await step('admin', () => notifyAdmin(env, users, today));
   }
-  if (dow === 3 && hour >= WED_HOUR) await step('review', () => notifyReview(env, users, 'wed', now, today));
-  if (dow === 4 && hour >= THU_HOUR) await step('review', () => notifyReview(env, users, 'thu', now, today));
+  if (dow !== FRIDAY && hour >= REVIEW_HOUR) await step('review', () => notifyReview(env, users, now, today, dow));
   // تنظيف المفاتيح القديمة
   await step('cleanup', async () => { await env.DB.prepare("DELETE FROM notify_sent WHERE at < datetime('now', '-120 days') AND key NOT LIKE 'seed:%' AND key NOT LIKE 'rejected:%'").run(); });
 }
