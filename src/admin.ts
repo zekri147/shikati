@@ -6,6 +6,7 @@ import { handleDiag } from './diag';
 import { listDeposits, releaseDeposit } from './modules/deposit';
 import { handleReconcile } from './modules/reconcile';
 import { probeImage } from './modules/image';
+import { handleNotifyAdmin } from './notifysettings';
 
 const USERNAME_RE = /^[a-z0-9._-]{3,32}$/;
 const ROLES: Role[] = ['admin', 'rep'];
@@ -109,6 +110,9 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
   }
 
   // GET /api/admin/deposits
+  // إعدادات الإشعارات والإشعار اليدوي
+  if (path === '/notify' || path.startsWith('/notify/')) return handleNotifyAdmin(req, env, admin, path);
+
   if (req.method === 'GET' && path === '/deposits') return listDeposits(env);
   // POST /api/admin/deposits/:id/release
   const rel = path.match(/^\/deposits\/(\d+)\/release$/);

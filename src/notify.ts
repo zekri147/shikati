@@ -1,6 +1,7 @@
 import type { Env, User } from './env';
 import { zohoGet } from './zoho';
-import { getView, LATE_DAYS } from './modules/cheques';
+import { getView } from './modules/cheques';
+import { getNotifySettings, type NotifySettings } from './notifysettings';
 import { STATUS, todayAlgiers } from './modules/constants';
 import { lockStates } from './modules/deposit';
 import { normRep, reviewLeftByRep } from './modules/collect';
@@ -10,14 +11,12 @@ import { hasSubscribers, notifySafe, notifyUsers, type PushMessage } from './pus
 // - فوراً، من الخادم عند العملية: شيك سُلّم إليك (وإن رفض المستلم، يصل من سلّمه).
 // - كل ساعة من 7:00 إلى 20:00 بتوقيت الجزائر (المهمة المجدولة في wrangler.toml):
 //   · شيك صار «مرفوضاً»: للمدير، ولمندوب العميل (cf_owner)، ولمن سجّله، ولمن كان في عهدته.
-//   · 8:00 كل يوم: لكل من في عهدته شيكات تأخر إيداعها (أكثر من 7 أيام)، وللمدير ملخص التنبيهات.
+//   · صباحاً (8:00 افتراضياً): لكل من في عهدته شيكات تأخر إيداعها (أكثر من 7 أيام افتراضياً)، وللمدير ملخص التنبيهات.
 //   · 9:00 كل يوم إلا الجمعة: تذكير المراجعة الأسبوعية لمن بقي له عملاء لم يراجعهم، مرة في اليوم حتى يكملها
 //     (بطلب ZEKRI يوم 8/11/2026، بدل الأربعاء 18:00 والخميس 9:00 فقط).
 // كل إشعار مجدول له مفتاح في notify_sent، فلا يتكرر إن تكررت المهمة. قراءة فقط من زوهو.
 
-const MORNING_HOUR = 8;
-const REVIEW_HOUR = 9;
-const FRIDAY = 5;
+// المواعيد وتشغيل كل نوع وأيام التأخر من إعدادات المدير (src/notifysettings.ts، صفحة الإدارة)
 
 // ——— النصوص ———
 
@@ -71,6 +70,7 @@ async function chequeBrief(env: Env, pid: string): Promise<string> {
 
 export async function notifyCustody(env: Env, actor: User, action: string, pid: string, to: number | null, giver: number | null): Promise<void> {
   try {
+    if (!(await getNotifySettings(env)).handover) return;
     if (action === 'give' && to) {
       const brief = await chequeBrief(env, pid);
       await notifySafe(env, [to], {
@@ -104,7 +104,7 @@ async function customerOwner(env: Env, customerId: string | undefined): Promise<
   }
 }
 
-async function notifyRejected(env: Env, users: UserRow[]): Promise<void> {
+async function notifyRejected(env: Env, users: UserRow[], send: boolean): Promise<void> {
   const view = await getView(env, false);
   const rejected = view.all.filter((c) => c.status === STATUS.REJECTED);
   // أول تشغيل: الشيكات المرفوضة من قبل لا تُرسل، فلا يصل سيل إشعارات قديمة
@@ -117,7 +117,7 @@ async function notifyRejected(env: Env, users: UserRow[]): Promise<void> {
   }
   const admins = users.filter((u) => u.role === 'admin').map((u) => u.id);
   for (const c of rejected) {
-    if (!(await claim(env, 'rejected:' + c.id))) continue;
+    if (!(await claim(env, 'rejected:' + c.id)) || !send) continue;
     const to = new Set(admins);
     const owner = await customerOwner(env, c.customer_id);
     if (owner) for (const u of users) if (normRep(u.rep_code) === owner) to.add(u.id);
@@ -135,9 +135,9 @@ async function notifyRejected(env: Env, users: UserRow[]): Promise<void> {
 
 // ——— 8:00: الشيكات التي تأخر إيداعها، لكل من هي في عهدته ———
 
-async function notifyLate(env: Env, users: UserRow[], today: string): Promise<void> {
+async function notifyLate(env: Env, users: UserRow[], today: string, lateDays: number): Promise<void> {
   const view = await getView(env, false);
-  const late = view.all.filter((c) => c.status === STATUS.IN_HAND && c.days > LATE_DAYS);
+  const late = view.all.filter((c) => c.status === STATUS.IN_HAND && c.days > lateDays);
   if (!late.length) return;
   const { results } = await env.DB.prepare('SELECT payment_id, holder_id FROM custody WHERE holder_id IS NOT NULL').all<{ payment_id: string; holder_id: number }>();
   const holder = new Map(results.map((r) => [r.payment_id, r.holder_id]));
@@ -220,13 +220,15 @@ export async function runScheduled(env: Env, now = new Date()): Promise<void> {
   const { hour, dow } = algiersClock(now);
   const today = todayAlgiers(now);
   const users = await activeUsers(env);
-  await step('rejected', () => notifyRejected(env, users));
+  const cfg: NotifySettings = await getNotifySettings(env);
+  // المرفوض يُفحص دائماً: إن كان متوقفاً تُحفظ مفاتيحه دون إرسال، فلا يصل سيل قديم عند تشغيله
+  await step('rejected', () => notifyRejected(env, users, cfg.rejected));
   // «بعد الساعة» لا «في الساعة»: إن فاتت مهمة، تُرسل في التي بعدها، والمفتاح يمنع التكرار
-  if (hour >= MORNING_HOUR) {
-    await step('late', () => notifyLate(env, users, today));
-    await step('admin', () => notifyAdmin(env, users, today));
+  if (hour >= cfg.morning_hour) {
+    if (cfg.late) await step('late', () => notifyLate(env, users, today, cfg.late_days));
+    if (cfg.admin_daily) await step('admin', () => notifyAdmin(env, users, today));
   }
-  if (dow !== FRIDAY && hour >= REVIEW_HOUR) await step('review', () => notifyReview(env, users, now, today, dow));
+  if (cfg.review && cfg.review_days.includes(dow) && hour >= cfg.review_hour) await step('review', () => notifyReview(env, users, now, today, dow));
   // تنظيف المفاتيح القديمة
   await step('cleanup', async () => { await env.DB.prepare("DELETE FROM notify_sent WHERE at < datetime('now', '-120 days') AND key NOT LIKE 'seed:%' AND key NOT LIKE 'rejected:%'").run(); });
 }
