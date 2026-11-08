@@ -42,7 +42,8 @@ export function AppNav({ hash, modules }: { hash: string; modules: string[] }) {
   }
   if (modules.includes('coll')) tabs.push({ id: 'coll', label: 'التحصيل', href: '#coll', Icon: HandCoins });
   const h = hash.replace(/^#/, '');
-  const detail = /\/c\//.test(h);
+  // صفحات التفاصيل وشاشة المراجعة لها شريطها الثابت، فيختفي التنقل
+  const detail = /\/c\//.test(h) || h.startsWith('coll/review');
   const shown = tabs.length > 1 && !detail;
   const first = modules[0] === 'coll' ? 'coll' : 'deposit';
   const current = h.startsWith('coll') ? 'coll' : h === 'cheques/all' ? 'all' : h === 'cheques/alerts' ? 'alerts' : h === 'cheques/new' ? 'new' : h.startsWith('cheques') ? 'deposit' : first;
@@ -60,8 +61,8 @@ export function AppNav({ hash, modules }: { hash: string; modules: string[] }) {
     <nav aria-label="التنقل بين الشاشات" style={{ viewTransitionName: 'bottomnav' } as React.CSSProperties}
       className="bottomnav fixed inset-x-0 bottom-0 z-20 border-t border-line-strong bg-surface pb-[env(safe-area-inset-bottom)]">
       {strip ? (
-        // سطر التذكير: يفتح التحصيل على «من بقي دون مراجعة». بعد الأجل بالأحمر
-        <a href="#coll/rev" className={cn('review-strip flex min-h-11 items-center gap-2 border-b border-s-3 border-line px-4 text-sm no-underline active:bg-surface-alt',
+        // سطر التذكير: يفتح شاشة المراجعة على أول من بقي. بعد الأجل بالأحمر
+        <a href="#coll/review" className={cn('review-strip flex min-h-11 items-center gap-2 border-b border-s-3 border-line px-4 text-sm no-underline active:bg-surface-alt',
           past ? 'border-s-brand bg-brand-tint font-semibold text-foreground' : 'border-s-warning bg-warning-tint text-foreground')}>
           <span className="min-w-0 flex-1">
             {past ? <>انتهى أجل المراجعة، وبقي {customersWord(rv.left)} دون مراجعة.</>

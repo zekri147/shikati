@@ -2,11 +2,11 @@
 // المندوب يرى عملاءه فقط، والمدير يختار المندوب. المراجعة الأسبوعية تُكتب تعليقاً على العميل في زوهو.
 // العنوان بعد #: ‎#coll للقائمة، و‎#coll/c/<معرّف العميل> لبطاقة العميل.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronLeft } from 'lucide-react';
+import { Check, ChevronLeft, MessageCircle, Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/input';
-import { CLOSE_MS, Modal, ModalActions, Sheet, SheetOption } from '@/components/ui/dialog';
+import { Sheet, SheetOption } from '@/components/ui/dialog';
 import { Fold } from '@/components/ui/collapsible';
 import { FilterButton, ListTools } from '@/components/search';
 import { AnimatedAmount, Amount, Ltr, Num } from '@/components/ltr';
@@ -20,7 +20,7 @@ import { readCache, writeCache } from '@/lib/cache';
 import { load as loadKey, save as saveKey } from '@/lib/storage';
 import { customersWord, daysWord, fmtAmount, fmtDate, fmtDateTime, invoicesWord, norm, relTime, round2 } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { isShared, markShared, sharedStyle } from '@/lib/motion';
+import { haptic, isShared, markShared, sharedStyle } from '@/lib/motion';
 import { LIST_BOX, LateMark } from '@/features/cheques/ui';
 import { Block, KV } from '@/features/cheques/pickers';
 import { setReviewLeft } from '@/components/nav';
@@ -47,6 +47,7 @@ type Cust = { id: string; name: string; balance: number; opening: number; late: 
 type Rev = { at: string; note: string; late: boolean; by: string; zoho: string };
 type Review = {
   week: string; deadline: number; can_review: boolean; items: Record<string, Rev>;
+  prev?: Record<string, { at: string; note: string }>;
   progress?: { rep: string; done: number; need: number; last: string | null }[];
   notes?: { name: string; rep: string; note: string; late: boolean; at: string }[];
   unsent?: { week: string; id: string; name: string; rep: string; state: string; error?: string; text: string }[];
@@ -71,19 +72,26 @@ function fmtDeadline(ms: number) {
   return `${p.day}/${p.month}`;
 }
 
-// ‎#coll/rev من سطر التذكير: القائمة على «من بقي دون مراجعة»
+// ‎#coll/review شاشة المراجعة عميلاً بعد عميل، و‎#coll/review/<معرّف> تبدأ بذلك العميل
 function parseRoute(hash: string) {
   const h = decodeURIComponent(hash.replace(/^#/, ''));
   const m = h.match(/^coll\/c\/(\d{10,25})$/);
-  return m ? { view: 'customer' as const, id: m[1], rev: false } : { view: 'list' as const, id: '', rev: h === 'coll/rev' };
+  if (m) return { view: 'customer' as const, id: m[1] };
+  const r = h.match(/^coll\/review(?:\/(\d{10,25}))?$/);
+  if (r) return { view: 'review' as const, id: r[1] || '' };
+  return { view: 'list' as const, id: '' };
 }
 
 export function CollModule({ me, hash }: { me: Me; hash: string }) {
   const isAdmin = me.user.role === 'admin';
   const route = useMemo(() => parseRoute(hash), [hash]);
-  // رمز المستخدم نفسه: للمدير الذي له عملاء، يُختار عند الوصول من سطر التذكير
+  // رمز المستخدم نفسه: للمدير الذي له عملاء، تحتاجه شاشة المراجعة
   const ownCode = (me.user.rep_code || '').trim().toUpperCase();
-  const [rep, setRep] = useState(() => (isAdmin ? (route.rev && ownCode ? ownCode : loadKey(REP_KEY)) : ''));
+  const [rep, setRep] = useState(() => {
+    if (!isAdmin) return '';
+    const saved = loadKey(REP_KEY);
+    return route.view === 'review' && ownCode && saved !== '' ? ownCode : saved;
+  });
   // آخر أرصدة على الهاتف تُعرض فوراً، ثم تُحدَّث. لكل اختيار مندوب نسخته
   const keyOf = (code: string) => 'coll:' + me.user.username + ':' + code;
   const [data, setData] = useState<CollData | null>(() => readCache<CollData>(keyOf(rep))?.data || null);
@@ -91,10 +99,9 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
   const [busy, setBusy] = useState(false);
   const [loadedAt, setLoadedAt] = useState(() => readCache<CollData>(keyOf(rep))?.at || 0);
   const [, tick] = useState(0);
-  const [cat, setCat] = useState(() => (route.rev ? 'rev' : ''));
+  const [cat, setCat] = useState('');
   const [q, setQ] = useState('');
   const [limit, setLimit] = useState(PAGE);
-  const [reviewing, setReviewing] = useState<{ c: Cust; r: Rev | null } | null>(null);
   const [sheet, setSheet] = useState<'' | 'rep' | 'cat' | 'review'>('');
   const busyRef = useRef(false);
   const prev = useRef(route.view);
@@ -144,12 +151,11 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
     load(false, code);
   }
 
-  // سطر التذكير فوق شريط التنقل يتبع ما بقي للمندوب في آخر بيانات
+  // شاشة المراجعة تحتاج عملاء المستخدم نفسه: المدير الذي اختار مندوباً آخر يعود إلى رمزه
   useEffect(() => {
-    if (!route.rev) return;
-    setCat('rev');
-    if (isAdmin && ownCode && rep !== ownCode) pickRep(ownCode);
-  }, [route.rev]);
+    if (route.view === 'review' && isAdmin && ownCode && rep !== '' && rep !== ownCode) pickRep(ownCode);
+  }, [route.view]);
+  // سطر التذكير فوق شريط التنقل يتبع ما بقي للمندوب في آخر بيانات
   useEffect(() => {
     const rv = data?.review;
     // المدير: فقط حين تشمل القائمة عملاءه (الكل أو رمزه)
@@ -160,14 +166,15 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
 
   const markReviewed = (c: Cust, r: Rev) => setData((d) => (d && d.review ? { ...d, review: { ...d.review, items: { ...d.review.items, [c.id]: r } } } : d));
 
+  if (route.view === 'review') {
+    return <ReviewFlow key={route.id} data={data} error={error} me={me} startId={route.id} onSaved={markReviewed} />;
+  }
+
   if (route.view === 'customer') {
     return (
-      <>
-        <CustomerPage data={data} id={route.id} me={me} onBack={() => { if (fromList.current) history.back(); else location.hash = '#coll'; }}
-          onReview={(c, r) => setReviewing({ c, r })}
-          onCancelled={(c) => setData((d) => { if (!d?.review) return d; const items = { ...d.review.items }; delete items[c.id]; return { ...d, review: { ...d.review, items } }; })} />
-        {reviewing && data?.review ? <ReviewDialog data={data} me={me} c={reviewing.c} r={reviewing.r} onClose={() => setReviewing(null)} onSaved={markReviewed} /> : null}
-      </>
+      <CustomerPage data={data} id={route.id} me={me} onBack={() => { if (fromList.current) history.back(); else location.hash = '#coll'; }}
+        onReview={(c) => { location.hash = '#coll/review/' + c.id; }}
+        onCancelled={(c) => setData((d) => { if (!d?.review) return d; const items = { ...d.review.items }; delete items[c.id]; return { ...d, review: { ...d.review, items } }; })} />
     );
   }
 
@@ -225,7 +232,7 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
         {cat ? <p className="mb-2 mt-0 text-sm text-muted">{CAT_NOTE[cat]}</p> : null}
         {items.length ? (
           <ul className={LIST_BOX}>
-            {shown.map((c) => <CustomerItem key={c.id} c={c} d={data} rep={rep} onReview={(r) => setReviewing({ c, r })} />)}
+            {shown.map((c) => <CustomerItem key={c.id} c={c} d={data} rep={rep} />)}
           </ul>
         ) : <Empty>{q ? 'لا عميل يطابق البحث.' : list.length ? 'لا عملاء في هذه الفئة.'
           : data.is_admin ? 'لا أرصدة مفتوحة لهذا الاختيار.' : 'لا رصيد مفتوح على عملائك. إن كان هذا غير صحيح، تأكد مع الإدارة أن حقل «Owner» على عملائك في زوهو يحمل رمزك.'}</Empty>}
@@ -256,40 +263,23 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
         </Sheet>
       ) : null}
 
-      {reviewing && rv ? <ReviewDialog data={data} me={me} c={reviewing.c} r={reviewing.r} onClose={() => setReviewing(null)} onSaved={markReviewed} /> : null}
     </>
   );
 }
 
 const Dot = () => <span aria-hidden className="text-soft">·</span>;
 
-function CustomerItem({ c, d, rep, onReview }: { c: Cust; d: CollData; rep: string; onReview: (r: Rev | null) => void }) {
+function CustomerItem({ c, d, rep }: { c: Cust; d: CollData; rep: string }) {
   const rv = d.review;
   const r = rv && needsReview(c) ? rv.items[c.id] : null;
-  const canToggle = isMine(d, c) && needsReview(c);
   const ref = useRef<HTMLLIElement>(null);
   const open = () => { markShared(c.id, ref.current); location.hash = '#coll/c/' + c.id; };
   const shared = isShared(c.id);
+  // المراجعة نفسها في شاشة المراجعة، والقائمة تعرض علامة «راجعته» فقط (بطلب ZEKRI يوم 8/11/2026)
   return (
-    <li ref={ref} role="link" tabIndex={0} aria-label={`${c.name}، ${fmtAmount(c.balance)}، ${lateText(c)}`}
+    <li ref={ref} role="link" tabIndex={0} aria-label={`${c.name}، ${fmtAmount(c.balance)}، ${r ? 'راجعته' : lateText(c)}`}
       onClick={open} onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(); } }}
-      className={cn('item flex min-h-[60px] cursor-pointer items-center gap-1 bg-surface py-2 pe-3 active:bg-surface-alt', canToggle ? 'ps-0' : 'ps-3')}>
-      {canToggle ? (
-        // زر «راجعت» بجانب العميل: يفتح بطاقة التأكيد، لأن المراجعة تُكتب في زوهو فوراً
-        <button type="button" aria-pressed={!!r} aria-label={r ? `${c.name}: ${ZOHO_WORD[r.zoho] || 'راجعته'}` : 'راجعت ' + c.name}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (!r || sendable(r)) { onReview(r); return; }
-            toast(r.zoho === 'done' ? 'سُجّلت هذه المراجعة في زوهو، فلا تُلغى.' : 'لم يصل رد واضح من زوهو. الإدارة تتحقق منها.', 'warn');
-          }}
-          className={cn('rev-btn -my-2 me-2 flex w-16 flex-none flex-col items-center justify-center gap-1 self-stretch border-e border-line px-1 py-2 text-sm font-semibold active:bg-surface-alt',
-            r ? 'on text-foreground' : 'text-muted')}>
-          <span aria-hidden className={cn('flex size-6 items-center justify-center border-2', r ? 'border-selected bg-selected text-selected-ink' : 'border-line-strong')}>
-            {r ? <Check className="size-4" strokeWidth={3} /> : null}
-          </span>
-          <span>{r ? 'راجعته' : 'راجعت'}</span>
-        </button>
-      ) : null}
+      className="item flex min-h-[60px] cursor-pointer items-center gap-1 bg-surface px-3 py-2 active:bg-surface-alt">
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-start justify-between gap-3">
           <span data-vt="cust" style={sharedStyle(shared, 'cust')} className="min-w-0"><Ltr className="text-base font-semibold leading-snug [overflow-wrap:anywhere]">{c.name}</Ltr></span>
@@ -297,7 +287,7 @@ function CustomerItem({ c, d, rep, onReview }: { c: Cust; d: CollData; rep: stri
         </div>
         <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
           <div className={cn('flex min-w-0 flex-wrap items-center gap-x-1 text-sm', r ? 'text-foreground' : 'text-muted')}>
-            <span>{r ? 'راجعته ' + timeOf(r.at) + (r.late ? ' (بعد الأجل)' : '') : lateText(c)}</span>
+            {r ? <span className="flex items-center gap-1 font-semibold"><Check aria-hidden className="size-4" strokeWidth={3} />{'راجعته ' + timeOf(r.at) + (r.late ? ' (بعد الأجل)' : '')}</span> : <span>{lateText(c)}</span>}
             {r && r.zoho !== 'done' ? <><Dot /><span className="font-semibold text-warning">{ZOHO_WORD[r.zoho]}</span></> : null}
             {c.invoices.length > 1 ? <><Dot /><span>{invoicesWord(c.invoices.length)}</span></> : null}
             {d.is_admin && !rep ? <><Dot />{c.owner ? <Ltr>{c.owner}</Ltr> : <span>بلا مندوب</span>}</> : null}
@@ -356,7 +346,10 @@ function ReviewBlock({ data, list, rep, cat, setCat, onOpen }: { data: CollData;
       <div role="progressbar" aria-label="تقدّم المراجعة" aria-valuemin={0} aria-valuemax={need.length} aria-valuenow={done} className="my-2 h-2 bg-surface-alt">
         <div className={cn('h-full transition-[width] duration-200', all ? 'bg-foreground' : past ? 'bg-brand' : 'bg-warning')} style={{ width: `${pct}%` }} />
       </div>
-      {!all ? (
+      {!all && self ? (
+        // المراجعة نفسها في شاشتها: عميلاً بعد عميل
+        <Button asChild variant="primary" className="review-start w-full"><a href="#coll/review">{done ? `تابع المراجعة: بقي ${customersWord(left)}` : 'ابدأ المراجعة'}</a></Button>
+      ) : !all ? (
         <Button className={cn('cut-sm w-full border-0 bg-chip', cat === 'rev' && 'bg-selected text-selected-ink hover:bg-selected')} aria-pressed={cat === 'rev'} onClick={() => setCat(cat === 'rev' ? '' : 'rev')}>
           {cat === 'rev' ? 'اعرض كل المدينين' : `اعرض من بقي دون مراجعة (${left})`}</Button>
       ) : null}
@@ -492,60 +485,182 @@ function previewText(data: CollData, c: Cust, note: string, late: boolean) {
     + `الرصيد ${fmtAmount(c.balance).replace(' DA', ' دج')}. ` + (note ? `الملاحظة: ${note}` : 'دون ملاحظة.') + ' — من تطبيق ميداني';
 }
 
-// بطاقة التأكيد: الملاحظة، ونص التعليق كما سيُكتب، ثم «سجّل في زوهو». لا رجوع بعد الإرسال.
-function ReviewDialog({ data, me, c, r, onClose, onSaved }: { data: CollData; me: Me; c: Cust; r: Rev | null; onClose: () => void; onSaved: (c: Cust, r: Rev) => void }) {
-  const rv = data.review!;
-  const late = r ? r.late : Date.now() > rv.deadline;
-  const [note, setNote] = useState(r ? r.note : '');
+// ——— شاشة المراجعة (8/11/2026، بطلب ZEKRI): عميلاً بعد عميل ———
+// لوح أحمر بالتقدّم والعميل، ثم ما قاله الأسبوع الماضي، والاتصال وواتساب، ثم الملاحظة ونص التعليق في زوهو.
+// الشاشة نفسها هي التأكيد: «سجّل في زوهو وانتقل للتالي» يكتب التعليق فوراً، ولا إعادة تلقائية إن انقطع الرد.
+function ReviewFlow({ data, error, me, startId, onSaved }: {
+  data: CollData | null; error: string; me: Me; startId: string; onSaved: (c: Cust, r: Rev) => void;
+}) {
+  // الطابور يُحسب مرة عند فتح الشاشة: من لم يُراجَع (ومن لم تصل مراجعته إلى زوهو)، بترتيب القائمة
+  const [queue, setQueue] = useState<string[] | null>(null);
+  const [skipped, setSkipped] = useState<string[]>([]);
+  const [pos, setPos] = useState(0);
+  const [sessionDone, setSessionDone] = useState(0);
+  const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<string | null>(null);
-  const [error, setError] = useState('');
-  const [open, setOpen] = useState(true);
-  const clean = note.replace(/\s+/g, ' ').trim();
-  const finish = () => { setOpen(false); setTimeout(onClose, CLOSE_MS); };
+  const [err, setErr] = useState('');
+  const [stuck, setStuck] = useState('');  // سُجّلت ولم تصل إلى زوهو: نشرح ثم «التالي»
+  const rv = data?.review;
+  const mine = data && rv ? data.customers.filter((c) => isMine(data, c) && needsReview(c)) : [];
+  const doneCount = rv ? mine.filter((c) => rv.items[c.id]).length : 0;
 
-  async function run() {
+  useEffect(() => {
+    if (queue || !data || !rv) return;
+    const open = mine.filter((c) => !rv.items[c.id] || sendable(rv.items[c.id])).map((c) => c.id);
+    const first = startId && mine.some((c) => c.id === startId) ? [startId, ...open.filter((id) => id !== startId)] : open;
+    setQueue(first);
+  }, [data]);
+
+  const c = queue ? mine.find((x) => x.id === queue[pos]) : undefined;
+  const r = c && rv ? rv.items[c.id] : undefined;
+  useEffect(() => { setNote(r && sendable(r) ? r.note : ''); setErr(''); setStuck(''); window.scrollTo(0, 0); }, [pos, queue]);
+  // عميل سدّد دينه منذ فتح الشاشة: يُتجاوز
+  useEffect(() => { if (queue && pos < queue.length && !c) setPos((p) => p + 1); }, [queue, pos, c]);
+
+  const atEnd = !!queue && pos >= queue.length;
+  useFixedBottom(68, !!queue && !!data);
+  const back = () => { location.hash = '#coll'; };
+  const clean = note.replace(/\s+/g, ' ').trim();
+
+  function next() {
+    setPos((p) => p + 1);
+  }
+  function skip() {
+    if (c) setSkipped((s) => [...s, c.id]);
+    next();
+  }
+  function again() {
+    setQueue(skipped);
+    setSkipped([]);
+    setPos(0);
+  }
+  async function save() {
+    if (!c || !rv) return;
     setBusy(true);
-    setError('');
+    setErr('');
     try {
       const res = await api('/api/m/coll/review', { method: 'POST', body: { customer_id: c.id, note: clean } });
       onSaved(c, { at: r ? r.at : new Date().toISOString().slice(0, 19).replace('T', ' '), note: clean, late: r ? r.late : res.late, by: me.user.username, zoho: res.zoho });
+      setSessionDone((n) => n + 1);
       setBusy(false);
-      if (res.zoho === 'done') { toast('سُجّلت المراجعة في زوهو ✓'); finish(); return; }
-      // سُجّلت في التطبيق ولم تصل إلى زوهو: نشرح دون إعادة تلقائية
-      setDone(res.zoho === 'unknown'
+      if (res.zoho === 'done') { haptic('success'); toast('سُجّلت مراجعة ' + c.name + ' ✓'); next(); return; }
+      setStuck(res.zoho === 'unknown'
         ? 'سُجّلت المراجعة في التطبيق، لكن لم يصل رد واضح من زوهو. لا تعد المحاولة: الإدارة تتحقق منها.'
-        : 'سُجّلت المراجعة في التطبيق، لكن زوهو رفض التعليق. الإدارة تعيد إرساله، ويمكنك إعادة المحاولة لاحقاً.');
+        : 'سُجّلت المراجعة في التطبيق، لكن زوهو رفض التعليق. الإدارة تعيد إرساله.');
     } catch (e) {
       setBusy(false);
-      setError(errText(e));
+      setErr(errText(e));
     }
   }
 
-  return (
-    <Modal open={open} onClose={finish} busy={busy} title={<>مراجعة <Ltr>{c.name}</Ltr></>}>
-      <label className="block py-2">
-        <span className="mb-2 block text-base font-semibold">ماذا قال العميل؟</span>
-        <Textarea rows={3} maxLength={400} autoFocus disabled={busy || !!done} placeholder="اختياري. مثال: وعد بالدفع يوم الخميس" value={note} onChange={(e) => setNote(e.target.value)} />
-      </label>
-      <div className="my-2">
-        <span className="text-sm text-muted">سيُكتب في سجل العميل في زوهو:</span>
-        <Note className="mt-1 text-foreground">{previewText(data, c, clean, late)}</Note>
+  const deadline = rv ? `الأجل الخميس ${fmtDeadline(rv.deadline)} الساعة 12:00` : '';
+  const head = (
+    <>
+      <SlabTop onBack={back} extra={deadline} />
+      <div className="mt-1 flex items-baseline justify-between gap-3 text-sm">
+        <span className="font-semibold">مراجعة الأسبوع</span>
+        {mine.length ? <span>راجعت <Num>{`${doneCount}/${mine.length}`}</Num></span> : null}
       </div>
-      <Note tone="warn">بعد الإرسال لا تُعدَّل المراجعة ولا تُلغى من التطبيق.</Note>
-      {done ? <Note tone="warn" className="mt-2 text-base">{done}</Note> : null}
-      {error ? <FormError>{error}</FormError> : null}
-      <ModalActions>
-        {!done ? <Button variant="primary" disabled={busy} onClick={run}>{busy ? 'جارٍ التسجيل…' : 'سجّل في زوهو'}</Button> : null}
-        <Button disabled={busy} onClick={finish}>{done ? 'إغلاق' : 'إلغاء'}</Button>
-      </ModalActions>
-    </Modal>
+      {mine.length ? (
+        <div role="progressbar" aria-label="تقدّم المراجعة" aria-valuemin={0} aria-valuemax={mine.length} aria-valuenow={doneCount} className="mb-3 mt-2 h-1 bg-press-on-brand">
+          <div className="h-full bg-white transition-[width] duration-200" style={{ width: `${Math.round((doneCount / mine.length) * 100)}%` }} />
+        </div>
+      ) : null}
+    </>
+  );
+
+  if (error && !data) return <><Slab>{head}</Slab><ErrorBox>{error}</ErrorBox></>;
+  if (!data || !rv || !queue) return <><Slab>{head}</Slab><SkeletonList rows={3} /></>;
+  if (!rv.can_review) {
+    return <><Slab>{head}</Slab><div className="mt-4"><Empty>المراجعة لصاحب رمز المندوب. اطلب من الإدارة ربط حسابك برمزك في زوهو.</Empty></div></>;
+  }
+
+  // النهاية: كل العملاء، أو بقي من تخطّاهم
+  if (atEnd) {
+    const left = mine.length - doneCount;
+    return (
+      <>
+        <Slab>{head}<h1 className="m-0 text-lg font-bold">{left ? `بقي ${customersWord(left)} دون مراجعة` : 'أنهيت مراجعة كل عملائك ✓'}</h1></Slab>
+        <div className="mt-4 flex flex-col gap-3">
+          <Block title="هذه الجلسة">
+            <dl className="m-0 flex flex-col">
+              <KV label="راجعت الآن">{customersWord(sessionDone)}</KV>
+              {skipped.length ? <KV label="تخطّيت">{customersWord(skipped.length)}</KV> : null}
+              <KV label="هذا الأسبوع"><Num>{`${doneCount}/${mine.length}`}</Num></KV>
+            </dl>
+          </Block>
+          {left && !skipped.length ? <Note tone="warn">من بقي سدّد دينه أو لم يصل رد زوهو عن مراجعته. افتح التحصيل للتفاصيل.</Note> : null}
+        </div>
+        <div className="detailbar fixed inset-x-0 bottom-0 z-20 flex gap-2 border-t border-line-strong bg-surface px-4 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 [&>*]:flex-1">
+          {skipped.length ? <Button variant="primary" className="!flex-[2] py-2" onClick={again}>عُد إلى من تخطّيتهم</Button> : null}
+          <Button variant={skipped.length ? undefined : 'primary'} className="py-2" onClick={back}>{skipped.length ? 'رجوع' : 'رجوع إلى التحصيل'}</Button>
+        </div>
+      </>
+    );
+  }
+  if (!c) return <><Slab>{head}</Slab><SkeletonList rows={3} /></>;
+
+  const prev = rv.prev?.[c.id];
+  const last = pos === queue.length - 1 && !skipped.length;
+  const msg = `السلام عليكم، معك ${me.user.display_name} من ELONAC. نتصل بخصوص رصيدك عندنا، ${fmtAmount(c.balance).replace(' DA', '')} دج. متى يناسبك أن نسوّيه؟`;
+  const noPhone = () => toast('لا رقم هاتف لهذا العميل في زوهو.', 'warn');
+
+  return (
+    <>
+      <Slab>
+        {head}
+        <h1 className="m-0"><Ltr className="block text-lg font-bold leading-snug [overflow-wrap:anywhere]">{c.name}</Ltr></h1>
+        <Amount value={c.balance} className="mt-1 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Badge tone={isOld(c) ? 'dark' : 'inverse'}>{lateText(c)}</Badge>
+          {c.invoices.length ? <Badge tone="inverse">{invoicesWord(c.invoices.length)}</Badge> : null}
+          {r && sendable(r) ? <Badge tone="inverse">لم يُرسل إلى زوهو</Badge> : null}
+        </div>
+      </Slab>
+
+      <div className="mt-4 flex flex-col gap-4">
+        {prev ? (
+          <Block title={`الأسبوع الماضي، ${timeOf(prev.at)}`}>
+            <p className="my-1 text-base [overflow-wrap:anywhere]">{prev.note || 'دون ملاحظة.'}</p>
+          </Block>
+        ) : null}
+
+        <div className="flex gap-2 [&>*]:flex-1">
+          {c.phone ? <Button asChild className="py-2"><a href={'tel:+' + c.phone}><Phone aria-hidden className="size-4.5" />اتصال</a></Button>
+            : <Button blocked className="py-2" onClick={noPhone}><Phone aria-hidden className="size-4.5" />اتصال</Button>}
+          {c.phone ? <Button asChild className="py-2"><a href={`https://wa.me/${c.phone}?text=${encodeURIComponent(msg)}`} target="_blank" rel="noopener"><MessageCircle aria-hidden className="size-4.5" />واتساب</a></Button>
+            : <Button blocked className="py-2" onClick={noPhone}><MessageCircle aria-hidden className="size-4.5" />واتساب</Button>}
+        </div>
+
+        <label className="block">
+          <span className="mb-2 block text-base font-semibold">ماذا قال العميل؟</span>
+          <Textarea rows={3} maxLength={400} disabled={busy || !!stuck} placeholder="اختياري. مثال: وعد بالدفع يوم الخميس" value={note} onChange={(e) => setNote(e.target.value)} />
+        </label>
+
+        <div>
+          <span className="text-sm text-muted">يُكتب في سجل العميل في زوهو، ولا يُعدَّل بعدها:</span>
+          <Note className="mt-1 text-foreground">{previewText(data, c, clean, r ? r.late : Date.now() > rv.deadline)}</Note>
+        </div>
+        {stuck ? <Note tone="warn" className="text-base">{stuck}</Note> : null}
+        {err ? <FormError>{err}</FormError> : null}
+      </div>
+
+      <div className="detailbar fixed inset-x-0 bottom-0 z-20 flex gap-2 border-t border-line-strong bg-surface px-4 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 [&>*]:flex-1">
+        {stuck ? <Button variant="primary" className="!flex-[2] py-2" onClick={next}>{last ? 'إنهاء' : 'التالي'}</Button> : (
+          <>
+            <Button variant="primary" className="!flex-[2] whitespace-nowrap py-2" disabled={busy} onClick={save}>
+              {busy ? 'جارٍ التسجيل…' : last ? 'سجّل في زوهو وأنهِ' : 'سجّل في زوهو والتالي'}</Button>
+            <Button className="py-2" disabled={busy} onClick={skip}>تخطَّ</Button>
+          </>
+        )}
+      </div>
+    </>
   );
 }
 
 // ——— بطاقة العميل ———
 function CustomerPage({ data, id, me, onBack, onReview, onCancelled }: {
-  data: CollData | null; id: string; me: Me; onBack: () => void; onReview: (c: Cust, r: Rev | null) => void; onCancelled: (c: Cust) => void;
+  data: CollData | null; id: string; me: Me; onBack: () => void; onReview: (c: Cust) => void; onCancelled: (c: Cust) => void;
 }) {
   const c = data?.customers.find((x) => x.id === id);
   useFixedBottom(68, !!c);
@@ -591,7 +706,7 @@ function CustomerPage({ data, id, me, onBack, onReview, onCancelled }: {
             !isMine(data, c) ? <Note tone="warn">لم يُراجَع هذا العميل هذا الأسبوع.</Note> : (
               <Block title="مراجعة الأسبوع: لم تراجعه بعد" className="border-s-3 border-s-warning">
                 <p className="text-sm text-muted">اتصل به، ثم سجّل ما قاله. المراجعة تُكتب تعليقاً في سجل العميل في زوهو.</p>
-                <Button className="w-full" onClick={() => onReview(c, null)}>سجّل المراجعة</Button>
+                <Button className="w-full" onClick={() => onReview(c)}>راجِعه الآن</Button>
               </Block>
             )
           ) : (
@@ -603,7 +718,7 @@ function CustomerPage({ data, id, me, onBack, onReview, onCancelled }: {
               </p>
               {isMine(data, c) && sendable(r) ? (
                 <div className="mt-2 flex gap-2 [&>button]:flex-1">
-                  <Button onClick={() => onReview(c, r)}>أعد الإرسال</Button>
+                  <Button onClick={() => onReview(c)}>أعد الإرسال</Button>
                   <Button disabled={cancelling} onClick={cancelReview}>إلغاء المراجعة</Button>
                 </div>
               ) : null}

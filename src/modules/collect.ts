@@ -396,6 +396,11 @@ export async function handleCollect(req: Request, env: Env, user: User): Promise
   const shown = new Set(customers.map((c) => c.id));
   const reviews: Record<string, { at: string; note: string; late: boolean; by: string; zoho: string }> = {};
   for (const r of rows) if (shown.has(r.customer_id)) reviews[r.customer_id] = { at: r.reviewed_at, note: r.note, late: !!r.late, by: r.username, zoho: r.zoho_state };
+  // مراجعة الأسبوع الماضي لكل عميل ظاهر: يراها المندوب في شاشة المراجعة قبل أن يتصل
+  const prevWeek = new Date(Date.parse(week + 'T12:00:00Z') - 7 * 86_400_000).toISOString().slice(0, 10);
+  const prevRows = await weekReviews(env, prevWeek, isAdmin ? undefined : own);
+  const prev: Record<string, { at: string; note: string }> = {};
+  for (const r of prevRows) if (shown.has(r.customer_id)) prev[r.customer_id] = { at: r.reviewed_at, note: r.note };
   return json({
     at: snap.at * 1000,
     today: snap.today,
@@ -410,6 +415,7 @@ export async function handleCollect(req: Request, env: Env, user: User): Promise
       // كل من له رمز مندوب يراجع عملاء رمزه، والمدير منهم
       can_review: !!own,
       items: reviews,
+      prev,
       // المدير: تقدّم كل مندوب، وكل الملاحظات المكتوبة هذا الأسبوع
       progress: isAdmin ? reviewProgress(snap.customers, rows) : undefined,
       notes: isAdmin ? rows.filter((r) => r.note).sort((a, b) => b.reviewed_at.localeCompare(a.reviewed_at))
