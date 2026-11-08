@@ -8,6 +8,7 @@ import {
 import { parseImage, readCheque, readerConfigured, readOrientation } from './ocr';
 import { allocateBills, canEndorse, endorseCheque } from './endorse';
 import { custodyOnRegister } from './custody';
+import { outBankOptions } from './outcheque';
 
 // تسجيل شيك جديد من التطبيق: دفعة عميل بطريقة «شيك»، موزّعة على أقدم فواتير العميل.
 // هذا ثاني مكان يكتب في زوهو بعد الإيداع، بموافقة ZEKRI (الإنشاء مباشرة دون اعتماد).
@@ -37,6 +38,8 @@ export function registerOptions(env: Env, user: User): Response {
     // وجهة «مورد آخر» تظهّر الشيك فور تسجيله، والتظهير للمدير وحده
     destinations: DESTINATIONS.filter((d) => d !== 'Autre Fournisseur' || canEndorse(user)),
     locations: Object.entries(LOCATIONS).map(([key, v]) => ({ key, label: v.label })),
+    // شيك الشركة الصادر لمورد: للمدير وحده، مثل التظهير
+    out_banks: canEndorse(user) ? outBankOptions() : null,
   });
 }
 
