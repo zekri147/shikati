@@ -32,7 +32,7 @@
 // وعميل بلا مندوب، وعميل برصيد افتتاحي فقط، وآخر بفواتير ورصيد افتتاحي معاً.
 // تعليق المراجعة (POST /contacts/<id>/comments) حسب نص الملاحظة:
 //   «#قطع» ينقطع الرد بعد الإرسال    «#رفض» زوهو يرفض بالرمز 57 (صلاحية ناقصة)    غير ذلك: نجاح
-// ودفعة المورد عند التظهير (POST /vendorpayments) حسب آخر رقم في رقم الشيك:
+// ودفعة المورد عند التظهير وشيك الشركة الصادر (POST /vendorpayments) حسب آخر رقم في رقم الشيك:
 //   8 زوهو يرفض دفعة المورد     6 ينقطع الرد بعد الإرسال
 // وخدمة إشعارات وهمية: POST /push/<اسم> يحفظ الإشعار المشفّر، وGET /__push يعرض ما وصل
 // (PUSH_ALLOW_LOCAL=1 في .dev.vars يسمح بهذا العنوان المحلي).
@@ -286,7 +286,8 @@ http.createServer((req, res) => {
     }
     if (path === '/books/v3/vendorpayments' && req.method === 'GET') {
       const amt = Number(url.searchParams.get('amount'));
-      return send({ code: 0, vendorpayments: Object.values(vendorPayments).filter((v) => !amt || Number(v.amount) === amt) });
+      const ven = url.searchParams.get('vendor_id');
+      return send({ code: 0, vendorpayments: Object.values(vendorPayments).filter((v) => (!amt || Number(v.amount) === amt) && (!ven || v.vendor_id === ven)) });
     }
     if ((m = path.match(/^\/books\/v3\/vendorpayments\/(\d+)$/)) && req.method === 'DELETE') {
       if (!vendorPayments[m[1]]) return send({ code: 1002, message: 'not found' }, 404);
@@ -331,6 +332,12 @@ http.createServer((req, res) => {
       log.push(`ATTACH ${m[1]} ${body.length} bytes`);
       p.has_attachment = true;
       p.documents = [...(p.documents || []), { document_id: `D${m[1]}`, file_type: 'jpg', file_name: 'cheque.jpg', attachment_order: (p.documents || []).length + 1 }];
+      return send({ code: 0, message: 'The document has been attached.' });
+    }
+    if ((m = path.match(/^\/books\/v3\/vendorpayments\/(\d+)\/attachment$/)) && req.method === 'POST') {
+      if (!vendorPayments[m[1]]) return send({ code: 1002, message: 'not found' }, 404);
+      log.push(`ATTACH VENDORPAY ${m[1]} ${body.length} bytes`);
+      vendorPayments[m[1]].has_attachment = true;
       return send({ code: 0, message: 'The document has been attached.' });
     }
 

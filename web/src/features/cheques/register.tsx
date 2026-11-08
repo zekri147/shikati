@@ -1,5 +1,6 @@
 // تسجيل شيك جديد: صورة الشيك ← قراءة المبلغ والرقم بكلود ← اختيار العميل بالبحث ← دفعة في زوهو،
 // ومع وجهة «مورد آخر» دفعة مورد من حساب الشيكات المظهّرة.
+// وللمدير نوع ثانٍ «شيك منّا لمورد» (outcheque.tsx): دفعة مورد من حساب البنك.
 // القراءة اقتراح فقط، ولا يُكتب شيء في زوهو قبل «تسجيل الشيك» في بطاقة التأكيد.
 import { useEffect, useRef, useState } from 'react';
 import { Check } from 'lucide-react';
@@ -20,14 +21,19 @@ import { DEST_LABELS } from './ui';
 import { rotateDataUrl, shrink } from './media';
 import { AllocList, Block, KV, PartyPicker, type Party } from './pickers';
 import { GroupField, PhotoButtons } from './edit';
+import { OutChequeForm } from './outcheque';
 import type { Line } from './types';
 
-const LOC_FROM_LABEL: Record<string, string> = { 'الجزائر': 'ALGER', 'العلمة': 'EL EULMA' };
-type Options = { can_register: boolean; reader: boolean; destinations: string[]; locations: { key: string; label: string }[] };
+export const LOC_FROM_LABEL: Record<string, string> = { 'الجزائر': 'ALGER', 'العلمة': 'EL EULMA' };
+export type Options = {
+  can_register: boolean; reader: boolean; destinations: string[]; locations: { key: string; label: string }[];
+  // بنوك شيكات الشركة الصادرة: للمدير وحده، وإلا null
+  out_banks: { key: string; label: string }[] | null;
+};
 type Preview = { lines: Line[]; unused: number; vendor?: { lines: Line[]; unused: number } };
 
 // خطوة مرقّمة بعنوان بارز فوق مجموعتها: تظهر علامة ✓ حين تكتمل، فيرى الموظف ما بقي بنظرة
-function Step({ n, title, done, children }: { n: number; title: string; done: boolean; children: React.ReactNode }) {
+export function Step({ n, title, done, children }: { n: number; title: string; done: boolean; children: React.ReactNode }) {
   return (
     <Block strong title={<>
         <span aria-hidden className={cn('num inline-flex size-6 flex-none items-center justify-center text-sm', done ? 'bg-selected text-selected-ink' : 'border border-line-strong text-muted')}>
@@ -42,7 +48,7 @@ function Step({ n, title, done, children }: { n: number; title: string; done: bo
 }
 
 // مؤشر التقدّم أعلى الشاشة: أربع خطوات، والمكتملة بلون «المختار»
-function StepsProgress({ done }: { done: boolean[] }) {
+export function StepsProgress({ done }: { done: boolean[] }) {
   const n = done.filter(Boolean).length;
   return (
     <div>
@@ -52,12 +58,45 @@ function StepsProgress({ done }: { done: boolean[] }) {
   );
 }
 
-export function RegisterPage({ onDone }: { onDone: (pid: string) => void }) {
-  const [opts, setOpts] = useState<Options | null>(null);
-  const [loadError, setLoadError] = useState('');
+// صورة الشيك وقراءتها بكلود: مشتركة بين شيك العميل وشيك الشركة الصادر.
+// القراءة تملأ المبلغ والرقم اقتراحاً فقط، والصورة تُدار قبل رفعها فتظهر معتدلة في التطبيق وفي زوهو.
+export function useChequePhoto(reader: boolean, fill: (amount: string | null, number: string | null) => void) {
   const [image, setImage] = useState('');
   const [reading, setReading] = useState(false);
   const [readNote, setReadNote] = useState<{ tone?: 'warn' | 'ok'; text: string } | null>(null);
+
+  async function onFile(f: File) {
+    let shot: string;
+    try { shot = await shrink(f); } catch (e) { toast(errText(e), 'err'); return; }
+    setImage(shot);
+    if (!reader) { setReadNote({ text: 'القراءة الآلية غير مُعدّة بعد. اكتب البيانات بيدك.' }); return; }
+    setReadNote({ text: 'جارٍ قراءة الشيك…' });
+    setReading(true);
+    try {
+      const { reading: r } = await api('/api/m/cheques/register/read', { method: 'POST', body: { image: shot } });
+      const filled: string[] = [];
+      if (r.amount) filled.push('المبلغ');
+      if (r.cheque_number) filled.push('الرقم');
+      fill(r.amount ? String(r.amount) : null, r.cheque_number || null);
+      setReadNote({
+        tone: r.note ? 'warn' : 'ok',
+        text: (filled.length ? 'قُرئ: ' + filled.join('، ') + '. راجعها مع الصورة.' : 'لم تُقرأ أي بيانات بثقة. اكتبها بيدك.') + (r.note ? ' ملاحظة: ' + r.note : ''),
+      });
+      if (r.rotation) { const rot = await rotateDataUrl(shot, r.rotation); setImage((cur) => (cur === shot ? rot : cur)); }
+    } catch (e) {
+      setReadNote({ tone: 'warn', text: errText(e) });
+    } finally {
+      setReading(false);
+    }
+  }
+  return { image, reading, readNote, onFile };
+}
+
+export function RegisterPage({ onDone }: { onDone: (pid: string) => void }) {
+  const [opts, setOpts] = useState<Options | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [kind, setKind] = useState<'in' | 'out'>('in');
+  const [outKey, setOutKey] = useState(0);
   const [customer, setCustomer] = useState<Party | null>(null);
   const [vendor, setVendor] = useState<Party | null>(null);
   const [amount, setAmount] = useState('');
@@ -79,35 +118,25 @@ export function RegisterPage({ onDone }: { onDone: (pid: string) => void }) {
   }, []);
 
   useFixedBottom(92, !!opts && opts.can_register);
-
-  async function onFile(f: File) {
-    let shot: string;
-    try { shot = await shrink(f); } catch (e) { toast(errText(e), 'err'); return; }
-    setImage(shot);
-    if (!opts?.reader) { setReadNote({ text: 'القراءة الآلية غير مُعدّة بعد. اكتب البيانات بيدك.' }); return; }
-    setReadNote({ text: 'جارٍ قراءة الشيك…' });
-    setReading(true);
-    try {
-      const { reading: r } = await api('/api/m/cheques/register/read', { method: 'POST', body: { image: shot } });
-      const filled: string[] = [];
-      if (r.amount) { setAmount(String(r.amount)); filled.push('المبلغ'); }
-      if (r.cheque_number) { setNumber(r.cheque_number); filled.push('الرقم'); }
-      setReadNote({
-        tone: r.note ? 'warn' : 'ok',
-        text: (filled.length ? 'قُرئ: ' + filled.join('، ') + '. راجعها مع الصورة.' : 'لم تُقرأ أي بيانات بثقة. اكتبها بيدك.') + (r.note ? ' ملاحظة: ' + r.note : ''),
-      });
-      // الصورة تُدار قبل رفعها، فتظهر معتدلة في التطبيق وفي زوهو
-      if (r.rotation) { const rot = await rotateDataUrl(shot, r.rotation); setImage((cur) => (cur === shot ? rot : cur)); }
-    } catch (e) {
-      setReadNote({ tone: 'warn', text: errText(e) });
-    } finally {
-      setReading(false);
-    }
-  }
+  const { image, reading, readNote, onFile } = useChequePhoto(!!opts?.reader, (a, n) => { if (a) setAmount(a); if (n) setNumber(n); });
 
   if (loadError) return <ErrorBox>{loadError}</ErrorBox>;
   if (!opts) return <SkeletonList className="mt-0" rows={4} />;
   if (!opts.can_register) return <Empty>ليست لديك صلاحية تسجيل الشيكات.</Empty>;
+
+  // نوع الشيك للمدير: من عميل (دفعة عميل) أو منّا لمورد (دفعة مورد من البنك). بيانات شيك العميل تبقى عند التبديل.
+  const kindSwitch = opts.out_banks ? (
+    <Segmented label="نوع الشيك" value={kind} onChange={setKind}
+      options={[{ value: 'in' as const, label: 'شيك من عميل' }, { value: 'out' as const, label: 'شيك منّا لمورد' }]} />
+  ) : null;
+  if (kind === 'out' && opts.out_banks) {
+    return (
+      <div className="flex flex-col gap-4">
+        {kindSwitch}
+        <OutChequeForm key={outKey} opts={opts} onDone={() => { setOutKey((k) => k + 1); scrollTo({ top: 0 }); }} />
+      </div>
+    );
+  }
 
   const endorsed = destination === 'Autre Fournisseur';
   const locLabels = Object.fromEntries(opts.locations.map((l) => [l.key, l.label]));
@@ -150,6 +179,7 @@ export function RegisterPage({ onDone }: { onDone: (pid: string) => void }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {kindSwitch}
       <StepsProgress done={[!!image, !!customer, !!parseAmount(amount) && number.replace(/\D/g, '').length === 7 && !!date, !!location && (!endorsed || !!vendor)]} />
       <Step n={1} title="صورة الشيك" done={!!image}>
         {image ? <img src={image} alt="صورة الشيك" className="mt-1 block max-h-[260px] w-full border border-line bg-surface-alt object-contain" /> : null}
