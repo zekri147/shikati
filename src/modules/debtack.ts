@@ -17,6 +17,8 @@ const CYCLE_DAYS = 14;
 const DAY = 86_400_000;
 const ID_RE = /^\d{10,25}$/;
 const NOTE_MAX = 400;
+// أقل رصيد يدخل الصورة (بطلب ZEKRI يوم 8/11/2026): ما دونه لا يحتاج إقراراً
+export const MIN_BALANCE = 1000;
 
 const addDays = (iso: string, n: number) => new Date(Date.parse(iso + 'T12:00:00Z') + n * DAY).toISOString().slice(0, 10);
 
@@ -43,7 +45,7 @@ export async function ensureSnapshot(env: Env, today = todayAlgiers()): Promise<
   if (!claim.meta.changes) return { ...base, state: 'pending', taken_at: null };
   try {
     const snap = await getSnapshot(env, true);
-    const rows = snap.customers.filter(needsReview);
+    const rows = snap.customers.filter((c) => needsReview(c) && c.balance >= MIN_BALANCE);
     const stmts = [env.DB.prepare('DELETE FROM debt_snapshot WHERE cycle = ?').bind(cycle)];
     // عشرة عملاء في كل أمر: حد المتغيرات في الأمر الواحد
     for (let i = 0; i < rows.length; i += 10) {
@@ -98,7 +100,7 @@ export async function ackList(env: Env, user: User): Promise<Response> {
   const cs = await ensureSnapshot(env);
   if (!own || cs.state !== 'ready') return json({ ...cs, can_ack: !!own, had_prev: false, rows: [] });
   const prev = prevCycle(cs.cycle);
-  const [{ results }, had] = await Promise.all([
+  const [{ results }, had, now] = await Promise.all([
     env.DB.prepare(
       'SELECT s.customer_id AS id, s.customer_name AS name, s.balance AS balance, s.late AS late, s.invoices AS invoices, '
       + 's.answer AS answer, s.reason AS reason, s.note AS note, s.answered_at AS at, s.zoho_state AS zoho, s.zoho_error AS error, p.balance AS prev '
@@ -106,8 +108,15 @@ export async function ackList(env: Env, user: User): Promise<Response> {
       + 'WHERE s.cycle = ? AND s.rep = ? ORDER BY s.balance DESC, s.customer_name',
     ).bind(prev, cs.cycle, own).all(),
     env.DB.prepare('SELECT ready FROM debt_cycles WHERE cycle = ?').bind(prev).first<{ ready: number }>(),
+    // الرصيد الآن وفواتيره، ليتحقق المندوب قبل أن يقرّ (من أرصدة التحصيل المحفوظة، دون طلب جديد غالباً)
+    getSnapshot(env, false).catch(() => null),
   ]);
-  return json({ ...cs, can_ack: true, rep: own, had_prev: !!had?.ready, rows: results || [] });
+  const cur = new Map((now?.customers || []).map((c) => [c.id, c]));
+  const rows = (results || []).map((r) => {
+    const c = cur.get(String(r.id));
+    return { ...r, now: c ? c.balance : 0, opening: c ? c.opening : 0, inv: c ? c.invoices : [] };
+  });
+  return json({ ...cs, can_ack: true, rep: own, had_prev: !!had?.ready, now_ok: !!now, rows });
 }
 
 // ——— الجواب: إقرار أو اعتراض ———
@@ -116,12 +125,14 @@ export async function ackList(env: Env, user: User): Promise<Response> {
 const CHANGEABLE = "(answer IS NULL OR answer = 'ok' OR zoho_state IN ('none', 'failed'))";
 
 export async function saveAck(req: Request, env: Env, user: User): Promise<Response> {
-  const b = await readJson<{ customer_id?: string; answer?: string; reason?: string; note?: string }>(req);
+  const b = await readJson<{ cycle?: string; customer_id?: string; answer?: string; reason?: string; note?: string }>(req);
   const id = String(b.customer_id || '');
   if (!ID_RE.test(id)) throw new HttpError(400, 'العميل غير صالح.');
   const own = normRep(user.rep_code);
   if (!own) throw new HttpError(403, 'الإقرار للمندوب صاحب العميل فقط.');
   const cycle = cycleOf(todayAlgiers());
+  // الشاشة فُتحت في دورة سابقة: لا يُسجَّل جواب على صورة لم يرها المندوب
+  if (b.cycle && b.cycle !== cycle) throw new HttpError(409, 'بدأت صورة دين جديدة. أعد فتح شاشة الإقرار.');
   const row = await env.DB.prepare('SELECT rep, customer_name FROM debt_snapshot WHERE cycle = ? AND customer_id = ?').bind(cycle, id).first<{ rep: string; customer_name: string }>();
   if (!row || row.rep !== own) throw new HttpError(403, 'هذا العميل ليس في صورة دين عملائك لهذه الدورة.');
   const busy = () => new HttpError(409, 'اعتراضك على هذا العميل أُرسل إلى زوهو، فلا يُغيَّر. إن كان خطأ، أبلغ المدير.');
@@ -195,9 +206,10 @@ export async function ackAdmin(env: Env, cycle: string) {
       "SELECT rep, COUNT(*) AS total, COUNT(answer) AS done, COALESCE(SUM(answer = 'dispute'), 0) AS disputes, MAX(answered_at) AS last "
       + 'FROM debt_snapshot WHERE cycle = ? GROUP BY rep ORDER BY rep',
     ).bind(cycle).all<{ rep: string; total: number; done: number; disputes: number; last: string | null }>(),
+    // الاعتراضات المفتوحة من كل الدورات، حتى يعلّمها المدير «عولج»
     env.DB.prepare(
-      `SELECT ${COLS} FROM debt_snapshot WHERE cycle = ? AND answer = 'dispute' ORDER BY answered_at DESC`,
-    ).bind(cycle).all<AckRow>(),
+      `SELECT ${COLS} FROM debt_snapshot WHERE answer = 'dispute' AND resolved_at IS NULL ORDER BY cycle DESC, answered_at DESC LIMIT 200`,
+    ).all<AckRow>(),
     env.DB.prepare(
       `SELECT ${COLS} FROM debt_snapshot WHERE answer = 'dispute' AND zoho_state != 'done' ORDER BY cycle DESC, answered_at DESC LIMIT 200`,
     ).all<AckRow>(),
@@ -216,7 +228,7 @@ export async function ackAdmin(env: Env, cycle: string) {
   }
   return {
     progress: prog.results || [],
-    disputes: (disputes.results || []).map((r) => ({ id: r.customer_id, name: r.customer_name, rep: r.rep, balance: r.balance, reason: r.reason, note: r.note, at: r.answered_at, zoho: r.zoho_state })),
+    disputes: (disputes.results || []).map((r) => ({ cycle: r.cycle, id: r.customer_id, name: r.customer_name, rep: r.rep, balance: r.balance, reason: r.reason, note: r.note, at: r.answered_at, zoho: r.zoho_state })),
     unsent: (unsent.results || []).map((r) => ({
       cycle: r.cycle, id: r.customer_id, name: r.customer_name, rep: r.rep, state: r.zoho_state, error: r.zoho_error,
       text: ackCommentText({ ...r, reason: r.reason || '', taken_at: taken.get(r.cycle) || '' }),
@@ -247,6 +259,17 @@ export async function ackAdminResolve(req: Request, env: Env, user: User): Promi
   ).bind(b.found ? 'done' : 'failed', b.found ? null : 'تحقق المدير: غير موجود في زوهو', cycle, id).run();
   if (!r.meta.changes) throw new HttpError(409, 'هذا الاعتراض ليس بانتظار التحقق.');
   await audit(env, user, 'coll.dispute.resolve', 'ok', id, b.found ? 'found' : 'not_found');
+  return json({ ok: true });
+}
+
+// «عولج»: المدير يغلق الاعتراض بعد تصحيحه، في التطبيق وحده
+export async function ackAdminClose(req: Request, env: Env, user: User): Promise<Response> {
+  const { cycle, id } = adminTarget(await readJson(req));
+  const r = await env.DB.prepare(
+    "UPDATE debt_snapshot SET resolved_at = datetime('now'), resolved_by = ? WHERE cycle = ? AND customer_id = ? AND answer = 'dispute' AND resolved_at IS NULL",
+  ).bind(user.username, cycle, id).run();
+  if (!r.meta.changes) throw new HttpError(409, 'هذا الاعتراض مغلق من قبل.');
+  await audit(env, user, 'coll.dispute.close', 'ok', id);
   return json({ ok: true });
 }
 

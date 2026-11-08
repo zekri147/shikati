@@ -39,3 +39,9 @@ export function setAckCounts(cycle: string, done: number, total: number) {
 
 export const useAckStatus = () => useSyncExternalStore((cb) => { subs.add(cb); return () => { subs.delete(cb); }; }, () => status);
 export const ackLeft = (s: AckStatus | null) => (s && s.state === 'ready' ? Math.max(0, s.total - s.done) : 0);
+
+// الشاشة التي طلبها المندوب والتطبيق مقفل (من إشعار أو رابط، أو الشيك الذي سجّله): تُفتح له بعد الإقرار
+let after = '';
+export const setAfterAck = (h: string) => { after = h; };
+export const peekAfterAck = () => after;
+export const takeAfterAck = () => { const h = after; after = ''; return h; };

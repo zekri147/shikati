@@ -5,7 +5,7 @@ import { cacheGet, cachePut, zohoGet } from '../zoho';
 import { todayAlgiers } from './constants';
 import type { AppModule } from './types';
 import { commentText, postReviewComment, type CommentResult } from './collcomment';
-import { ackAdmin, ackAdminResolve, ackAdminSend, ackItems, ackList, ackStatus, ensureSnapshot, saveAck } from './debtack';
+import { ackAdmin, ackAdminClose, ackAdminResolve, ackAdminSend, ackItems, ackList, ackStatus, ensureSnapshot, saveAck } from './debtack';
 
 // قسم «التحصيل» (7/11/2026، بطلب ZEKRI): أرصدة العملاء المدينين لكل مندوب، قراءة فقط من زوهو.
 // نقل من تبويب «التحصيل» في قائمة الاتصال، لكن الأرقام هنا حيّة بدل سكربت الصباح.
@@ -260,6 +260,8 @@ export async function handleCollect(req: Request, env: Env, user: User): Promise
   // إقرار الدين: صورة الدورة الحالية، وجواب كل عميل فيها
   const cs = await ensureSnapshot(env);
   const ackRep = isAdmin ? (rep && rep !== '-' ? rep : undefined) : own;
+  // «بلا مندوب»: لا عملاء له في الصورة
+  const noAck = isAdmin && rep === '-';
   return json({
     at: snap.at * 1000,
     today: snap.today,
@@ -272,7 +274,7 @@ export async function handleCollect(req: Request, env: Env, user: User): Promise
       ...cs,
       // كل من له رمز مندوب يقرّ بدين عملاء رمزه، والمدير منهم (دون قفل)
       can_ack: !!own,
-      items: cs.state === 'ready' && (ackRep || isAdmin) ? await ackItems(env, cs.cycle, ackRep) : {},
+      items: cs.state === 'ready' && !noAck && (ackRep || isAdmin) ? await ackItems(env, cs.cycle, ackRep) : {},
       // المدير: تقدّم المندوبين والاعتراضات والدورات الماضية، والمراجعات القديمة التي لم تصل إلى زوهو
       admin: isAdmin && cs.state === 'ready' ? await ackAdmin(env, cs.cycle) : undefined,
       old_unsent: isAdmin ? await unsent(env) : undefined,
@@ -293,6 +295,7 @@ export const collectModule: AppModule = {
     if (req.method === 'POST' && subpath === '/ack') return saveAck(req, env, user);
     if (req.method === 'POST' && subpath === '/ack/send' && user.role === 'admin') return ackAdminSend(req, env, user);
     if (req.method === 'POST' && subpath === '/ack/resolve' && user.role === 'admin') return ackAdminResolve(req, env, user);
+    if (req.method === 'POST' && subpath === '/ack/close' && user.role === 'admin') return ackAdminClose(req, env, user);
     // المراجعات الأسبوعية القديمة: للمدير وحده
     if (req.method === 'POST' && subpath === '/review/send' && user.role === 'admin') return adminSend(req, env, user);
     if (req.method === 'POST' && subpath === '/review/resolve' && user.role === 'admin') return adminResolve(req, env, user);
