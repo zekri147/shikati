@@ -228,7 +228,7 @@ http.createServer((req, res) => {
       const key = req.headers['x-api-key'] || String(req.headers.authorization || '').replace(/^Bearer /, '');
       if (key !== 'mock-key') return send({ type: 'error', error: { type: 'authentication_error', message: 'bad key' } }, 401);
       // الاتجاه: 180 لتجربة تدوير الصورة المقلوبة (يمكن تغييره بالمتغير MOCK_ROTATION)
-      const reading = { amount: 250000, cheque_number: '6309259', note: '', rotation: process.env.MOCK_ROTATION || '180' };
+      const reading = { amount: 250000, cheque_number: '6309259', drawer: 'EURL HOUSE FIX', payee: 'SARL ACIER FOURNISSEUR', note: '', rotation: process.env.MOCK_ROTATION || '180' };
       log.push('CLAUDE read');
       return setTimeout(() => send({
         id: 'msg_mock', type: 'message', role: 'assistant', model: 'claude-opus-5-5',

@@ -19,7 +19,7 @@ import { fmtDate, newRequestId, parseAmount, todayIso } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { DEST_LABELS } from './ui';
 import { rotateDataUrl, shrink } from './media';
-import { AllocList, Block, KV, PartyPicker, type Party } from './pickers';
+import { AllocList, Block, KV, PartyPicker, type Party, type Suggest } from './pickers';
 import { GroupField, PhotoButtons } from './edit';
 import { OutChequeForm } from './outcheque';
 import type { Line } from './types';
@@ -59,8 +59,9 @@ export function StepsProgress({ done }: { done: boolean[] }) {
 }
 
 // صورة الشيك وقراءتها بكلود: مشتركة بين شيك العميل وشيك الشركة الصادر.
-// القراءة تملأ المبلغ والرقم اقتراحاً فقط، والصورة تُدار قبل رفعها فتظهر معتدلة في التطبيق وفي زوهو.
-export function useChequePhoto(reader: boolean, fill: (amount: string | null, number: string | null) => void) {
+// القراءة تملأ المبلغ والرقم اقتراحاً فقط، وتقترح العميل (أو المورد في الشيك الصادر) من الاسم المكتوب على الشيك
+// دون أن تختاره. والصورة تُدار قبل رفعها فتظهر معتدلة في التطبيق وفي زوهو.
+export function useChequePhoto(reader: boolean, kind: 'in' | 'out', fill: (amount: string | null, number: string | null, suggest: Suggest | null) => void) {
   const [image, setImage] = useState('');
   const [reading, setReading] = useState(false);
   const [readNote, setReadNote] = useState<{ tone?: 'warn' | 'ok'; text: string } | null>(null);
@@ -73,11 +74,12 @@ export function useChequePhoto(reader: boolean, fill: (amount: string | null, nu
     setReadNote({ text: 'جارٍ قراءة الشيك…' });
     setReading(true);
     try {
-      const { reading: r } = await api('/api/m/cheques/register/read', { method: 'POST', body: { image: shot } });
+      const { reading: r, suggest } = await api('/api/m/cheques/register/read', { method: 'POST', body: { image: shot, kind } });
       const filled: string[] = [];
       if (r.amount) filled.push('المبلغ');
       if (r.cheque_number) filled.push('الرقم');
-      fill(r.amount ? String(r.amount) : null, r.cheque_number || null);
+      if (suggest) filled.push(kind === 'out' ? 'اسم المستفيد' : 'اسم صاحب الحساب');
+      fill(r.amount ? String(r.amount) : null, r.cheque_number || null, suggest || null);
       setReadNote({
         tone: r.note ? 'warn' : 'ok',
         text: (filled.length ? 'قُرئ: ' + filled.join('، ') + '. راجعها مع الصورة.' : 'لم تُقرأ أي بيانات بثقة. اكتبها بيدك.') + (r.note ? ' ملاحظة: ' + r.note : ''),
@@ -98,6 +100,7 @@ export function RegisterPage({ onDone }: { onDone: (pid: string) => void }) {
   const [kind, setKind] = useState<'in' | 'out'>('in');
   const [outKey, setOutKey] = useState(0);
   const [customer, setCustomer] = useState<Party | null>(null);
+  const [suggest, setSuggest] = useState<Suggest | null>(null);
   const [vendor, setVendor] = useState<Party | null>(null);
   const [amount, setAmount] = useState('');
   const [number, setNumber] = useState('');
@@ -118,7 +121,7 @@ export function RegisterPage({ onDone }: { onDone: (pid: string) => void }) {
   }, []);
 
   useFixedBottom(92, !!opts && opts.can_register);
-  const { image, reading, readNote, onFile } = useChequePhoto(!!opts?.reader, (a, n) => { if (a) setAmount(a); if (n) setNumber(n); });
+  const { image, reading, readNote, onFile } = useChequePhoto(!!opts?.reader, 'in', (a, n, s) => { if (a) setAmount(a); if (n) setNumber(n); setSuggest(s); });
 
   if (loadError) return <ErrorBox>{loadError}</ErrorBox>;
   if (!opts) return <SkeletonList className="mt-0" rows={4} />;
@@ -188,7 +191,7 @@ export function RegisterPage({ onDone }: { onDone: (pid: string) => void }) {
       </Step>
 
       <Step n={2} title="العميل" done={!!customer}>
-        <div className="py-2"><PartyPicker kind="customer" value={customer} onChange={setCustomer} /></div>
+        <div className="py-2"><PartyPicker kind="customer" value={customer} onChange={setCustomer} suggest={suggest} /></div>
       </Step>
 
       <Step n={3} title="المبلغ والرقم والتاريخ" done={!!parseAmount(amount) && number.replace(/\D/g, '').length === 7 && !!date}>
