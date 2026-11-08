@@ -4,7 +4,8 @@ import { getView } from './modules/cheques';
 import { getNotifySettings, type NotifySettings } from './notifysettings';
 import { STATUS, todayAlgiers } from './modules/constants';
 import { lockStates } from './modules/deposit';
-import { normRep, reviewLeftByRep } from './modules/collect';
+import { normRep } from './modules/collect';
+import { ackLeftByRep, ensureSnapshot } from './modules/debtack';
 import { hasSubscribers, notifySafe, notifyUsers, type PushMessage } from './push';
 
 // ما يُرسل من إشعارات (8/11/2026، بطلب ZEKRI). النص يذكر اسم العميل والمبلغ (اختيار ZEKRI).
@@ -12,8 +13,9 @@ import { hasSubscribers, notifySafe, notifyUsers, type PushMessage } from './pus
 // - كل ساعة من 7:00 إلى 20:00 بتوقيت الجزائر (المهمة المجدولة في wrangler.toml):
 //   · شيك صار «مرفوضاً»: للمدير، ولمندوب العميل (cf_owner)، ولمن سجّله، ولمن كان في عهدته.
 //   · صباحاً (8:00 افتراضياً): لكل من في عهدته شيكات تأخر إيداعها (أكثر من 7 أيام افتراضياً)، وللمدير ملخص التنبيهات.
-//   · 9:00 كل يوم إلا الجمعة: تذكير المراجعة الأسبوعية لمن بقي له عملاء لم يراجعهم، مرة في اليوم حتى يكملها
-//     (بطلب ZEKRI يوم 8/11/2026، بدل الأربعاء 18:00 والخميس 9:00 فقط).
+//   · أول مهمة في كل دورة (14 يوماً من السبت) تأخذ صورة الدين، حتى دون مشتركين في الإشعارات.
+//   · 9:00 كل يوم إلا الجمعة: تذكير إقرار الدين لمن بقي له عملاء لم يُقرّ بدينهم، مرة في اليوم حتى يكمله
+//     (بطلب ZEKRI يوم 8/11/2026، بدل تذكير المراجعة الأسبوعية).
 // كل إشعار مجدول له مفتاح في notify_sent، فلا يتكرر إن تكررت المهمة. قراءة فقط من زوهو.
 
 // المواعيد وتشغيل كل نوع وأيام التأخر من إعدادات المدير (src/notifysettings.ts، صفحة الإدارة)
@@ -185,25 +187,23 @@ async function notifyAdmin(env: Env, users: UserRow[], today: string): Promise<v
   }
 }
 
-// ——— كل يوم إلا الجمعة: تذكير المراجعة الأسبوعية حتى يكملها ———
+// ——— كل يوم إلا الجمعة: تذكير إقرار الدين حتى يكمله ———
 
-async function notifyReview(env: Env, users: UserRow[], now: Date, today: string, dow: number): Promise<void> {
+async function notifyAck(env: Env, users: UserRow[], today: string): Promise<void> {
   const reps = users.filter((u) => normRep(u.rep_code));
   if (!reps.length) return;
-  const { deadline, left } = await reviewLeftByRep(env, today);
-  // بعد الأجل يستمر التذكير حتى يكملها، بنص يقول إن الأجل انتهى
-  const when = now.getTime() > deadline ? 'انتهى أجل المراجعة، فأكملها اليوم.'
-    : dow === 4 ? 'الأجل اليوم الساعة 12:00.'
-      : dow === 3 ? 'الأجل غداً الخميس الساعة 12:00.'
-        : 'الأجل الخميس الساعة 12:00.';
+  const { taken_at, left } = await ackLeftByRep(env);
+  if (!taken_at) return;
   for (const u of reps) {
     const n = left.get(normRep(u.rep_code)) || 0;
-    // مرة واحدة في اليوم لكل مندوب، ما دام له عملاء دون مراجعة
-    if (!n || !(await claim(env, `review:${today}:${u.id}`))) continue;
+    // مرة واحدة في اليوم لكل مندوب، ما دام له عملاء دون إقرار
+    if (!n || !(await claim(env, `ack:${today}:${u.id}`))) continue;
     await notifyUsers(env, [u.id], {
-      title: 'المراجعة الأسبوعية',
-      body: `بقي لك ${customers(n)} دون مراجعة هذا الأسبوع. ${when}`,
-      url: '/#coll/review', tag: 'review',
+      title: 'إقرار الدين',
+      body: u.role === 'admin'
+        ? `صورة ديون عملائك جاهزة: بقي ${customers(n)} دون إقرار.`
+        : `صورة ديون عملائك جاهزة: بقي ${customers(n)} دون إقرار. أكمله لتفتح باقي التطبيق.`,
+      url: '/#coll/ack', tag: 'ack',
     });
   }
 }
@@ -215,7 +215,9 @@ async function step(name: string, fn: () => Promise<void>) {
 }
 
 export async function runScheduled(env: Env, now = new Date()): Promise<void> {
-  // لا طلبات إلى زوهو ما دام لم يفعّل أحد الإشعارات
+  // صورة الدين: في أول مهمة من الدورة، فتكون الصورة نفسها لكل المندوبين
+  await step('snapshot', async () => { await ensureSnapshot(env, todayAlgiers(now)); });
+  // لا طلبات أخرى إلى زوهو ما دام لم يفعّل أحد الإشعارات
   if (!(await hasSubscribers(env))) return;
   const { hour, dow } = algiersClock(now);
   const today = todayAlgiers(now);
@@ -228,7 +230,7 @@ export async function runScheduled(env: Env, now = new Date()): Promise<void> {
     if (cfg.late) await step('late', () => notifyLate(env, users, today, cfg.late_days));
     if (cfg.admin_daily) await step('admin', () => notifyAdmin(env, users, today));
   }
-  if (cfg.review && cfg.review_days.includes(dow) && hour >= cfg.review_hour) await step('review', () => notifyReview(env, users, now, today, dow));
+  if (cfg.review && cfg.review_days.includes(dow) && hour >= cfg.review_hour) await step('ack', () => notifyAck(env, users, today));
   // تنظيف المفاتيح القديمة
   await step('cleanup', async () => { await env.DB.prepare("DELETE FROM notify_sent WHERE at < datetime('now', '-120 days') AND key NOT LIKE 'seed:%' AND key NOT LIKE 'rejected:%'").run(); });
 }

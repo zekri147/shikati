@@ -10,10 +10,10 @@ export interface NotifySettings {
   handover: boolean;       // شيك سُلّم إليك، ورفض الاستلام
   rejected: boolean;       // شيك مرفوض
   late: boolean;           // شيكات تأخر إيداعها في العهدة
-  review: boolean;         // تذكير المراجعة الأسبوعية
+  review: boolean;         // تذكير إقرار الدين (كان تذكير المراجعة الأسبوعية)
   admin_daily: boolean;    // ملخص «تنبيهات اليوم» للمدير
   morning_hour: number;    // ساعة التأخر وملخص المدير، بتوقيت الجزائر
-  review_hour: number;     // ساعة تذكير المراجعة
+  review_hour: number;     // ساعة تذكير الإقرار
   review_days: number[];   // أيام التذكير: 0 الأحد ... 6 السبت
   late_days: number;       // الشيك متأخر بعد هذا العدد من الأيام في الحوزة
 }
@@ -67,7 +67,7 @@ export async function handleNotifyAdmin(req: Request, env: Env, admin: User, pat
   if (req.method === 'POST' && path === '/notify/settings') {
     const b = await readJson<Partial<NotifySettings>>(req);
     const next = clean(b, await getNotifySettings(env));
-    if (!next.review_days.length && next.review) throw new HttpError(400, 'اختر يوماً واحداً على الأقل لتذكير المراجعة، أو أوقف التذكير.');
+    if (!next.review_days.length && next.review) throw new HttpError(400, 'اختر يوماً واحداً على الأقل لتذكير الإقرار، أو أوقف التذكير.');
     await env.DB.prepare(
       "INSERT INTO notify_settings (id, value, updated_by) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = datetime('now')",
     ).bind(JSON.stringify(next), admin.id).run();

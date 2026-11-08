@@ -1,8 +1,10 @@
 // قسم «التحصيل»: أرصدة العملاء المدينين لكل مندوب (7/11/2026، بطلب ZEKRI).
-// المندوب يرى عملاءه فقط، والمدير يختار المندوب. المراجعة الأسبوعية تُكتب تعليقاً على العميل في زوهو.
-// العنوان بعد #: ‎#coll للقائمة، و‎#coll/c/<معرّف العميل> لبطاقة العميل.
+// المندوب يرى عملاءه فقط، والمدير يختار المندوب.
+// منذ 8/11/2026 (بطلب ZEKRI) إقرار الدين كل 14 يوماً بدل المراجعة الأسبوعية: صورة لديون العملاء،
+// يقرّ المندوب بدين كل عميل أو يعترض عليه، والاعتراض وحده يُكتب تعليقاً على العميل في زوهو.
+// العنوان بعد #: ‎#coll للقائمة، و‎#coll/c/<معرّف العميل> لبطاقة العميل، و‎#coll/ack لشاشة الإقرار.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronLeft, MessageCircle, Phone } from 'lucide-react';
+import { Check, ChevronLeft, PenLine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/input';
@@ -11,28 +13,28 @@ import { Fold } from '@/components/ui/collapsible';
 import { FilterButton, ListTools } from '@/components/search';
 import { AnimatedAmount, Amount, Ltr, Num } from '@/components/ltr';
 import { PullToRefresh } from '@/components/pull';
-import { Empty, ErrorBox, FormError, Note, RefreshButton, SkeletonList, Slab, SlabTop } from '@/components/shell';
+import { Empty, ErrorBox, FormError, Note, RefreshButton, SkeletonList, Slab, SlabBack, SlabTop } from '@/components/shell';
 import { toast } from '@/components/toast';
 import { api, errText, type Me } from '@/lib/api';
 import { useFixedBottom } from '@/lib/layout';
 import { savedScroll } from '@/lib/hash';
 import { readCache, writeCache } from '@/lib/cache';
 import { load as loadKey, save as saveKey } from '@/lib/storage';
-import { customersWord, daysWord, fmtAmount, fmtDate, fmtDateTime, invoicesWord, norm, relTime, round2 } from '@/lib/format';
+import { customersWord, daysWord, fmtAmount, fmtDate, fmtDateTime, invoicesWord, norm, round2 } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { haptic, isShared, markShared, sharedStyle } from '@/lib/motion';
 import { LIST_BOX, LateMark } from '@/features/cheques/ui';
 import { Block, KV } from '@/features/cheques/pickers';
-import { setReviewLeft } from '@/components/nav';
+import { setAckCounts } from '@/lib/ack';
 
 const STALE_MS = 5 * 60_000;
 const PAGE = 40;
 const REP_KEY = 'shikati-coll-rep';
 
 // الفئات حسب تأخر أقدم فاتورة غير مسدّدة، كما في قائمة الاتصال
-const CATS: [string, string][] = [['', 'الكل'], ['rev', 'للمراجعة'], ['old', 'أكثر من 90 يوماً'], ['d90', 'من 31 إلى 90'], ['d30', 'حتى 30 يوماً'], ['due', 'لم يحن موعدها'], ['open', 'أرصدة افتتاحية']];
+const CATS: [string, string][] = [['', 'الكل'], ['ack', 'بانتظار الإقرار'], ['old', 'أكثر من 90 يوماً'], ['d90', 'من 31 إلى 90'], ['d30', 'حتى 30 يوماً'], ['due', 'لم يحن موعدها'], ['open', 'أرصدة افتتاحية']];
 const CAT_NOTE: Record<string, string> = {
-  rev: 'عملاء مدينون لم تراجعهم هذا الأسبوع. اتصل بكل واحد، ثم اضغط «راجعت».',
+  ack: 'عملاء في صورة الدين لم يُقرّ المندوب بدينهم بعد.',
   old: 'أقدم فاتورة غير مسدّدة تأخرت أكثر من ثلاثة أشهر. ابدأ بهم.',
   d90: 'أقدم فاتورة غير مسدّدة تأخرت بين شهر وثلاثة أشهر.',
   d30: 'أقدم فاتورة غير مسدّدة تأخرت شهراً على الأكثر.',
@@ -44,54 +46,51 @@ const ZOHO_WORD: Record<string, string> = { done: 'في زوهو', pending: 'ق�
 
 type Inv = { number: string; date: string; due: string; balance: number; late: number };
 type Cust = { id: string; name: string; balance: number; opening: number; late: number | null; owner: string; phone: string; invoices: Inv[] };
-type Rev = { at: string; note: string; late: boolean; by: string; zoho: string };
-type Review = {
-  week: string; deadline: number; can_review: boolean; items: Record<string, Rev>;
-  prev?: Record<string, { at: string; note: string }>;
-  progress?: { rep: string; done: number; need: number; last: string | null }[];
-  notes?: { name: string; rep: string; note: string; late: boolean; at: string }[];
-  unsent?: { week: string; id: string; name: string; rep: string; state: string; error?: string; text: string }[];
-  history?: { week: string; reps: { rep: string; need: number; done: number; late: number }[] }[];
+type AckItem = { answer: 'ok' | 'dispute' | null; reason: string | null; note: string; at: string | null; by: string | null; zoho: string };
+type Unsent = { key: string; path: string; body: object; name: string; rep: string; state: string; error?: string | null; text: string };
+type Ack = {
+  cycle: string; next: string; state: 'ready' | 'pending' | 'error'; taken_at: string | null; can_ack: boolean;
+  items: Record<string, AckItem>;
+  admin?: {
+    progress: { rep: string; total: number; done: number; disputes: number; last: string | null }[];
+    disputes: { id: string; name: string; rep: string; balance: number; reason: string; note: string; at: string; zoho: string }[];
+    unsent: { cycle: string; id: string; name: string; rep: string; state: string; error: string | null; text: string }[];
+    history: { cycle: string; reps: { rep: string; total: number; done: number; disputes: number }[] }[];
+  };
+  old_unsent?: { week: string; id: string; name: string; rep: string; state: string; error?: string; text: string }[];
 };
-type CollData = { at: number; is_admin: boolean; rep: string; own_rep: string; customers: Cust[]; reps?: { rep: string; count: number; total: number; old: number }[]; review?: Review };
+type CollData = { at: number; is_admin: boolean; rep: string; own_rep: string; customers: Cust[]; reps?: { rep: string; count: number; total: number; old: number }[]; ack?: Ack };
+
+// أسباب الاعتراض على صورة الدين (نفسها في الخادم، collcomment.ts)
+const REASONS: [string, string][] = [['paid', 'دفع ولم يُسجَّل'], ['not_mine', 'ليس عميلي'], ['amount', 'المبلغ خطأ'], ['other', 'سبب آخر']];
+const reasonText = (r: string | null) => REASONS.find(([k]) => k === r)?.[1] || 'سبب آخر';
 
 const catOf = (c: Cust) => (c.late === null ? 'open' : c.late > 90 ? 'old' : c.late > 30 ? 'd90' : c.late > 0 ? 'd30' : 'due');
 const isOld = (c: Cust) => c.late === null || c.late > 90;
-// المراجعة الأسبوعية: كل عميل مدين له مندوب (منذ 7/11/2026، بطلب ZEKRI)
-const needsReview = (c: Cust) => c.balance >= 1 && !!c.owner;
-// من يراجع العميل: صاحب رمز المندوب نفسه، مندوباً كان أو المدير (بطلب ZEKRI يوم 7/11/2026)
-const isMine = (d: CollData, c: Cust) => !!d.review?.can_review && !!d.own_rep && c.owner === d.own_rep;
+// من يقرّ بدين العميل: صاحب رمز المندوب نفسه، مندوباً كان أو المدير
+const isMine = (d: CollData, c: Cust) => !!d.ack?.can_ack && !!d.own_rep && c.owner === d.own_rep;
 const total = (list: Cust[]) => round2(list.reduce((t, c) => t + c.balance, 0));
 const lateText = (c: Cust) => (c.late === null ? 'رصيد افتتاحي' : c.late > 0 ? `متأخر ${daysWord(c.late)}` : 'لم يحن موعدها');
 // الرقم بالصيغة المحلية: 213561765718 يصبح 0561 76 57 18
 const localPhone = (p: string) => (p.startsWith('213') && p.length === 12 ? ('0' + p.slice(3)).replace(/^(\d{4})(\d{2})(\d{2})(\d{2})$/, '$1 $2 $3 $4') : '+' + p);
-const sendable = (r: Rev | null | undefined) => !!r && (r.zoho === 'failed' || r.zoho === 'none');
 const timeOf = (at: string) => { const t = fmtDateTime(at); return 'يوم ' + t.slice(0, 5) + ' الساعة ' + t.slice(11); };
-function fmtDeadline(ms: number) {
-  const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Algiers', day: '2-digit', month: '2-digit' }).formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
-  return `${p.day}/${p.month}`;
-}
+// يوم الصورة بتوقيت الجزائر، وسبت الدورة التالية: يوم/شهر
+const dayOf = (utc: string | null) => (utc ? fmtDateTime(utc).slice(0, 5) : '');
+const dm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 
-// ‎#coll/review شاشة المراجعة عميلاً بعد عميل، و‎#coll/review/<معرّف> تبدأ بذلك العميل
+// ‎#coll/ack شاشة الإقرار عميلاً بعد عميل
 function parseRoute(hash: string) {
   const h = decodeURIComponent(hash.replace(/^#/, ''));
   const m = h.match(/^coll\/c\/(\d{10,25})$/);
   if (m) return { view: 'customer' as const, id: m[1] };
-  const r = h.match(/^coll\/review(?:\/(\d{10,25}))?$/);
-  if (r) return { view: 'review' as const, id: r[1] || '' };
+  if (h === 'coll/ack') return { view: 'ack' as const, id: '' };
   return { view: 'list' as const, id: '' };
 }
 
 export function CollModule({ me, hash }: { me: Me; hash: string }) {
   const isAdmin = me.user.role === 'admin';
   const route = useMemo(() => parseRoute(hash), [hash]);
-  // رمز المستخدم نفسه: للمدير الذي له عملاء، تحتاجه شاشة المراجعة
-  const ownCode = (me.user.rep_code || '').trim().toUpperCase();
-  const [rep, setRep] = useState(() => {
-    if (!isAdmin) return '';
-    const saved = loadKey(REP_KEY);
-    return route.view === 'review' && ownCode && saved !== '' ? ownCode : saved;
-  });
+  const [rep, setRep] = useState(() => (isAdmin ? loadKey(REP_KEY) : ''));
   // آخر أرصدة على الهاتف تُعرض فوراً، ثم تُحدَّث. لكل اختيار مندوب نسخته
   const keyOf = (code: string) => 'coll:' + me.user.username + ':' + code;
   const [data, setData] = useState<CollData | null>(() => readCache<CollData>(keyOf(rep))?.data || null);
@@ -102,7 +101,7 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
   const [cat, setCat] = useState('');
   const [q, setQ] = useState('');
   const [limit, setLimit] = useState(PAGE);
-  const [sheet, setSheet] = useState<'' | 'rep' | 'cat' | 'review'>('');
+  const [sheet, setSheet] = useState<'' | 'rep' | 'cat' | 'ack'>('');
   const busyRef = useRef(false);
   const prev = useRef(route.view);
   const fromList = useRef(false);
@@ -151,30 +150,12 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
     load(false, code);
   }
 
-  // شاشة المراجعة تحتاج عملاء المستخدم نفسه: المدير الذي اختار مندوباً آخر يعود إلى رمزه
-  useEffect(() => {
-    if (route.view === 'review' && isAdmin && ownCode && rep !== '' && rep !== ownCode) pickRep(ownCode);
-  }, [route.view]);
-  // سطر التذكير فوق شريط التنقل يتبع ما بقي للمندوب في آخر بيانات
-  useEffect(() => {
-    const rv = data?.review;
-    // المدير: فقط حين تشمل القائمة عملاءه (الكل أو رمزه)
-    if (!rv || !rv.can_review || (data!.is_admin && data!.rep !== '' && data!.rep !== data!.own_rep)) return;
-    const need = data!.customers.filter((c) => needsReview(c) && c.owner === data!.own_rep);
-    setReviewLeft({ left: need.filter((c) => !rv.items[c.id]).length, deadline: rv.deadline });
-  }, [data]);
-
-  const markReviewed = (c: Cust, r: Rev) => setData((d) => (d && d.review ? { ...d, review: { ...d.review, items: { ...d.review.items, [c.id]: r } } } : d));
-
-  if (route.view === 'review') {
-    return <ReviewFlow key={route.id} data={data} error={error} me={me} startId={route.id} onSaved={markReviewed} />;
-  }
+  // شاشة الإقرار تقرأ صورة المستخدم نفسه من الخادم، وتحدّث القائمة حين يعود منها
+  if (route.view === 'ack') return <AckFlow me={me} onChanged={() => load(false)} />;
 
   if (route.view === 'customer') {
     return (
-      <CustomerPage data={data} id={route.id} me={me} onBack={() => { if (fromList.current) history.back(); else location.hash = '#coll'; }}
-        onReview={(c) => { location.hash = '#coll/review/' + c.id; }}
-        onCancelled={(c) => setData((d) => { if (!d?.review) return d; const items = { ...d.review.items }; delete items[c.id]; return { ...d, review: { ...d.review, items } }; })} />
+      <CustomerPage data={data} id={route.id} me={me} onBack={() => { if (fromList.current) history.back(); else location.hash = '#coll'; }} />
     );
   }
 
@@ -182,10 +163,9 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
   if (!data) return <><Slab><div className="pt-2 text-sm font-semibold">التحصيل</div></Slab><SkeletonList rows={8} /></>;
 
   const list = data.customers;
-  const rv = data.review;
-  const items0 = rv ? rv.items : {};
-  const canRev = !!rv && (rv.can_review || !!rep);
-  const inCatV = (c: Cust, v: string) => !v || (v === 'old' ? isOld(c) : v === 'rev' ? needsReview(c) && !items0[c.id] : catOf(c) === v);
+  const ackItems = data.ack ? data.ack.items : {};
+  const waiting = (c: Cust) => !!ackItems[c.id] && !ackItems[c.id].answer;
+  const inCatV = (c: Cust, v: string) => !v || (v === 'old' ? isOld(c) : v === 'ack' ? waiting(c) : catOf(c) === v);
   const match = (c: Cust) => !q || norm(c.name).includes(q) || c.invoices.some((i) => norm(i.number).includes(q));
   const items = list.filter((c) => inCatV(c, cat) && match(c));
   const shown = items.slice(0, limit);
@@ -193,7 +173,7 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
   const old = list.filter(isOld);
   const who = data.is_admin ? (rep ? (rep === '-' ? 'العملاء بلا مندوب' : null) : 'كل العملاء') : 'عملائك';
   // الفئات في اللوحة السفلية: كل فئة بعدد عملائها ومجموعها، والفارغة تُخفى
-  const catList = CATS.filter(([v]) => v !== 'rev' || canRev).map(([v, t]) => ({ v, t, of: list.filter((c) => inCatV(c, v)) }))
+  const catList = CATS.map(([v, t]) => ({ v, t, of: list.filter((c) => inCatV(c, v)) }))
     .filter((x) => !x.v || x.of.length || x.v === cat);
   const catLabel = cat ? CATS.find(([v]) => v === cat)![1] : 'كل الفئات';
   const repLabel = rep ? (rep === '-' ? 'بلا مندوب' : <Ltr>{rep}</Ltr>) : 'كل المندوبين';
@@ -215,7 +195,7 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
         </div>
       </Slab>
 
-      <ReviewBlock data={data} list={list} rep={rep} cat={cat} setCat={(v) => { setCat(v); setLimit(PAGE); }} onOpen={() => setSheet('review')} />
+      <AckBlock data={data} list={list} rep={rep} cat={cat} setCat={(v) => { setCat(v); setLimit(PAGE); }} onOpen={() => setSheet('ack')} />
 
       {/* شريط الأدوات الموحّد: المندوب (للمدير) والفئة في لوحتين سفليتين، ثم العدسة */}
       <ListTools className="mt-3" placeholder="بحث باسم العميل أو رقم الفاتورة" onSearch={(v) => { setQ(norm(v)); setLimit(PAGE); }}>
@@ -257,9 +237,9 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
         <p className="m-0 px-4 pb-2 pt-3 text-sm text-muted">أيام التأخر تُعدّ من تاريخ استحقاق أقدم فاتورة غير مسدّدة. الرصيد الافتتاحي هو ما نُقل عند بداية زوهو بوكس.</p>
       </Sheet>
 
-      {rv && data.is_admin && !rep ? (
-        <Sheet open={sheet === 'review'} onClose={() => setSheet('')} title="مراجعة الأسبوع" action={<Button onClick={() => setSheet('')}>إغلاق</Button>}>
-          <div className="px-4 pb-3"><ReviewDetails data={data} reload={() => load(false)} /></div>
+      {data.ack && data.is_admin && !rep ? (
+        <Sheet open={sheet === 'ack'} onClose={() => setSheet('')} title="إقرار الدين" action={<Button onClick={() => setSheet('')}>إغلاق</Button>}>
+          <div className="px-4 pb-3"><AckDetails ack={data.ack} reload={() => load(false)} /></div>
         </Sheet>
       ) : null}
 
@@ -270,14 +250,15 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
 const Dot = () => <span aria-hidden className="text-soft">·</span>;
 
 function CustomerItem({ c, d, rep }: { c: Cust; d: CollData; rep: string }) {
-  const rv = d.review;
-  const r = rv && needsReview(c) ? rv.items[c.id] : null;
+  const a = d.ack?.items[c.id];
   const ref = useRef<HTMLLIElement>(null);
   const open = () => { markShared(c.id, ref.current); location.hash = '#coll/c/' + c.id; };
   const shared = isShared(c.id);
-  // المراجعة نفسها في شاشة المراجعة، والقائمة تعرض علامة «راجعته» فقط (بطلب ZEKRI يوم 8/11/2026)
+  const mine = isMine(d, c);
+  // الإقرار نفسه في شاشته، والقائمة تعرض الجواب فقط
+  const said = a?.answer === 'ok' ? (mine ? 'أقررت بدينه' : 'أقرّ بدينه') : a?.answer === 'dispute' ? 'اعتراض: ' + reasonText(a.reason) : '';
   return (
-    <li ref={ref} role="link" tabIndex={0} aria-label={`${c.name}، ${fmtAmount(c.balance)}، ${r ? 'راجعته' : lateText(c)}`}
+    <li ref={ref} role="link" tabIndex={0} aria-label={`${c.name}، ${fmtAmount(c.balance)}، ${said || lateText(c)}`}
       onClick={open} onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(); } }}
       className="item flex min-h-[60px] cursor-pointer items-center gap-1 bg-surface px-3 py-2 active:bg-surface-alt">
       <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -286,136 +267,143 @@ function CustomerItem({ c, d, rep }: { c: Cust; d: CollData; rep: string }) {
           <span data-vt="amt" style={sharedStyle(shared, 'amt')}><Amount value={c.balance} className="whitespace-nowrap font-display text-base font-semibold" /></span>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-          <div className={cn('flex min-w-0 flex-wrap items-center gap-x-1 text-sm', r ? 'text-foreground' : 'text-muted')}>
-            {r ? <span className="flex items-center gap-1 font-semibold"><Check aria-hidden className="size-4" strokeWidth={3} />{'راجعته ' + timeOf(r.at) + (r.late ? ' (بعد الأجل)' : '')}</span> : <span>{lateText(c)}</span>}
-            {r && r.zoho !== 'done' ? <><Dot /><span className="font-semibold text-warning">{ZOHO_WORD[r.zoho]}</span></> : null}
+          <div className={cn('flex min-w-0 flex-wrap items-center gap-x-1 text-sm', said ? 'text-foreground' : 'text-muted')}>
+            {a?.answer === 'ok' ? <span className="flex items-center gap-1 font-semibold"><Check aria-hidden className="size-4" strokeWidth={3} />{said}</span>
+              : a?.answer === 'dispute' ? <span className="font-semibold text-warning">{said}</span> : <span>{lateText(c)}</span>}
+            {a?.answer === 'dispute' && a.zoho !== 'done' ? <><Dot /><span className="font-semibold text-warning">{ZOHO_WORD[a.zoho]}</span></> : null}
             {c.invoices.length > 1 ? <><Dot /><span>{invoicesWord(c.invoices.length)}</span></> : null}
             {d.is_admin && !rep ? <><Dot />{c.owner ? <Ltr>{c.owner}</Ltr> : <span>بلا مندوب</span>}</> : null}
           </div>
-          {!r && isOld(c) ? <span className="ms-auto"><LateMark days={99} text={c.late === null ? 'افتتاحي' : <><Ltr>+90</Ltr> يوماً</>} /></span> : null}
+          {!said && isOld(c) ? <span className="ms-auto"><LateMark days={99} text={c.late === null ? 'افتتاحي' : <><Ltr>+90</Ltr> يوماً</>} /></span> : null}
         </div>
-        {r && r.note ? <Note compact className="text-foreground">{r.note}</Note> : null}
+        {a?.answer === 'dispute' && a.note ? <Note compact className="text-foreground">{a.note}</Note> : null}
       </div>
     </li>
   );
 }
 
-// المراجعة الأسبوعية: للمدير سطر واحد يفتح التفاصيل في لوحة سفلية، وللمندوب شريط التقدّم
-function ReviewBlock({ data, list, rep, cat, setCat, onOpen }: { data: CollData; list: Cust[]; rep: string; cat: string; setCat: (v: string) => void; onOpen: () => void }) {
-  const rv = data.review;
-  if (!rv) return null;
-  const deadline = `الأجل الخميس ${fmtDeadline(rv.deadline)} الساعة 12:00`;
-  const past = Date.now() > rv.deadline;
+// إقرار الدين في شاشة التحصيل: للمدير سطر واحد يفتح التفاصيل في لوحة سفلية، وللمندوب التقدّم وزر الإقرار
+function AckBlock({ data, rep, cat, setCat, onOpen }: { data: CollData; list: Cust[]; rep: string; cat: string; setCat: (v: string) => void; onOpen: () => void }) {
+  const ak = data.ack;
+  if (!ak) return null;
+  if (ak.state !== 'ready') {
+    return <Note className="mt-3">{ak.state === 'pending' ? 'صورة الدين قيد الإعداد الآن.' : 'تعذّر أخذ صورة الدين من زوهو. تُعاد المحاولة وحدها بعد قليل.'}</Note>;
+  }
+  const sub = `صورة يوم ${dayOf(ak.taken_at)} · التالية يوم السبت ${dm(ak.next)}`;
   if (data.is_admin && !rep) {
-    const prog = rv.progress || [];
-    const unsent = rv.unsent || [];
-    if (!prog.length && !unsent.length && !(rv.history || []).length) return null;
-    const done = prog.reduce((t, p) => t + p.done, 0);
-    const need = prog.reduce((t, p) => t + p.need, 0);
-    const late = past && done < need;
+    const ad = ak.admin;
+    const prog = ad?.progress || [];
+    const unsent = (ad?.unsent.length || 0) + (ak.old_unsent?.length || 0);
+    if (!prog.length && !unsent && !ad?.history.length) return null;
+    const finished = prog.filter((p) => p.done === p.total).length;
+    const disputes = ad?.disputes.length || 0;
     return (
       <button type="button" onClick={onOpen} aria-haspopup="dialog"
-        className="review-btn mt-3 flex min-h-11 w-full items-center gap-2 border-b border-line py-2 text-start active:bg-surface-alt">
+        className="ack-btn mt-3 flex min-h-11 w-full items-center gap-2 border-b border-line py-2 text-start active:bg-surface-alt">
         <span className="min-w-0 flex-1">
-          <span className="block text-base font-semibold">مراجعة الأسبوع: <Num>{`${done}/${need}`}</Num>
-            {late ? <span className="text-danger"> · انتهى الأجل</span> : done === need && need ? ' ✓' : null}</span>
-          <span className="block text-sm text-muted">{deadline}</span>
-          {unsent.length ? <span className="block text-sm font-semibold text-warning">لم تصل إلى زوهو: {unsent.length}</span> : null}
+          <span className="block text-base font-semibold">إقرار الدين: أنهى <Num>{`${finished}/${prog.length}`}</Num>{finished === prog.length && prog.length ? ' ✓' : ''}
+            {disputes ? <span className="text-warning"> · اعتراضات {disputes}</span> : null}</span>
+          <span className="block text-sm text-muted">{sub}</span>
+          {unsent ? <span className="block text-sm font-semibold text-warning">لم تصل إلى زوهو: {unsent}</span> : null}
         </span>
         <ChevronLeft aria-hidden className="size-4.5 flex-none text-soft" />
       </button>
     );
   }
-  const need = list.filter(needsReview);
+  const items = Object.values(ak.items);
+  const total = items.length;
+  if (!total) return null;
   // «أنا»: المندوب في قائمته، والمدير حين يختار رمزه
-  const self = rv.can_review && (!data.is_admin || rep === data.own_rep);
-  if (!need.length || (!self && !rep)) return null;
-  const done = need.filter((c) => rv.items[c.id]).length;
-  const all = done === need.length;
-  const left = need.length - done;
-  const text = all ? `${self ? 'أنهيت' : 'أنهى'} مراجعة كل العملاء المدينين ✓`
-    : past ? `انتهى الأجل، وبقي ${customersWord(left)} دون مراجعة.`
-      : `${self ? 'راجعت' : 'راجع'} ${done} من ${need.length}.`;
-  const pct = Math.round((done / need.length) * 100);
+  const self = ak.can_ack && (!data.is_admin || rep === data.own_rep);
+  const done = items.filter((a) => a.answer).length;
+  const disputes = items.filter((a) => a.answer === 'dispute').length;
+  const all = done === total;
+  const left = total - done;
+  const text = all ? (self ? 'أنهيت إقرار كل عملائك ✓' : 'أنهى إقرار كل عملائه ✓') : `${self ? 'أقررت' : 'أقرّ'} بدين ${done} من ${total}`;
   return (
     <section className="mt-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className={cn('m-0 text-base font-bold', past && !all && 'text-danger')}>مراجعة الأسبوع: {text}</h2>
-        <span className="text-sm text-muted">{deadline}</span>
+        <h2 className="m-0 text-base font-bold">إقرار الدين: {text}</h2>
+        <span className="text-sm text-muted">{sub}</span>
       </div>
-      <div role="progressbar" aria-label="تقدّم المراجعة" aria-valuemin={0} aria-valuemax={need.length} aria-valuenow={done} className="my-2 h-2 bg-surface-alt">
-        <div className={cn('h-full transition-[width] duration-200', all ? 'bg-foreground' : past ? 'bg-brand' : 'bg-warning')} style={{ width: `${pct}%` }} />
+      <div role="progressbar" aria-label="تقدّم الإقرار" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done} className="my-2 h-2 bg-surface-alt">
+        <div className={cn('h-full transition-[width] duration-200', all ? 'bg-foreground' : 'bg-warning')} style={{ width: `${Math.round((done / total) * 100)}%` }} />
       </div>
+      {disputes ? <p className="mb-2 mt-0 text-sm text-muted">{self ? 'اعترضت على' : 'اعترض على'} دين {customersWord(disputes)}.</p> : null}
       {!all && self ? (
-        // المراجعة نفسها في شاشتها: عميلاً بعد عميل
-        <Button asChild variant="primary" className="review-start w-full"><a href="#coll/review">{done ? `تابع المراجعة: بقي ${customersWord(left)}` : 'ابدأ المراجعة'}</a></Button>
+        <Button asChild variant="primary" className="ack-start w-full"><a href="#coll/ack">{done ? `أكمل الإقرار: بقي ${customersWord(left)}` : 'ابدأ الإقرار'}</a></Button>
       ) : !all ? (
-        <Button className={cn('cut-sm w-full border-0 bg-chip', cat === 'rev' && 'bg-selected text-selected-ink hover:bg-selected')} aria-pressed={cat === 'rev'} onClick={() => setCat(cat === 'rev' ? '' : 'rev')}>
-          {cat === 'rev' ? 'اعرض كل المدينين' : `اعرض من بقي دون مراجعة (${left})`}</Button>
-      ) : null}
+        <Button className={cn('cut-sm w-full border-0 bg-chip', cat === 'ack' && 'bg-selected text-selected-ink hover:bg-selected')} aria-pressed={cat === 'ack'} onClick={() => setCat(cat === 'ack' ? '' : 'ack')}>
+          {cat === 'ack' ? 'اعرض كل المدينين' : `اعرض من بقي دون إقرار (${left})`}</Button>
+      ) : self ? <Button asChild className="w-full"><a href="#coll/ack">راجع أجوبتك</a></Button> : null}
     </section>
   );
 }
 
-// تفاصيل المراجعة للمدير في اللوحة السفلية: تقدّم كل مندوب، والملاحظات، وما لم يصل إلى زوهو
-function ReviewDetails({ data, reload }: { data: CollData; reload: () => void }) {
-  const rv = data.review!;
-  const [notesOpen, setNotesOpen] = useState(false);
+// تفاصيل الإقرار للمدير في اللوحة السفلية: ما لم يصل إلى زوهو، وتقدّم كل مندوب، والاعتراضات، والدورات الماضية
+function AckDetails({ ack, reload }: { ack: Ack; reload: () => void }) {
+  const [dispOpen, setDispOpen] = useState(true);
   const [histOpen, setHistOpen] = useState(false);
-  const past = Date.now() > rv.deadline;
-  const prog = rv.progress || [];
-  const notes = rv.notes || [];
-  const hist = rv.history || [];
-  const missed = hist.reduce((t, w) => t + w.reps.filter((p) => p.done < p.need).length, 0);
+  const ad = ack.admin;
+  const prog = ad?.progress || [];
+  const disputes = ad?.disputes || [];
+  const hist = ad?.history || [];
+  const missed = hist.reduce((t, c) => t + c.reps.filter((p) => p.done < p.total).length, 0);
+  const unsent: Unsent[] = [
+    ...(ad?.unsent || []).map((u) => ({ key: 'a' + u.cycle + u.id, path: '/api/m/coll/ack/', body: { cycle: u.cycle, customer_id: u.id }, name: u.name, rep: u.rep, state: u.state, error: u.error, text: u.text })),
+    ...(ack.old_unsent || []).map((u) => ({ key: 'r' + u.week + u.id, path: '/api/m/coll/review/', body: { week: u.week, customer_id: u.id }, name: u.name, rep: u.rep, state: u.state, error: u.error, text: u.text })),
+  ];
   return (
     <>
-      <Unsent list={rv.unsent} reload={reload} />
+      <UnsentList list={unsent} reload={reload} />
+      <p className="mb-0 mt-2 text-sm text-muted">صورة يوم {dayOf(ack.taken_at)}، والتالية يوم السبت {dm(ack.next)}.</p>
       {prog.length ? (
         <ul className={cn(LIST_BOX, 'mt-2')}>
           {prog.map((p) => (
             <li key={p.rep} className="flex min-h-[52px] items-center justify-between gap-3 px-3 py-2">
               <span className="min-w-0">
                 <Ltr className="block font-semibold">{p.rep}</Ltr>
-                <span className="block text-sm text-muted">{p.last ? 'آخر مراجعة ' + timeOf(p.last) : 'لم يراجع أحداً بعد'}</span>
+                <span className="block text-sm text-muted">{p.last ? 'آخر جواب ' + timeOf(p.last) : 'لم يبدأ بعد'}</span>
               </span>
               <span className="flex flex-none flex-col items-end">
-                <Num className="font-display font-semibold">{`${p.done}/${p.need}`}</Num>
-                <span className={cn('text-sm', p.done === p.need ? 'font-semibold' : past ? 'font-semibold text-danger' : 'text-muted')}>{p.done === p.need ? 'أنهى ✓' : past ? 'لم يُنهِ في الأجل' : 'جارية'}</span>
+                <Num className="font-display font-semibold">{`${p.done}/${p.total}`}</Num>
+                <span className={cn('text-sm', p.done === p.total ? 'font-semibold' : 'text-muted')}>
+                  {p.done === p.total ? 'أنهى ✓' : 'جارٍ'}{p.disputes ? ` · اعتراض ${p.disputes}` : ''}</span>
               </span>
             </li>
           ))}
         </ul>
       ) : null}
-      {notes.length ? (
-        <Fold open={notesOpen} onOpenChange={setNotesOpen} className="mt-2"
-          head={<div className="flex items-center justify-between gap-3"><span className="font-bold">ملاحظات المراجعة</span><span className="text-sm text-muted">{notes.length} ملاحظة</span></div>}>
+      {disputes.length ? (
+        <Fold open={dispOpen} onOpenChange={setDispOpen} tone="warn" className="mt-2"
+          head={<div className="flex items-center justify-between gap-3"><span className="font-bold">الاعتراضات</span><span className="text-sm text-muted">{disputes.length}</span></div>}>
           <ul className={LIST_BOX}>
-            {notes.map((n, i) => (
-              <li key={i} className="px-3 py-2">
-                <div className="flex justify-between gap-3"><Ltr className="font-semibold">{n.name}</Ltr><Ltr className="text-sm text-muted">{n.rep}</Ltr></div>
-                <p className="my-1 text-base [overflow-wrap:anywhere]">{n.note + (n.late ? ' (بعد الأجل)' : '')}</p>
-                <div className="text-sm text-muted">{timeOf(n.at)}</div>
+            {disputes.map((x) => (
+              <li key={x.id} className="px-3 py-2">
+                <div className="flex justify-between gap-3"><Ltr className="font-semibold">{x.name}</Ltr><Amount value={x.balance} className="text-sm" /></div>
+                <p className="my-1 text-base [overflow-wrap:anywhere]">{reasonText(x.reason)}{x.note ? ': ' + x.note : '.'}</p>
+                <div className="flex justify-between gap-3 text-sm text-muted"><Ltr>{x.rep}</Ltr><span>{x.at ? timeOf(x.at) : ''}</span></div>
               </li>
             ))}
           </ul>
         </Fold>
       ) : null}
       {hist.length ? (
-        // سجل الالتزام: لكل أسبوع مضى، كم راجع كل مندوب من عملائه المدينين، وكم منها بعد الأجل
+        // سجل الالتزام: لكل دورة مضت، كم أقرّ كل مندوب من عملاء صورته، وكم اعترض
         <Fold open={histOpen} onOpenChange={setHistOpen} className="mt-2"
-          head={<div className="flex items-center justify-between gap-3"><span className="font-bold">الأسابيع الماضية</span>
+          head={<div className="flex items-center justify-between gap-3"><span className="font-bold">الدورات الماضية</span>
             <span className={cn('text-sm', missed ? 'font-semibold text-danger' : 'text-muted')}>{missed ? `لم يُنهِ: ${missed}` : 'أنهوا كلهم ✓'}</span></div>}>
           <ul className={LIST_BOX}>
             {hist.map((w) => (
-              <li key={w.week} className="px-3 py-2">
-                <div className="mb-1 text-sm font-semibold text-muted">أسبوع السبت <Num>{`${w.week.slice(8, 10)}/${w.week.slice(5, 7)}`}</Num></div>
+              <li key={w.cycle} className="px-3 py-2">
+                <div className="mb-1 text-sm font-semibold text-muted">دورة السبت <Num>{dm(w.cycle)}</Num></div>
                 {w.reps.map((p) => (
                   <div key={p.rep} className="flex min-h-11 items-center justify-between gap-3">
                     <Ltr className="font-semibold">{p.rep}</Ltr>
                     <span className="flex flex-none flex-col items-end">
-                      <Num className="font-display font-semibold">{`${p.done}/${p.need}`}</Num>
-                      <span className={cn('text-sm', p.done < p.need ? 'font-semibold text-danger' : 'text-muted')}>
-                        {p.done < p.need ? `لم يراجع ${customersWord(p.need - p.done)}` : 'أنهى ✓'}{p.late ? ` · بعد الأجل ${p.late}` : ''}</span>
+                      <Num className="font-display font-semibold">{`${p.done}/${p.total}`}</Num>
+                      <span className={cn('text-sm', p.done < p.total ? 'font-semibold text-danger' : 'text-muted')}>
+                        {p.done < p.total ? `لم يُقرّ بـ${customersWord(p.total - p.done)}` : 'أنهى ✓'}{p.disputes ? ` · اعتراض ${p.disputes}` : ''}</span>
                     </span>
                   </div>
                 ))}
@@ -428,15 +416,15 @@ function ReviewDetails({ data, reload }: { data: CollData; reload: () => void })
   );
 }
 
-// للمدير: إرسال مراجعة لم تصل، أو حسم مراجعة انقطع ردها بعد التحقق في زوهو
-function Unsent({ list, reload }: { list?: Review['unsent']; reload: () => void }) {
+// للمدير: إرسال اعتراض (أو مراجعة قديمة) لم يصل إلى زوهو، أو حسم ما انقطع رده بعد التحقق في زوهو
+function UnsentList({ list, reload }: { list: Unsent[]; reload: () => void }) {
   const [open, setOpen] = useState(true);
   const [busy, setBusy] = useState('');
-  if (!list || !list.length) return null;
-  async function act(key: string, path: string, body: object, okText: string) {
-    setBusy(key);
+  if (!list.length) return null;
+  async function act(u: Unsent, what: 'send' | 'resolve', body: object, okText: string) {
+    setBusy(u.key);
     try {
-      const res = await api('/api/m/coll/review/' + path, { method: 'POST', body });
+      const res = await api(u.path + what, { method: 'POST', body });
       if (res.state && res.state !== 'done') toast(res.state === 'unknown' ? 'لم يصل رد واضح من زوهو. تحقق قبل أي إعادة.' : (res.error || 'زوهو رفض التعليق.'), 'warn');
       else toast(okText);
       reload();
@@ -451,21 +439,19 @@ function Unsent({ list, reload }: { list?: Review['unsent']; reload: () => void 
       head={<div className="flex items-center justify-between gap-3"><span className="font-bold">لم تصل إلى زوهو</span><span className="text-sm text-muted">{list.length}</span></div>}>
       <ul className={LIST_BOX}>
         {list.map((u) => {
-          const key = u.week + u.id;
-          const body = { week: u.week, customer_id: u.id };
           const waiting = u.state === 'unknown' || u.state === 'pending';
           return (
-            <li key={key} className="bg-raised px-3 py-2">
+            <li key={u.key} className="bg-raised px-3 py-2">
               <div className="flex justify-between gap-3"><Ltr className="font-semibold">{u.name}</Ltr><Ltr className="text-sm text-muted">{u.rep}</Ltr></div>
               <div className="text-sm font-semibold text-warning">{(waiting ? 'بانتظار التحقق: افتح العميل في زوهو وابحث عن التعليق أدناه.' : ZOHO_WORD[u.state]) + (u.error ? ` (${u.error})` : '')}</div>
               <p className="my-1 text-sm text-muted [overflow-wrap:anywhere]">{u.text}</p>
               <div className="mt-2 flex flex-wrap gap-2 [&>button]:flex-1">
                 {waiting ? (
                   <>
-                    <Button disabled={busy === key} onClick={() => act(key, 'resolve', { ...body, found: true }, 'سُجّلت كأنها في زوهو')}>موجود في زوهو</Button>
-                    <Button disabled={busy === key} onClick={() => act(key, 'resolve', { ...body, found: false }, 'صارت قابلة للإرسال')}>غير موجود</Button>
+                    <Button disabled={busy === u.key} onClick={() => act(u, 'resolve', { ...u.body, found: true }, 'سُجّل كأنه في زوهو')}>موجود في زوهو</Button>
+                    <Button disabled={busy === u.key} onClick={() => act(u, 'resolve', { ...u.body, found: false }, 'صار قابلاً للإرسال')}>غير موجود</Button>
                   </>
-                ) : <Button disabled={busy === key} onClick={() => act(key, 'send', body, 'أُرسلت إلى زوهو ✓')}>أرسل إلى زوهو</Button>}
+                ) : <Button disabled={busy === u.key} onClick={() => act(u, 'send', u.body, 'أُرسل إلى زوهو ✓')}>أرسل إلى زوهو</Button>}
               </div>
             </li>
           );
@@ -475,217 +461,268 @@ function Unsent({ list, reload }: { list?: Review['unsent']; reload: () => void 
   );
 }
 
-// نص التعليق كما سيُكتب في سجل العميل في زوهو (نفس صيغة الخادم في collcomment.ts)
-function previewText(data: CollData, c: Cust, note: string, late: boolean) {
-  const rv = data.review!;
-  const now = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Algiers', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
-    .formatToParts(new Date()).map((x) => [x.type, x.value]));
-  const wk = `${rv.week.slice(8, 10)}/${rv.week.slice(5, 7)}`;
-  return `مراجعة التحصيل لأسبوع ${wk}: راجعه ${data.own_rep} يوم ${now.day}/${now.month} الساعة ${now.hour}:${now.minute}${late ? ' (بعد الأجل)' : ''}. `
-    + `الرصيد ${fmtAmount(c.balance).replace(' DA', ' دج')}. ` + (note ? `الملاحظة: ${note}` : 'دون ملاحظة.') + ' — من تطبيق ميداني';
-}
+// ——— شاشة إقرار الدين (8/11/2026، بطلب ZEKRI): عميلاً بعد عميل، بلمسة لكل عميل ———
+// اللوح الأحمر: التقدّم، ثم العميل ورصيده في الصورة. تحته المقارنة بالصورة السابقة.
+// «الدين صحيح» يُحفظ في التطبيق ويظهر التالي فوراً. «فيه خطأ» يفتح الأسباب، والاعتراض يُكتب في زوهو.
+// المندوب الذي لم ينهِ لا يخرج منها إلا إلى تسجيل الشيك (القفل في app.tsx). المدير يرجع إلى التحصيل.
+type AckRow = {
+  id: string; name: string; balance: number; late: number | null; invoices: number; prev: number | null;
+  answer: 'ok' | 'dispute' | null; reason: string | null; note: string; at: string | null; zoho: string; error: string | null;
+};
+type AckList = { cycle: string; next: string; state: 'ready' | 'pending' | 'error'; taken_at: string | null; can_ack: boolean; rep?: string; had_prev: boolean; rows: AckRow[] };
 
-// ——— شاشة المراجعة (8/11/2026، بطلب ZEKRI): عميلاً بعد عميل ———
-// لوح أحمر بالتقدّم والعميل، ثم ما قاله الأسبوع الماضي، والاتصال وواتساب، ثم الملاحظة ونص التعليق في زوهو.
-// الشاشة نفسها هي التأكيد: «سجّل في زوهو وانتقل للتالي» يكتب التعليق فوراً، ولا إعادة تلقائية إن انقطع الرد.
-function ReviewFlow({ data, error, me, startId, onSaved }: {
-  data: CollData | null; error: string; me: Me; startId: string; onSaved: (c: Cust, r: Rev) => void;
-}) {
-  // الطابور يُحسب مرة عند فتح الشاشة: من لم يُراجَع (ومن لم تصل مراجعته إلى زوهو)، بترتيب القائمة
-  const [queue, setQueue] = useState<string[] | null>(null);
-  const [skipped, setSkipped] = useState<string[]>([]);
+// الاعتراض المرسل إلى زوهو (أو المنقطع) لا يُغيَّر
+const fixed = (r: AckRow) => r.answer === 'dispute' && r.zoho !== 'none' && r.zoho !== 'failed';
+const snapLate = (r: AckRow) => (r.late === null ? 'رصيد افتتاحي' : r.late > 0 ? `متأخر ${daysWord(r.late)}` : 'لم يحن موعدها');
+
+function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
+  const locked = me.user.role === 'rep';
+  const [list, setList] = useState<AckList | null>(null);
+  const [error, setError] = useState('');
   const [pos, setPos] = useState(0);
-  const [sessionDone, setSessionDone] = useState(0);
-  const [note, setNote] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const [stuck, setStuck] = useState('');  // سُجّلت ولم تصل إلى زوهو: نشرح ثم «التالي»
-  const rv = data?.review;
-  const mine = data && rv ? data.customers.filter((c) => isMine(data, c) && needsReview(c)) : [];
-  const doneCount = rv ? mine.filter((c) => rv.items[c.id]).length : 0;
+  const [dispute, setDispute] = useState(false);
+  const changed = useRef(false);
 
-  useEffect(() => {
-    if (queue || !data || !rv) return;
-    const open = mine.filter((c) => !rv.items[c.id] || sendable(rv.items[c.id])).map((c) => c.id);
-    const first = startId && mine.some((c) => c.id === startId) ? [startId, ...open.filter((id) => id !== startId)] : open;
-    setQueue(first);
-  }, [data]);
-
-  const c = queue ? mine.find((x) => x.id === queue[pos]) : undefined;
-  const r = c && rv ? rv.items[c.id] : undefined;
-  useEffect(() => { setNote(r && sendable(r) ? r.note : ''); setErr(''); setStuck(''); window.scrollTo(0, 0); }, [pos, queue]);
-  // عميل سدّد دينه منذ فتح الشاشة: يُتجاوز
-  useEffect(() => { if (queue && pos < queue.length && !c) setPos((p) => p + 1); }, [queue, pos, c]);
-
-  const atEnd = !!queue && pos >= queue.length;
-  useFixedBottom(68, !!queue && !!data);
-  const back = () => { location.hash = '#coll'; };
-  const clean = note.replace(/\s+/g, ' ').trim();
-
-  function next() {
-    setPos((p) => p + 1);
-  }
-  function skip() {
-    if (c) setSkipped((s) => [...s, c.id]);
-    next();
-  }
-  function again() {
-    setQueue(skipped);
-    setSkipped([]);
-    setPos(0);
-  }
-  async function save() {
-    if (!c || !rv) return;
-    setBusy(true);
-    setErr('');
+  async function load() {
+    setError('');
     try {
-      const res = await api('/api/m/coll/review', { method: 'POST', body: { customer_id: c.id, note: clean } });
-      onSaved(c, { at: r ? r.at : new Date().toISOString().slice(0, 19).replace('T', ' '), note: clean, late: r ? r.late : res.late, by: me.user.username, zoho: res.zoho });
-      setSessionDone((n) => n + 1);
-      setBusy(false);
-      if (res.zoho === 'done') { haptic('success'); toast('سُجّلت مراجعة ' + c.name + ' ✓'); next(); return; }
-      setStuck(res.zoho === 'unknown'
-        ? 'سُجّلت المراجعة في التطبيق، لكن لم يصل رد واضح من زوهو. لا تعد المحاولة: الإدارة تتحقق منها.'
-        : 'سُجّلت المراجعة في التطبيق، لكن زوهو رفض التعليق. الإدارة تعيد إرساله.');
+      const d = await api<AckList>('/api/m/coll/ack');
+      setList(d);
+      const first = d.rows.findIndex((r) => !r.answer);
+      setPos(first < 0 ? d.rows.length : first);
     } catch (e) {
-      setBusy(false);
-      setErr(errText(e));
+      setError(errText(e));
     }
   }
+  useEffect(() => { load(); document.title = 'إقرار الدين'; }, []);
+  // القائمة في التحصيل تُحدَّث بعد الخروج إن تغيّر شيء
+  useEffect(() => () => { if (changed.current) onChanged(); }, []);
+  // القفل وسطر التذكير يتبعان الأجوبة فوراً
+  useEffect(() => { if (list) setAckCounts(list.cycle, list.rows.filter((r) => r.answer).length, list.rows.length); }, [list]);
+  useEffect(() => { window.scrollTo(0, 0); }, [pos]);
 
-  const deadline = rv ? `الأجل الخميس ${fmtDeadline(rv.deadline)} الساعة 12:00` : '';
+  const rows = list?.rows || [];
+  const r = pos < rows.length ? rows[pos] : null;
+  const done = rows.filter((x) => x.answer).length;
+  useFixedBottom(68, !!list && list.state === 'ready');
+
+  // التالي: أول من لم يُجب بعد الحالي، ثم أول من لم يُجب، ثم النهاية
+  const nextFrom = (i: number, arr: AckRow[]) => {
+    const after = arr.findIndex((x, j) => j > i && !x.answer);
+    if (after >= 0) return after;
+    const any = arr.findIndex((x) => !x.answer);
+    return any >= 0 ? any : arr.length;
+  };
+  const patch = (id: string, p: Partial<AckRow>) => setList((l) => (l ? { ...l, rows: l.rows.map((x) => (x.id === id ? { ...x, ...p } : x)) } : l));
+
+  async function confirm() {
+    if (!r || !list) return;
+    const before = r;
+    const after = rows.map((x) => (x.id === r.id ? { ...x, answer: 'ok' as const, reason: null, note: '', zoho: 'skip' } : x));
+    setList({ ...list, rows: after });
+    setPos(nextFrom(pos, after));
+    haptic('success');
+    changed.current = true;
+    try {
+      await api('/api/m/coll/ack', { method: 'POST', body: { customer_id: before.id, answer: 'ok' } });
+    } catch (e) {
+      // لم يُحفظ: يعود العميل دون جواب
+      patch(before.id, before);
+      toast(`لم يُحفظ إقرار ${before.name}: ${errText(e)}`, 'err');
+    }
+  }
+  function disputed(row: AckRow, res: { zoho: string; error?: string }, reason: string, note: string) {
+    const after = rows.map((x) => (x.id === row.id ? { ...x, answer: 'dispute' as const, reason, note, zoho: res.zoho, error: res.error || null } : x));
+    setList((l) => (l ? { ...l, rows: after } : l));
+    setDispute(false);
+    changed.current = true;
+    if (res.zoho === 'done') toast('سُجّل الاعتراض على ' + row.name + ' في زوهو ✓');
+    else toast(res.zoho === 'unknown'
+      ? 'سُجّل الاعتراض في التطبيق، لكن لم يصل رد واضح من زوهو. لا تعد المحاولة: الإدارة تتحقق منه.'
+      : 'سُجّل الاعتراض في التطبيق، وزوهو رفض التعليق. الإدارة تعيد إرساله.', 'warn');
+    setPos(nextFrom(pos, after));
+  }
+
+  const back = () => { location.hash = '#coll'; };
+  const toRegister = () => { location.hash = '#cheques/new'; };
   const head = (
     <>
-      <SlabTop onBack={back} extra={deadline} />
-      <div className="mt-1 flex items-baseline justify-between gap-3 text-sm">
-        <span className="font-semibold">مراجعة الأسبوع</span>
-        {mine.length ? <span>راجعت <Num>{`${doneCount}/${mine.length}`}</Num></span> : null}
+      <div className="flex min-h-11 items-center justify-between gap-3">
+        {locked ? <span className="text-sm font-semibold">إقرار الدين</span> : <SlabBack onClick={back} />}
+        {locked ? (
+          // تسجيل الشيك مفتوح دائماً، حتى قبل إنهاء الإقرار
+          <Button asChild variant="ghost" className="-me-2 gap-1 px-2 text-sm font-semibold text-white hover:bg-press-on-brand active:bg-press-on-brand">
+            <a href="#cheques/new"><PenLine aria-hidden className="size-4.5" />سجّل شيكاً</a>
+          </Button>
+        ) : <span className="text-sm font-semibold">إقرار الدين</span>}
       </div>
-      {mine.length ? (
-        <div role="progressbar" aria-label="تقدّم المراجعة" aria-valuemin={0} aria-valuemax={mine.length} aria-valuenow={doneCount} className="mb-3 mt-2 h-1 bg-press-on-brand">
-          <div className="h-full bg-white transition-[width] duration-200" style={{ width: `${Math.round((doneCount / mine.length) * 100)}%` }} />
-        </div>
+      {list && list.state === 'ready' && rows.length ? (
+        <>
+          <div className="mt-1 flex items-baseline justify-between gap-3 text-sm">
+            <span>صورة الدين يوم {dayOf(list.taken_at)}</span>
+            <span>أقررت <Num>{`${done}/${rows.length}`}</Num></span>
+          </div>
+          <div role="progressbar" aria-label="تقدّم الإقرار" aria-valuemin={0} aria-valuemax={rows.length} aria-valuenow={done} className="mb-3 mt-2 h-1 bg-press-on-brand">
+            <div className="h-full bg-white transition-[width] duration-200" style={{ width: `${Math.round((done / rows.length) * 100)}%` }} />
+          </div>
+        </>
       ) : null}
     </>
   );
+  const bar = 'detailbar fixed inset-x-0 bottom-0 z-20 flex gap-2 border-t border-line-strong bg-surface px-4 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 [&>*]:flex-1';
 
-  if (error && !data) return <><Slab>{head}</Slab><ErrorBox>{error}</ErrorBox></>;
-  if (!data || !rv || !queue) return <><Slab>{head}</Slab><SkeletonList rows={3} /></>;
-  if (!rv.can_review) {
-    return <><Slab>{head}</Slab><div className="mt-4"><Empty>المراجعة لصاحب رمز المندوب. اطلب من الإدارة ربط حسابك برمزك في زوهو.</Empty></div></>;
+  if (error && !list) {
+    return <><Slab>{head}</Slab><ErrorBox>{error}</ErrorBox><Button className="mt-3 w-full" onClick={load}>أعد المحاولة</Button></>;
   }
-
-  // النهاية: كل العملاء، أو بقي من تخطّاهم
-  if (atEnd) {
-    const left = mine.length - doneCount;
+  if (!list) return <><Slab>{head}</Slab><SkeletonList rows={3} /></>;
+  if (!list.can_ack) {
+    return <><Slab>{head}</Slab><div className="mt-4"><Empty>الإقرار لصاحب رمز المندوب. اطلب من الإدارة ربط حسابك برمزك في زوهو.</Empty></div></>;
+  }
+  if (list.state !== 'ready') {
     return (
       <>
-        <Slab>{head}<h1 className="m-0 text-lg font-bold">{left ? `بقي ${customersWord(left)} دون مراجعة` : 'أنهيت مراجعة كل عملائك ✓'}</h1></Slab>
+        <Slab>{head}<h1 className="m-0 text-lg font-bold">صورة الدين</h1></Slab>
         <div className="mt-4 flex flex-col gap-3">
-          <Block title="هذه الجلسة">
-            <dl className="m-0 flex flex-col">
-              <KV label="راجعت الآن">{customersWord(sessionDone)}</KV>
-              {skipped.length ? <KV label="تخطّيت">{customersWord(skipped.length)}</KV> : null}
-              <KV label="هذا الأسبوع"><Num>{`${doneCount}/${mine.length}`}</Num></KV>
-            </dl>
-          </Block>
-          {left && !skipped.length ? <Note tone="warn">من بقي سدّد دينه أو لم يصل رد زوهو عن مراجعته. افتح التحصيل للتفاصيل.</Note> : null}
-        </div>
-        <div className="detailbar fixed inset-x-0 bottom-0 z-20 flex gap-2 border-t border-line-strong bg-surface px-4 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 [&>*]:flex-1">
-          {skipped.length ? <Button variant="primary" className="!flex-[2] py-2" onClick={again}>عُد إلى من تخطّيتهم</Button> : null}
-          <Button variant={skipped.length ? undefined : 'primary'} className="py-2" onClick={back}>{skipped.length ? 'رجوع' : 'رجوع إلى التحصيل'}</Button>
+          <Note tone="warn" className="text-base">{list.state === 'pending' ? 'صورة الدين قيد الإعداد الآن. حاول بعد دقيقة.' : 'تعذّرت قراءة الديون من زوهو. حاول بعد دقيقة.'}</Note>
+          <Button onClick={load}>أعد المحاولة</Button>
         </div>
       </>
     );
   }
-  if (!c) return <><Slab>{head}</Slab><SkeletonList rows={3} /></>;
 
-  const prev = rv.prev?.[c.id];
-  const last = pos === queue.length - 1 && !skipped.length;
-  const msg = `السلام عليكم، معك ${me.user.display_name} من ELONAC. نتصل بخصوص رصيدك عندنا، ${fmtAmount(c.balance).replace(' DA', '')} دج. متى يناسبك أن نسوّيه؟`;
-  const noPhone = () => toast('لا رقم هاتف لهذا العميل في زوهو.', 'warn');
+  // النهاية: كل العملاء أُجيب عنهم، أو لا عملاء في الصورة
+  if (!r) {
+    const ok = rows.filter((x) => x.answer === 'ok');
+    const disp = rows.filter((x) => x.answer === 'dispute');
+    const stuck = disp.filter((x) => x.zoho !== 'done');
+    return (
+      <>
+        <Slab>{head}<h1 className="m-0 text-lg font-bold">{rows.length ? 'أنهيت إقرار دين عملائك ✓' : 'لا ديون على عملائك في هذه الصورة'}</h1></Slab>
+        <div className="mt-4 flex flex-col gap-3">
+          {rows.length ? (
+            <Block title="الخلاصة">
+              <dl className="m-0 flex flex-col">
+                <KV label="أقررت بدين" after={<Amount value={round2(ok.reduce((t, x) => t + x.balance, 0))} />}>{customersWord(ok.length)}</KV>
+                {disp.length ? <KV label="اعترضت على">{customersWord(disp.length)}</KV> : null}
+                <KV label="الصورة التالية">يوم السبت <Num>{dm(list.next)}</Num></KV>
+              </dl>
+            </Block>
+          ) : <Empty>{`لم يكن لعملائك دين يوم ${dayOf(list.taken_at)}. الصورة التالية يوم السبت ${dm(list.next)}.`}</Empty>}
+          {stuck.length ? <Note tone="warn">{`لم يصل إلى زوهو اعتراضك على ${customersWord(stuck.length)}. الإدارة تتابعه.`}</Note> : null}
+        </div>
+        <div className={bar}>
+          <Button variant="primary" className="!flex-[2] py-2" onClick={locked ? toRegister : back}>{locked ? 'إلى التسجيل' : 'رجوع إلى التحصيل'}</Button>
+          {rows.length ? <Button className="py-2" onClick={() => setPos(0)}>راجع أجوبتك</Button> : null}
+        </div>
+      </>
+    );
+  }
 
+  const diff = r.prev === null ? null : round2(r.balance - r.prev);
   return (
     <>
       <Slab>
         {head}
-        <h1 className="m-0"><Ltr className="block text-lg font-bold leading-snug [overflow-wrap:anywhere]">{c.name}</Ltr></h1>
-        <Amount value={c.balance} className="mt-1 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
+        <h1 className="m-0"><Ltr className="block text-lg font-bold leading-snug [overflow-wrap:anywhere]">{r.name}</Ltr></h1>
+        <Amount value={r.balance} className="mt-1 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
         <div className="mt-2 flex flex-wrap gap-2">
-          <Badge tone={isOld(c) ? 'dark' : 'inverse'}>{lateText(c)}</Badge>
-          {c.invoices.length ? <Badge tone="inverse">{invoicesWord(c.invoices.length)}</Badge> : null}
-          {r && sendable(r) ? <Badge tone="inverse">لم يُرسل إلى زوهو</Badge> : null}
+          <Badge tone={r.late === null || r.late > 90 ? 'dark' : 'inverse'}>{snapLate(r)}</Badge>
+          {r.invoices ? <Badge tone="inverse">{invoicesWord(r.invoices)}</Badge> : null}
         </div>
       </Slab>
 
-      <div className="mt-4 flex flex-col gap-4">
-        {prev ? (
-          <Block title={`الأسبوع الماضي، ${timeOf(prev.at)}`}>
-            <p className="my-1 text-base [overflow-wrap:anywhere]">{prev.note || 'دون ملاحظة.'}</p>
+      <div className="mt-4 flex flex-col gap-3">
+        <dl className="m-0 flex flex-col">
+          <KV label="الإقرار السابق" after={diff ? <>{diff > 0 ? 'زاد ' : 'نقص '}<Amount value={Math.abs(diff)} /></> : undefined}>
+            {r.prev === null ? <span className="font-normal text-muted">{list.had_prev ? 'جديد في قائمتك' : 'أول صورة'}</span>
+              : diff === 0 ? <span className="font-normal">لم يتغير</span> : <Amount value={r.prev} />}
+          </KV>
+        </dl>
+        {r.answer === 'ok' ? <Note plain className="text-foreground"><Check aria-hidden className="size-4" strokeWidth={3} />أقررت بدينه. يمكنك تغيير جوابك.</Note> : null}
+        {r.answer === 'dispute' ? (
+          <Block title="اعترضت على دينه" className="border-s-3 border-s-warning ps-3">
+            <p className="my-1 text-base [overflow-wrap:anywhere]">{reasonText(r.reason)}{r.note ? ': ' + r.note : '.'}</p>
+            <p className={cn('m-0 text-sm', r.zoho === 'done' ? 'text-muted' : 'font-semibold text-warning')}>
+              {r.zoho === 'done' ? '✓ مكتوب في سجل العميل في زوهو، فلا يُغيَّر.' : fixed(r) ? 'لم يصل رد واضح من زوهو. لا تعد المحاولة: الإدارة تتحقق منه.' : 'لم يصل إلى زوهو بعد.'}
+            </p>
           </Block>
         ) : null}
-
-        <div className="flex gap-2 [&>*]:flex-1">
-          {c.phone ? <Button asChild className="py-2"><a href={'tel:+' + c.phone}><Phone aria-hidden className="size-4.5" />اتصال</a></Button>
-            : <Button blocked className="py-2" onClick={noPhone}><Phone aria-hidden className="size-4.5" />اتصال</Button>}
-          {c.phone ? <Button asChild className="py-2"><a href={`https://wa.me/${c.phone}?text=${encodeURIComponent(msg)}`} target="_blank" rel="noopener"><MessageCircle aria-hidden className="size-4.5" />واتساب</a></Button>
-            : <Button blocked className="py-2" onClick={noPhone}><MessageCircle aria-hidden className="size-4.5" />واتساب</Button>}
-        </div>
-
-        <label className="block">
-          <span className="mb-2 block text-base font-semibold">ماذا قال العميل؟</span>
-          <Textarea rows={3} maxLength={400} disabled={busy || !!stuck} placeholder="اختياري. مثال: وعد بالدفع يوم الخميس" value={note} onChange={(e) => setNote(e.target.value)} />
-        </label>
-
-        <div>
-          <span className="text-sm text-muted">يُكتب في سجل العميل في زوهو، ولا يُعدَّل بعدها:</span>
-          <Note className="mt-1 text-foreground">{previewText(data, c, clean, r ? r.late : Date.now() > rv.deadline)}</Note>
-        </div>
-        {stuck ? <Note tone="warn" className="text-base">{stuck}</Note> : null}
-        {err ? <FormError>{err}</FormError> : null}
+        {pos > 0 ? <Button variant="ghost" className="self-start px-2 text-muted" onClick={() => setPos(pos - 1)}>عُد إلى العميل السابق</Button> : null}
       </div>
 
-      <div className="detailbar fixed inset-x-0 bottom-0 z-20 flex gap-2 border-t border-line-strong bg-surface px-4 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 [&>*]:flex-1">
-        {stuck ? <Button variant="primary" className="!flex-[2] py-2" onClick={next}>{last ? 'إنهاء' : 'التالي'}</Button> : (
+      <div className={bar}>
+        {fixed(r) ? <Button variant="primary" className="!flex-[2] py-2" onClick={() => setPos(nextFrom(pos, rows))}>التالي</Button> : (
           <>
-            <Button variant="primary" className="!flex-[2] whitespace-nowrap py-2" disabled={busy} onClick={save}>
-              {busy ? 'جارٍ التسجيل…' : last ? 'سجّل في زوهو وأنهِ' : 'سجّل في زوهو والتالي'}</Button>
-            <Button className="py-2" disabled={busy} onClick={skip}>تخطَّ</Button>
+            <Button variant="primary" className="ack-ok !flex-[2] py-2" onClick={confirm}><Check aria-hidden className="size-5" strokeWidth={3} />الدين صحيح</Button>
+            <Button className="ack-no py-2" onClick={() => setDispute(true)}>فيه خطأ</Button>
           </>
         )}
       </div>
+
+      <DisputeSheet key={r.id} open={dispute} row={r} rep={list.rep || ''} takenAt={list.taken_at} onClose={() => setDispute(false)} onSaved={disputed} />
     </>
   );
 }
 
-// ——— بطاقة العميل ———
-function CustomerPage({ data, id, me, onBack, onReview, onCancelled }: {
-  data: CollData | null; id: string; me: Me; onBack: () => void; onReview: (c: Cust) => void; onCancelled: (c: Cust) => void;
+// الاعتراض: السبب من قائمة، وملاحظة (إجبارية مع «سبب آخر»)، ونص التعليق كما سيُكتب في زوهو قبل الإرسال
+function DisputeSheet({ open, row, rep, takenAt, onClose, onSaved }: {
+  open: boolean; row: AckRow; rep: string; takenAt: string | null; onClose: () => void;
+  onSaved: (row: AckRow, res: { zoho: string; error?: string }, reason: string, note: string) => void;
 }) {
+  const [reason, setReason] = useState(row.answer === 'dispute' ? row.reason || '' : '');
+  const [note, setNote] = useState(row.answer === 'dispute' ? row.note : '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const clean = note.replace(/\s+/g, ' ').trim();
+  const missing = !reason ? 'اختر سبب الاعتراض.' : reason === 'other' && !clean ? 'اكتب السبب في الملاحظة.' : '';
+  // نفس صيغة الخادم في collcomment.ts
+  const text = `اعتراض على صورة الدين ليوم ${dayOf(takenAt)}: المندوب ${rep} لا يقرّ برصيد ${fmtAmount(row.balance).replace(' DA', ' دج')}. `
+    + `السبب: ${reason ? reasonText(reason) : '(اختر السبب)'}.` + (clean ? ` الملاحظة: ${clean}` : '') + ' — من تطبيق ميداني';
+  async function save() {
+    if (missing) { setErr(missing); return; }
+    setBusy(true); setErr('');
+    try {
+      const res = await api('/api/m/coll/ack', { method: 'POST', body: { customer_id: row.id, answer: 'dispute', reason, note: clean } });
+      onSaved(row, res, reason, clean);
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Sheet open={open} onClose={() => { if (!busy) onClose(); }} title="ما الخطأ في هذا الدين؟" action={<Button disabled={busy} onClick={onClose}>إلغاء</Button>}>
+      {REASONS.map(([k, t]) => <SheetOption key={k} selected={reason === k} label={t} onClick={() => { setReason(k); setErr(''); }} />)}
+      <div className="flex flex-col gap-3 px-4 pb-3 pt-3">
+        <label className="block">
+          <span className="mb-2 block text-base font-semibold">ملاحظة{reason === 'other' ? '' : ' (اختيارية)'}</span>
+          <Textarea rows={2} maxLength={400} disabled={busy} placeholder="مثال: دفع نقداً يوم الأحد لأمين" value={note} onChange={(e) => setNote(e.target.value)} />
+        </label>
+        <div>
+          <span className="text-sm text-muted">يُكتب في سجل العميل في زوهو، ولا يُعدَّل بعدها:</span>
+          <Note className="mt-1 text-foreground">{text}</Note>
+        </div>
+        {err ? <FormError>{err}</FormError> : null}
+        <Button variant="primary" className="w-full py-3" disabled={busy} blocked={!!missing} onClick={save}>{busy ? 'جارٍ التسجيل…' : 'سجّل الاعتراض في زوهو'}</Button>
+      </div>
+    </Sheet>
+  );
+}
+
+// ——— بطاقة العميل ———
+function CustomerPage({ data, id, me, onBack }: { data: CollData | null; id: string; me: Me; onBack: () => void }) {
   const c = data?.customers.find((x) => x.id === id);
   useFixedBottom(68, !!c);
-  const [cancelling, setCancelling] = useState(false);
   // رأس الصفحة: لوح أحمر ملاصق للشريط العلوي، كما في صفحة الشيك
   const top = <Slab><SlabTop onBack={onBack} /><h1 className="m-0 text-lg font-bold">رصيد العميل</h1></Slab>;
   if (!data) return <>{top}<SkeletonList rows={3} /></>;
   if (!c) return <>{top}<div className="mt-4"><Empty>لم يعد لهذا العميل رصيد مفتوح، أو ليس من عملائك.</Empty></div></>;
 
   const msg = `السلام عليكم، معك ${me.user.display_name} من ELONAC. نتصل بخصوص رصيدك عندنا، ${fmtAmount(c.balance).replace(' DA', '')} دج. متى يناسبك أن نسوّيه؟`;
-  const rv = data.review;
-  const r = rv && needsReview(c) ? rv.items[c.id] : null;
-
-  async function cancelReview() {
-    setCancelling(true);
-    try {
-      await api('/api/m/coll/review/' + encodeURIComponent(c!.id), { method: 'DELETE' });
-      onCancelled(c!);
-      toast('أُلغيت المراجعة');
-    } catch (e) {
-      toast(errText(e), 'err');
-    } finally {
-      setCancelling(false);
-    }
-  }
+  const ak = data.ack;
+  const a = ak?.items[c.id];
+  const mine = isMine(data, c);
+  const day = ak ? dayOf(ak.taken_at) : '';
 
   return (
     <>
@@ -701,29 +738,24 @@ function CustomerPage({ data, id, me, onBack, onReview, onCancelled }: {
       </Slab>
       <div className="mt-4 flex flex-col gap-3">
 
-        {rv && needsReview(c) ? (
-          !r ? (
-            !isMine(data, c) ? <Note tone="warn">لم يُراجَع هذا العميل هذا الأسبوع.</Note> : (
-              <Block title="مراجعة الأسبوع: لم تراجعه بعد" className="border-s-3 border-s-warning">
-                <p className="text-sm text-muted">اتصل به، ثم سجّل ما قاله. المراجعة تُكتب تعليقاً في سجل العميل في زوهو.</p>
-                <Button className="w-full" onClick={() => onReview(c)}>راجِعه الآن</Button>
+        {ak && ak.state === 'ready' && c.owner ? (
+          !a ? <Note>{`دين جديد بعد صورة يوم ${day}، يدخل في الصورة التالية يوم السبت ${dm(ak.next)}.`}</Note>
+            : !a.answer ? (mine ? (
+              <Block title="إقرار الدين: لم تُقرّ بعد" className="border-s-3 border-s-warning ps-3">
+                <Button asChild className="w-full"><a href="#coll/ack">أكمل الإقرار</a></Button>
               </Block>
-            )
-          ) : (
-            <Block title={`راجعه ${isMine(data, c) ? '' : r.by + ' '}${timeOf(r.at)}${r.late ? ' (بعد الأجل)' : ''}`.replace('  ', ' ')} className="border-s-3 border-s-foreground">
-              <p className="my-1 text-base [overflow-wrap:anywhere]">{r.note || 'دون ملاحظة.'}</p>
-              <p className={cn('text-sm', r.zoho === 'done' ? 'text-muted' : 'font-semibold text-warning')}>
-                {r.zoho === 'done' ? '✓ مكتوبة في سجل العميل في زوهو.' : r.zoho === 'unknown' || r.zoho === 'pending'
-                  ? 'لم يصل رد واضح من زوهو. لا تعد المحاولة: الإدارة تتحقق منها.' : 'لم تصل إلى زوهو بعد.'}
-              </p>
-              {isMine(data, c) && sendable(r) ? (
-                <div className="mt-2 flex gap-2 [&>button]:flex-1">
-                  <Button onClick={() => onReview(c)}>أعد الإرسال</Button>
-                  <Button disabled={cancelling} onClick={cancelReview}>إلغاء المراجعة</Button>
-                </div>
-              ) : null}
-            </Block>
-          )
+            ) : <Note tone="warn">{`لم يُقرّ المندوب بدين هذا العميل في صورة يوم ${day}.`}</Note>)
+              : a.answer === 'ok' ? (
+                <Note plain className="text-foreground"><Check aria-hidden className="size-4" strokeWidth={3} />{`${mine ? 'أقررت' : 'أقرّ ' + (a.by || '')} بدينه في صورة يوم ${day}، ${a.at ? timeOf(a.at) : ''}.`.replace('  ', ' ')}</Note>
+              ) : (
+                <Block title={`اعتراض ${mine ? '' : (a.by || '') + ' '}${a.at ? timeOf(a.at) : ''}`.replace('  ', ' ')} className="border-s-3 border-s-warning ps-3">
+                  <p className="my-1 text-base [overflow-wrap:anywhere]">{reasonText(a.reason)}{a.note ? ': ' + a.note : '.'}</p>
+                  <p className={cn('m-0 text-sm', a.zoho === 'done' ? 'text-muted' : 'font-semibold text-warning')}>
+                    {a.zoho === 'done' ? '✓ مكتوب في سجل العميل في زوهو.' : a.zoho === 'unknown' || a.zoho === 'pending'
+                      ? 'لم يصل رد واضح من زوهو. لا تعد المحاولة: الإدارة تتحقق منه.' : 'لم يصل إلى زوهو بعد.'}
+                  </p>
+                </Block>
+              )
         ) : null}
 
         <Block title="الرصيد">
