@@ -2,9 +2,10 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env';
 import { HttpError } from '../http';
 
-// قراءة صورة الشيك بواجهة كلود، كما كان يفعل بوت تيليجرام: المبلغ والرقم فقط.
-// العميل لا يُقرأ آلياً بطلب ZEKRI، بل يختاره الموظف بالبحث.
-// النتيجة اقتراح فقط: الموظف يراجعها ويصححها قبل أي كتابة في زوهو.
+// قراءة صورة الشيك بواجهة كلود، كما كان يفعل بوت تيليجرام: المبلغ والرقم والاسمان.
+// منذ 8/11/2026 (بطلب ZEKRI) يُقرأ اسم صاحب الحساب والمستفيد أيضاً، اقتراحاً للبحث فقط:
+// الموظف يختار العميل أو المورد بنفسه من النتائج، ولا يُختار آلياً.
+// النتيجة كلها اقتراح: الموظف يراجعها ويصححها قبل أي كتابة في زوهو.
 
 const MODEL = 'claude-opus-5-5';
 const MAX_IMAGE_BYTES = 4_500_000;
@@ -14,6 +15,9 @@ type ImageType = (typeof IMAGE_TYPES)[number];
 export interface ChequeReading {
   amount: number | null;
   cheque_number: string | null;
+  // صاحب الحساب الساحب (العميل في شيك العميل)، والمستفيد (المورد في شيك الشركة الصادر)
+  drawer: string | null;
+  payee: string | null;
   // ملاحظة قصيرة من القارئ إن كانت الصورة غير واضحة أو فيها تعارض
   note: string | null;
   // كم درجة تُدار الصورة باتجاه عقارب الساعة ليظهر الشيك معتدلاً
@@ -28,19 +32,23 @@ const toRotation = (v: unknown): Rotation => (['90', '180', '270'].includes(Stri
 const SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['amount', 'cheque_number', 'note', 'rotation'],
+  required: ['amount', 'cheque_number', 'drawer', 'payee', 'note', 'rotation'],
   properties: {
     amount: { type: 'number', description: 'المبلغ بالدينار الجزائري، مثل 366600.39. صفر إن لم يُقرأ' },
     cheque_number: { type: 'string', description: 'رقم الشيك أرقاماً فقط، أو نص فارغ' },
+    drawer: { type: 'string', description: 'اسم صاحب الحساب الساحب كما هو مكتوب، أو نص فارغ' },
+    payee: { type: 'string', description: 'اسم المستفيد كما هو مكتوب، أو نص فارغ' },
     note: { type: 'string', description: 'ملاحظة قصيرة بالعربية إن كان شيء غير واضح، أو نص فارغ' },
     rotation: ROTATION,
   },
 };
 
-const PROMPT = `هذه صورة شيك بنكي جزائري استلمته شركة إيلوناك من عميل.
+const PROMPT = `هذه صورة شيك بنكي جزائري: إما شيك استلمته شركة إيلوناك من عميل، وإما شيك أصدرته إيلوناك لمورد.
 استخرج منها:
 - amount: المبلغ بالأرقام. إن اختلف المبلغ بالأرقام عن المبلغ بالحروف، خذ المبلغ بالحروف واذكر ذلك في note.
 - cheque_number: رقم الشيك المطبوع (عادة 7 أرقام). أرقام فقط، دون مسافات.
+- drawer: اسم صاحب الحساب الذي سُحب منه الشيك، وهو عادة مطبوع على الشيك قرب التوقيع أو تحت اسم البنك. اكتبه كما هو، بالحروف اللاتينية إن كُتب بها، دون العنوان.
+- payee: اسم المستفيد المكتوب بعد «Payez à l'ordre de» أو «ادفعوا لأمر»، كما هو.
 - note: اكتب ملاحظة قصيرة فقط إن كان جزء غير مقروء أو مشكوك فيه، وإلا نصاً فارغاً.
 - rotation: كم درجة يجب تدوير الصورة باتجاه عقارب الساعة (0 أو 90 أو 180 أو 270) ليظهر الشيك أفقياً ونصه معتدلاً.
 الصورة قد تكون مقلوبة أو مائلة، فاقرأها في أي اتجاه.
@@ -113,7 +121,8 @@ export async function readCheque(env: Env, image: { type: ImageType; data: strin
   const amount = typeof out.amount === 'number' && Number.isFinite(out.amount) && out.amount > 0
     ? Math.round(out.amount * 100) / 100 : null;
   const num = clean(out.cheque_number)?.replace(/\D/g, '') || null;
-  return { amount, cheque_number: num, note: clean(out.note), rotation: toRotation(out.rotation) };
+  const name = (v: unknown) => clean(v)?.replace(/\s+/g, ' ').slice(0, 120) || null;
+  return { amount, cheque_number: num, drawer: name(out.drawer), payee: name(out.payee), note: clean(out.note), rotation: toRotation(out.rotation) };
 }
 
 const ORIENT_SCHEMA = { type: 'object', additionalProperties: false, required: ['rotation'], properties: { rotation: ROTATION } };

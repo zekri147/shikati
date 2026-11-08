@@ -14,7 +14,7 @@ import { api, errText, isCutOff } from '@/lib/api';
 import { load as loadKey } from '@/lib/storage';
 import { fmtDate, newRequestId, parseAmount, todayIso } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { AllocList, KV, PartyPicker, type Party } from './pickers';
+import { AllocList, KV, PartyPicker, type Party, type Suggest } from './pickers';
 import { GroupField, PhotoButtons } from './edit';
 import { LOC_FROM_LABEL, Step, StepsProgress, useChequePhoto, type Options } from './register';
 import type { Line } from './types';
@@ -28,6 +28,7 @@ type Form = {
 export function OutChequeForm({ opts, onDone }: { opts: Options; onDone: () => void }) {
   const banks = opts.out_banks || [];
   const [vendor, setVendor] = useState<Party | null>(null);
+  const [suggest, setSuggest] = useState<Suggest | null>(null);
   const [amount, setAmount] = useState('');
   const [number, setNumber] = useState('');
   const [bank, setBank] = useState(banks[0]?.key || '');
@@ -41,7 +42,7 @@ export function OutChequeForm({ opts, onDone }: { opts: Options; onDone: () => v
   const requestId = useRef(newRequestId());
   const locked = useRef(false);
   const errRef = useRef<HTMLDivElement>(null);
-  const { image, reading, readNote, onFile } = useChequePhoto(opts.reader, (a, n) => { if (a) setAmount(a); if (n) setNumber(n); });
+  const { image, reading, readNote, onFile } = useChequePhoto(opts.reader, 'out', (a, n, s) => { if (a) setAmount(a); if (n) setNumber(n); setSuggest(s); });
 
   const digits = number.replace(/\D/g, '');
   const missing: string[] = [];
@@ -87,7 +88,7 @@ export function OutChequeForm({ opts, onDone }: { opts: Options; onDone: () => v
       </Step>
 
       <Step n={2} title="المورد" done={!!vendor}>
-        <div className="py-2"><PartyPicker kind="vendor" value={vendor} onChange={setVendor} /></div>
+        <div className="py-2"><PartyPicker kind="vendor" value={vendor} onChange={setVendor} suggest={suggest} /></div>
       </Step>
 
       <Step n={3} title="المبلغ والرقم والتاريخ" done={!!parseAmount(amount) && digits.length === 7 && !!date}>

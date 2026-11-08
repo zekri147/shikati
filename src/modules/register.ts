@@ -62,12 +62,39 @@ export async function searchCustomers(env: Env, user: User, q: string): Promise<
   return json({ customers: await searchContacts(env, 'customer', q) });
 }
 
+// الأشكال القانونية لا تفيد في البحث بكلمة واحدة
+const LEGAL_FORMS = new Set(['SARL', 'EURL', 'SPA', 'SNC', 'ETS', 'STE', 'SOCIETE', 'ENTREPRISE', 'EI', 'MR', 'MME', 'STÉ']);
+
+// اقتراح جهات الاتصال من الاسم المقروء على الشيك: بالاسم كاملاً، ثم بأطول كلمتين فيه إن لم يُعثر على شيء.
+// اقتراح فقط: الموظف يختار بنفسه.
+export async function suggestContacts(env: Env, type: 'customer' | 'vendor', name: string): Promise<{ id: string; name: string }[]> {
+  let list = await searchContacts(env, type, name);
+  if (!list.length) {
+    const words = [...new Set(name.toUpperCase().split(/[^\p{L}\p{N}]+/u))]
+      .filter((w) => w.length >= 3 && !LEGAL_FORMS.has(w))
+      .sort((a, b) => b.length - a.length)
+      .slice(0, 2);
+    for (const w of words) list = list.concat(await searchContacts(env, type, w));
+  }
+  const seen = new Set<string>();
+  return list.filter((c) => (seen.has(c.id) ? false : (seen.add(c.id), true))).slice(0, 8);
+}
+
 export async function handleRead(req: Request, env: Env, user: User): Promise<Response> {
   requireRegister(env, user);
-  const body = await readJson<{ image?: string }>(req);
+  const body = await readJson<{ image?: string; kind?: string }>(req);
   const reading = await readCheque(env, parseImage(body.image), user.role === 'admin');
   await audit(env, user, 'register.read', 'ok', reading.cheque_number, reading.note);
-  return json({ reading });
+  // شيك العميل: اسم صاحب الحساب يقترح العميل. شيك الشركة الصادر (للمدير): اسم المستفيد يقترح المورد.
+  const out = body.kind === 'out' && canEndorse(user);
+  const name = out ? reading.payee : reading.drawer;
+  let suggest: { name: string; list: { id: string; name: string }[] } | null = null;
+  if (name) {
+    // فشل البحث لا يُفشل القراءة: يبقى الاسم ظاهراً، ويبحث الموظف بيده
+    const list = await suggestContacts(env, out ? 'vendor' : 'customer', name).catch(() => []);
+    suggest = { name, list };
+  }
+  return json({ reading, suggest });
 }
 
 interface Invoice { invoice_id: string; invoice_number: string; date: string; balance: number; customer_id?: string }

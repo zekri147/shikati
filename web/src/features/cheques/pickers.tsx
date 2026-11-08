@@ -1,16 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Amount, Num } from '@/components/ltr';
+import { Amount, Ltr, Num } from '@/components/ltr';
 import { api, errText } from '@/lib/api';
 import { fmtDate, round2 } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { Line } from './types';
 
 export type Party = { id: string; name: string };
+// الاسم المقروء من صورة الشيك، ومن يطابقه في زوهو. اقتراح فقط: الموظف يلمس من يختار.
+export type Suggest = { name: string; list: Party[] };
 
 // بحث واختيار جهة اتصال: عميل أو مورد. البحث في الخادم يستبعد النوع الآخر.
-export function PartyPicker({ kind, value, onChange, autoFocus }: { kind: 'customer' | 'vendor'; value: Party | null; onChange: (p: Party | null) => void; autoFocus?: boolean }) {
+export function PartyPicker({ kind, value, onChange, autoFocus, suggest }: {
+  kind: 'customer' | 'vendor'; value: Party | null; onChange: (p: Party | null) => void; autoFocus?: boolean; suggest?: Suggest | null;
+}) {
   const isVendor = kind === 'vendor';
   const [q, setQ] = useState('');
   const [list, setList] = useState<Party[] | null>(null);
@@ -48,6 +52,23 @@ export function PartyPicker({ kind, value, onChange, autoFocus }: { kind: 'custo
         placeholder={isVendor ? 'اكتب جزءاً من اسم المورد' : 'اكتب جزءاً من اسم العميل'}
         value={q} onChange={(e) => setQ(e.target.value)} />
       {error ? <p className="mt-1 text-base text-danger">{error}</p> : null}
+      {!list && suggest ? (
+        <div className="mt-2">
+          <p className="mb-1 text-sm text-muted">الاسم على الشيك: <Ltr className="font-semibold text-foreground">{suggest.name}</Ltr></p>
+          {suggest.list.length ? (
+            <>
+              <p className="mb-1 text-sm text-muted">{suggest.list.length === 1 ? (isVendor ? 'المورد المطابق في زوهو. المسه إن كان هو:' : 'العميل المطابق في زوهو. المسه إن كان هو:') : (isVendor ? 'موردون قريبون منه في زوهو. اختر الصحيح:' : 'عملاء قريبون منه في زوهو. اختر الصحيح:')}</p>
+              <ul className="m-0 list-none border border-line p-0">
+                {suggest.list.map((c) => (
+                  <li key={c.id} className="border-b border-line last:border-b-0">
+                    <button type="button" className="block min-h-11 w-full bg-surface px-3 py-2 text-start text-base active:bg-surface-alt" onClick={() => onChange(c)}>{c.name}</button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : <p className="text-sm text-muted">{isVendor ? 'لم أجد مورداً بهذا الاسم في زوهو. ابحث بجزء آخر من اسمه.' : 'لم أجد عميلاً بهذا الاسم في زوهو. ابحث بجزء آخر من اسمه.'}</p>}
+        </div>
+      ) : null}
       {list ? (
         <ul className="mt-1 list-none border border-line p-0">
           {list.length ? list.map((c) => (
