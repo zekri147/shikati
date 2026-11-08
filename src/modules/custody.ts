@@ -1,6 +1,7 @@
 import type { Env, User } from '../env';
 import { HttpError, json, readJson } from '../http';
 import { audit } from '../audit';
+import { notifyCustody } from '../notify';
 
 // العهدة (المرحلة الثانية من خطة التحصيل، بموافقة ZEKRI يوم 7/11/2026): من يحمل الشيك فعلياً.
 // قاعدة التطبيق وحدها، ولا كتابة في زوهو. تخص الشيكات «في الحوزة» فقط.
@@ -151,5 +152,7 @@ export async function handleCustody(req: Request, env: Env, user: User, inHand: 
   await env.DB.prepare('INSERT INTO custody_log (payment_id, action, user_id, from_id, to_id) VALUES (?, ?, ?, ?, ?)')
     .bind(pid, action, user.id, cur?.holder_id ?? null, action === 'take' || action === 'accept' ? user.id : to).run();
   await audit(env, user, `custody.${action}`, 'ok', pid, to ? String(to) : null);
+  // إشعار الهاتف: للمستلم عند التسليم، ولمن سلّمه إن رُفض. لا يُفشل العملية أبداً
+  await notifyCustody(env, user, action, pid, to, cur?.by_id ?? null);
   return json({ ok: true, message: DONE[action] });
 }

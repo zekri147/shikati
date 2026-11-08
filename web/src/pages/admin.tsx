@@ -92,7 +92,7 @@ function UserActions({ u, self, setAsk, refresh }: { u: any; self: boolean; setA
   const post = (path: string, body?: object) => api(`/api/admin/users/${u.id}/${path}`, { method: 'POST', body: body || {} });
   return (
     <div className="flex flex-col gap-2 px-4 pb-2">
-      <p className="m-0 text-sm text-muted"><Ltr>{u.username}</Ltr> · {ROLE[u.role] || u.role} · {u.active ? 'نشط' : 'موقوف'}{u.passkeys ? ' · البصمة مفعّلة' : ''}</p>
+      <p className="m-0 text-sm text-muted"><Ltr>{u.username}</Ltr> · {ROLE[u.role] || u.role} · {u.active ? 'نشط' : 'موقوف'}{u.passkeys ? ' · البصمة مفعّلة' : ''}{u.push ? ' · الإشعارات مفعّلة' : ''}</p>
       <Button onClick={() => setAsk({ title: 'رمز سري جديد لـ ' + u.display_name, text: 'أعطه الرمز الجديد بنفسك، لا في رسالة مكتوبة.', okText: 'حفظ الرمز', password: true,
         run: async (p) => { await post('password', { password: p }); toast('حُفظ الرمز السري الجديد'); await refresh(); } })}>رمز سري جديد</Button>
       {/* رمز المندوب: يربط المستخدم بعملائه في زوهو (حقل «Owner») فيرى تحصيلهم */}

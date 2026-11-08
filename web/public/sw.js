@@ -1,7 +1,7 @@
 // عامل الخدمة: يحفظ ملفات الواجهة الثابتة فقط لتسريع الفتح.
 // لا يحفظ أبداً بيانات الشيكات ولا الصفحات المحمية ولا أي طلب إلى /api.
 // آخر البيانات للعرض الفوري تحفظها الواجهة نفسها (web/src/lib/cache.ts)، وتُحدَّث من الخادم عند كل فتح.
-const VERSION = 'shikati-v40';
+const VERSION = 'shikati-v41';
 const STATIC = /^\/(assets|fonts|img|icons)\//;
 
 self.addEventListener('install', () => self.skipWaiting());
@@ -41,4 +41,39 @@ self.addEventListener('fetch', (event) => {
       { headers: { 'Content-Type': 'text/html; charset=utf-8' } },
     )));
   }
+});
+
+// إشعارات الهاتف (src/push.ts): الخادم يرسل النص مشفّراً لهذا الهاتف وحده، والمتصفح يفك تشفيره قبل هذا الحدث.
+self.addEventListener('push', (event) => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; } catch { d = { body: event.data ? event.data.text() : '' }; }
+  event.waitUntil(self.registration.showNotification(d.title || 'ميداني', {
+    body: d.body || '',
+    tag: d.tag || undefined,
+    renotify: !!d.tag,
+    icon: '/icons/icon-192.png',
+    badge: '/icons/badge-96.png',
+    lang: 'ar',
+    dir: 'rtl',
+    data: { url: d.url || '/' },
+  }));
+});
+
+// لمس الإشعار: يفتح التطبيق على الشيك أو الشاشة المقصودة، في النافذة المفتوحة إن وُجدت
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = new URL((event.notification.data && event.notification.data.url) || '/', self.location.origin);
+  if (target.origin !== self.location.origin) return;
+  event.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const win = wins.find((w) => new URL(w.url).pathname === target.pathname) || wins.find((w) => new URL(w.url).origin === target.origin);
+    if (win) {
+      await win.focus();
+      // الصفحة نفسها: تغيير العنوان بعد # يكفي، دون إعادة تحميل (page.tsx يستقبل الرسالة)
+      if (new URL(win.url).pathname === target.pathname) win.postMessage({ type: 'open', hash: target.hash });
+      else if ('navigate' in win) await win.navigate(target.href);
+      return;
+    }
+    await self.clients.openWindow(target.href);
+  })());
 });

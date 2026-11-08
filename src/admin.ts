@@ -32,7 +32,7 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
   // GET /api/admin/users
   if (req.method === 'GET' && path === '/users') {
     const { results } = await env.DB.prepare(
-      'SELECT id, username, display_name, role, rep_code, active, created_at, (SELECT COUNT(*) FROM passkeys p WHERE p.user_id = users.id) AS passkeys FROM users ORDER BY id',
+      'SELECT id, username, display_name, role, rep_code, active, created_at, (SELECT COUNT(*) FROM passkeys p WHERE p.user_id = users.id) AS passkeys, (SELECT COUNT(*) FROM push_subs s WHERE s.user_id = users.id) AS push FROM users ORDER BY id',
     ).all();
     return json({ users: results });
   }

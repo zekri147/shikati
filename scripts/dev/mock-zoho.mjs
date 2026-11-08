@@ -34,6 +34,8 @@
 //   «#قطع» ينقطع الرد بعد الإرسال    «#رفض» زوهو يرفض بالرمز 57 (صلاحية ناقصة)    غير ذلك: نجاح
 // ودفعة المورد عند التظهير (POST /vendorpayments) حسب آخر رقم في رقم الشيك:
 //   8 زوهو يرفض دفعة المورد     6 ينقطع الرد بعد الإرسال
+// وخدمة إشعارات وهمية: POST /push/<اسم> يحفظ الإشعار المشفّر، وGET /__push يعرض ما وصل
+// (PUSH_ALLOW_LOCAL=1 في .dev.vars يسمح بهذا العنوان المحلي).
 // ويقلّد أيضاً واجهة كلود (POST /v1/messages) فيعيد قراءة ثابتة لصورة الشيك،
 // واتجاهها 180 درجة (MOCK_ROTATION) فتظهر الصورة السليمة مقلوبة، دليلاً على أن التدوير يُطبَّق.
 
@@ -41,6 +43,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 
 const PORT = 8788;
+const pushes = [];
 const RELAY_KEY = 'k'.repeat(40);
 const TOKEN = 'T';
 const CIH = '7418406000000000358';
@@ -194,11 +197,13 @@ let txnSeq = 0;
 http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   let body = '';
-  req.on('data', (c) => { body += c; });
+  const raw = [];
+  req.on('data', (c) => { body += c; raw.push(c); });
   req.on('end', () => {
     res.setHeader('Content-Type', 'application/json');
     const send = (obj, status = 200) => { res.statusCode = status; res.end(JSON.stringify(obj)); };
     const path = url.pathname;
+    const rawBody = Buffer.concat(raw);
     let m;
 
     if (path === '/relay') {
@@ -210,6 +215,13 @@ http.createServer((req, res) => {
       return send(j.key === RELAY_KEY ? { access_token: TOKEN, expires_in: 3600 } : { error: 'forbidden' });
     }
     if (path === '/__log') return send(log);
+    // خدمة إشعارات وهمية (Web Push): تحفظ ما يصلها مشفّراً، و/push/gone ترد 410 كاشتراك منتهٍ
+    if ((m = path.match(/^\/push\/([a-z0-9-]+)$/)) && req.method === 'POST') {
+      if (m[1] === 'gone') { res.statusCode = 410; return res.end(); }
+      pushes.push({ to: m[1], headers: { authorization: req.headers.authorization, encoding: req.headers['content-encoding'], ttl: req.headers.ttl }, body: Buffer.from(rawBody).toString('base64') });
+      res.statusCode = 201; return res.end();
+    }
+    if (path === '/__push') return send(pushes);
 
     // واجهة كلود الوهمية: قراءة ثابتة للشيك
     if (path.startsWith('/v1/messages') && req.method === 'POST') {

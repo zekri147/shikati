@@ -346,6 +346,16 @@ async function reviewStatus(env: Env, user: User): Promise<Response> {
   return json({ week, deadline, need: mine.length, done: mine.filter((c) => done.has(c.id)).length });
 }
 
+// للإشعارات (src/notify.ts): كم بقي لكل مندوب من عملائه المدينين دون مراجعة هذا الأسبوع
+export async function reviewLeftByRep(env: Env, today = todayAlgiers()): Promise<{ week: string; deadline: number; left: Map<string, number> }> {
+  const week = reviewWeek(today);
+  const snap = await getSnapshot(env, false);
+  const done = new Set((await weekReviews(env, week)).map((r) => r.customer_id));
+  const left = new Map<string, number>();
+  for (const c of snap.customers) if (needsReview(c) && !done.has(c.id)) left.set(c.owner, (left.get(c.owner) || 0) + 1);
+  return { week, deadline: reviewDeadline(week), left };
+}
+
 // للمدير: الأسابيع الماضية لكل مندوب، كم احتاج وكم راجع وكم بعد الأجل (آخر 8 أسابيع)
 async function reviewHistory(env: Env, week: string) {
   const { results } = await env.DB.prepare(

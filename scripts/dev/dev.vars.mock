@@ -5,3 +5,5 @@ ZOHO_RELAY_KEY=kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk
 DEPOSIT_ROLES=admin,rep
 ANTHROPIC_API_KEY="mock-key"
 ANTHROPIC_BASE_URL="http://127.0.0.1:8788"
+# خدمة الإشعارات الوهمية في الخادم الوهمي نفسه (/push/<اسم>)
+PUSH_ALLOW_LOCAL=1

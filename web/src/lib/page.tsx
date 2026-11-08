@@ -20,5 +20,9 @@ export function mountPage(node: React.ReactNode) {
   // عامل الخدمة لتثبيت التطبيق على الهاتف
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => { /* يعمل بدونه */ }); });
+    // لمس إشعار والتطبيق مفتوح: عامل الخدمة يطلب فتح الشيك أو الشاشة المقصودة
+    navigator.serviceWorker.addEventListener('message', (e) => {
+      if (e.data?.type === 'open' && typeof e.data.hash === 'string') location.hash = e.data.hash;
+    });
   }
 }

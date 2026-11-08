@@ -20,7 +20,7 @@ const LOCATIONS: Record<string, string> = { ALGER: 'الجزائر', 'EL EULMA':
 
 const CACHE_TTL = 60;
 const MAX_PAGES = 50;
-const LATE_DAYS = 7;
+export const LATE_DAYS = 7;
 
 interface ZohoPayment {
   payment_id: string;
@@ -55,6 +55,8 @@ export interface Cheque {
   id: string;
   number: string;
   customer: string;
+  // معرّف العميل في زوهو: لمعرفة مندوبه في إشعار الشيك المرفوض (src/notify.ts)
+  customer_id?: string;
   amount: number;
   cheque_number: string;
   date: string;
@@ -141,6 +143,7 @@ export function buildView(payments: ZohoPayment[], today: string): ChequesView {
     id: p.payment_id,
     number: p.payment_number || '',
     customer: p.customer_name,
+    customer_id: p.customer_id,
     amount: Number(p.amount) || 0,
     cheque_number: chequeNumber(p.cf_n_cheque || p.check_details?.check_number || p.reference_number),
     date: p.date,
@@ -217,7 +220,7 @@ export function buildView(payments: ZohoPayment[], today: string): ChequesView {
   };
 }
 
-async function getView(env: Env, refresh: boolean): Promise<ChequesView> {
+export async function getView(env: Env, refresh: boolean): Promise<ChequesView> {
   if (!refresh) {
     const cached = await cacheGet(env, CACHE_KEY);
     if (cached) return JSON.parse(cached) as ChequesView;
