@@ -33,6 +33,11 @@ const STALE_MS = 60_000;
 const PAGE = 60;
 const LOC_KEY = 'shikati-location';
 const CUSTODY_KEY = 'shikati-custody';
+// نطاق التنبيهات: «لي» (عملائي وعهدتي) أو كل الشركة. المندوب يبدأ على «لي» (8/11/2026، بطلب ZEKRI)
+const SCOPE_KEY = 'shikati-alerts-scope';
+const SCOPES: [string, string, string][] = [['mine', 'عملائي وعهدتي', 'عملائي'], ['', 'كل الشركة', 'كل الشركة']];
+// القيمة المحفوظة على الجهاز، وإلا ما يناسب الدور
+const savedOr = (key: string, fallback: string) => { const v = loadKey(key, '\u0000'); return v === '\u0000' ? fallback : v; };
 // التلميح في شريط الإيداع يظهر حتى أول إيداع على هذا الجهاز
 const HINT_KEY = 'shikati-deposit-learned';
 const LOCATIONS = [{ value: '', label: 'الكل' }, { value: 'الجزائر', label: 'الجزائر' }, { value: 'العلمة', label: 'العلمة' }];
@@ -117,7 +122,11 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   const [selected, setSelected] = useState<Map<string, Cheque>>(new Map());
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [sheet, setSheet] = useState(false);
-  const [custody, setCustody] = useState(() => loadKey(CUSTODY_KEY));
+  const hasRep = !!(me.user.rep_code || '').trim();
+  // المندوب يبدأ على عهدته في الإيداع، وعلى عملائه وعهدته في التنبيهات، حتى يختار غير ذلك
+  const [custody, setCustody] = useState(() => savedOr(CUSTODY_KEY, isAdmin ? '' : 'mine'));
+  const [scope, setScope] = useState(() => (hasRep ? savedOr(SCOPE_KEY, isAdmin ? '' : 'mine') : ''));
+  const [scopeSheet, setScopeSheet] = useState(false);
   const [custodySheet, setCustodySheet] = useState(false);
   const [depositing, setDepositing] = useState<Cheque[] | null>(null);
   // بعد الإيداع: الشيكات المودَعة تنطوي (leaving) ثم تُخفى (gone) حتى تصل البيانات الجديدة
@@ -181,7 +190,9 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   const pick = (items: Cheque[]) => items.filter(matches);
 
   // عدد التنبيهات في التبويب: الشيكات لا الأسباب، ودون التنبيهات الهادئة
-  const alertCount = data ? new Set(data.alerts.filter((x) => REASONS[x.kind] && !REASONS[x.kind].quiet).map((x) => x.id)).size : 0;
+  const inScope = (c: Cheque | undefined) => !scope || !!c?.own;
+  const allById = useMemo(() => new Map((data?.all || []).map((c) => [c.id, c])), [data]);
+  const alertCount = data ? new Set(data.alerts.filter((x) => REASONS[x.kind] && !REASONS[x.kind].quiet && inScope(allById.get(x.id))).map((x) => x.id)).size : 0;
   useEffect(() => { setAlertCount(alertCount); }, [alertCount]);
 
   // إزالة ما لم يعد قابلاً للإيداع من التحديد
@@ -332,7 +343,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     const groups = new Map<string, { c: Cheque; kinds: { kind: AlertKind; text?: string }[]; rank: number; tier: Tier }>();
     for (const x of data.alerts) {
       const c = byId.get(x.id);
-      if (!REASONS[x.kind] || !c || !matches(c)) continue;
+      if (!REASONS[x.kind] || !c || !matches(c) || !inScope(c)) continue;
       const def = reasonOf(x.kind, c);
       const g = groups.get(x.id) || { c, kinds: [], rank: 99, tier: 'info' as Tier };
       if (!g.kinds.some((k) => k.kind === x.kind)) g.kinds.push({ kind: x.kind, text: x.text });
@@ -373,11 +384,12 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
       );
     }).filter(Boolean);
     body = parts.length ? <div>{parts}</div>
-      : <div className="mt-4"><Empty>{q || loc ? 'لا تنبيه يطابق البحث أو الموقع.' : 'لا توجد تنبيهات. كل الشيكات في وضع سليم.'}</Empty></div>;
+      : <div className="mt-4"><Empty>{q || loc ? 'لا تنبيه يطابق البحث أو الموقع.' : scope ? 'لا تنبيهات لعملائك ولا لشيكات عهدتك. لرؤية تنبيهات الشركة كلها اختر «كل الشركة».' : 'لا توجد تنبيهات. كل الشيكات في وضع سليم.'}</Empty></div>;
   }
 
   const statusDef = STATUS_FILTERS.find(([v]) => v === status) || STATUS_FILTERS[0];
   const custodyDef = CUSTODY_FILTERS.find(([v]) => v === custody) || CUSTODY_FILTERS[0];
+  const scopeDef = SCOPES.find(([v]) => v === scope) || SCOPES[1];
 
   return (
     <>
@@ -398,6 +410,9 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
             <Segmented label="الموقع" className="min-w-0 flex-[2]" value={loc} options={LOCATIONS} onChange={(v) => { setLoc(v); saveKey(LOC_KEY, v); setLimit(PAGE); }} />
             {route.view === 'deposit' ? (
               <FilterButton className="custody-btn max-w-[38%]" label={'تصفية بالعهدة: ' + custodyDef[1]} value={custodyDef[1]} active={!!custody} onClick={() => { if (data) setCustodySheet(true); }} />
+            ) : null}
+            {route.view === 'alerts' && hasRep ? (
+              <FilterButton className="scope-btn max-w-[38%]" label={'نطاق التنبيهات: ' + scopeDef[1]} value={scopeDef[2]} active={!!scope} onClick={() => { if (data) setScopeSheet(true); }} />
             ) : null}
             {route.view === 'all' ? (
               <FilterButton className="status-btn max-w-[38%]" label={'تصفية بالحالة: ' + statusDef[1]} value={statusDef[1]} active={!!status} onClick={() => { if (data) setSheet(true); }} />
@@ -461,6 +476,18 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
               onClick={() => { setCustodySheet(false); setCustody(value); saveKey(CUSTODY_KEY, value); window.scrollTo(0, 0); }} />
           );
         }) : null}
+      </Sheet>
+
+      <Sheet open={scopeSheet} onClose={() => setScopeSheet(false)} title="نطاق التنبيهات" action={<Button onClick={() => setScopeSheet(false)}>إغلاق</Button>}>
+        {data ? SCOPES.map(([value, label]) => {
+          const n = new Set(data.alerts.filter((x) => REASONS[x.kind] && (!value || allById.get(x.id)?.own)).map((x) => x.id)).size;
+          return (
+            <SheetOption key={value || 'all'} selected={value === scope} empty={!n} label={label}
+              meta={<span>{n ? chequeWord(n) : 'لا تنبيهات'}</span>}
+              onClick={() => { setScopeSheet(false); setScope(value); saveKey(SCOPE_KEY, value); window.scrollTo(0, 0); }} />
+          );
+        }) : null}
+        <p className="m-0 px-4 pb-2 pt-3 text-sm text-muted">«عملائي وعهدتي»: شيكات عملائك في التحصيل، والشيكات التي في عهدتك أو سُلّمت إليك.</p>
       </Sheet>
 
       {depositing ? <DepositDialog items={depositing} onClosed={afterDeposit} /> : null}

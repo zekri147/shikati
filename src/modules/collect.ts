@@ -151,6 +151,26 @@ export async function getSnapshot(env: Env, refresh: boolean): Promise<Snapshot>
 }
 
 const isOld = (c: CollCustomer) => c.late === null || c.late > 90;
+// مندوب كل عميل (رمزه) دون طلب جديد إلى زوهو: من أرصدة التحصيل المحفوظة، وإلا من آخر صورة دين.
+// لتصفية «عملائي» في الشيكات (8/11/2026). العميل الذي ليس عليه دين قد لا يكون فيها.
+export async function customerOwners(env: Env): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  try {
+    const cached = await cacheGet(env, CACHE_KEY);
+    if (cached) {
+      for (const c of (JSON.parse(cached) as Snapshot).customers) if (c.owner) out.set(c.id, c.owner);
+      return out;
+    }
+    const { results } = await env.DB.prepare(
+      'SELECT customer_id, rep FROM debt_snapshot WHERE cycle = (SELECT MAX(cycle) FROM debt_cycles WHERE ready = 1)',
+    ).all<{ customer_id: string; rep: string }>();
+    for (const r of results || []) out.set(r.customer_id, r.rep);
+  } catch (e) {
+    console.error('customer owners', e instanceof Error ? e.message : e);
+  }
+  return out;
+}
+
 // من يدخل صورة الدين: كل عميل مدين له مندوب (منذ 7/11/2026، بطلب ZEKRI)
 export const needsReview = (c: CollCustomer) => c.balance >= 1 && !!c.owner;
 

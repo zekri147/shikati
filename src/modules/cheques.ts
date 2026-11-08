@@ -14,6 +14,7 @@ import { handleEdit, handleEditPreview } from './edit';
 import { custodyMap, custodyPeople, handleCustody, type CustodyInfo } from './custody';
 import { chequeNumber, wrongAccountText } from './fields';
 import { COLLECT_LATE_DAYS, fieldDate, fillDepositDates } from './depositdate';
+import { customerOwners, normRep } from './collect';
 
 export { ACCOUNT_CHEQUES_IN_HAND, DEST, STATUS, todayAlgiers };
 
@@ -73,6 +74,8 @@ export interface Cheque {
   lock?: string;
   // العهدة: من يحمل الشيك، للشيكات في الحوزة. تُضاف في كل طلب، لا تُخزَّن
   custody?: CustodyInfo;
+  // «لي»: الشيك في عهدة المستخدم (أو سُلّم إليه)، أو عميله من عملاء رمز مندوبه. لتصفية التنبيهات للمندوب
+  own?: boolean;
   // تاريخ الإيداع في البنك، للشيكات المودعة
   deposit_date?: string;
   // أيام منذ الإيداع دون تحصيل
@@ -276,6 +279,14 @@ export const chequesModule: AppModule = {
       }
       for (const c of view.all) {
         if (c.custody?.incoming) view.alerts.push({ kind: 'handover', id: c.id, text: c.custody.from || undefined });
+      }
+      // «لي» لصاحب رمز المندوب: عهدته وعملاؤه
+      const own = normRep(user.rep_code);
+      if (own) {
+        const owners = await customerOwners(env);
+        for (const c of [...inHand, ...view.agb_pending_collection.items, ...view.rejected.items]) {
+          c.own = !!c.custody?.mine || !!c.custody?.incoming || (!!c.customer_id && owners.get(c.customer_id) === own);
+        }
       }
       const alerts = user.role === 'admin' ? view.alerts : view.alerts.filter((a) => !ADMIN_ONLY.includes(a.kind));
       return json({ ...view, alerts, role: user.role, can_deposit: canDeposit(env, user), can_register: canRegister(env, user) });

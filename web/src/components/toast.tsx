@@ -11,6 +11,8 @@ const subs = new Set<() => void>();
 const emit = () => { items = [...items]; subs.forEach((s) => s()); };
 
 export function toast(message: string, kind: Kind = 'ok') {
+  // الرسالة نفسها ظاهرة الآن: لا تُكرَّر فوقها (مثل «أكمل إقرار الدين أولاً» عند لمس الشاشات المقفلة)
+  if (items.some((x) => !x.out && x.message === message && x.kind === kind)) return;
   const t: T = { id: ++seq, message, kind, out: false };
   items.push(t);
   emit();
