@@ -4,7 +4,7 @@ export const reducedMotion = () => {
   try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; }
 };
 
-type VTDoc = Document & { startViewTransition?: (cb: () => void) => { finished: Promise<void> } };
+type VTDoc = Document & { startViewTransition?: (cb: () => void) => { finished: Promise<void>; ready: Promise<void> } };
 
 // الاتجاه: forward للدخول إلى صفحة تفاصيل، وback للرجوع منها، وtab للتنقل بين الشاشات
 export function withTransition(dir: 'forward' | 'back' | 'tab', update: () => void) {
@@ -13,7 +13,9 @@ export function withTransition(dir: 'forward' | 'back' | 'tab', update: () => vo
   document.documentElement.dataset.vt = dir;
   try {
     const t = doc.startViewTransition(update);
-    t.finished.finally(() => { if (document.documentElement.dataset.vt === dir) delete document.documentElement.dataset.vt; });
+    // انتقال أُلغي (اسمان متطابقان، أو تنقل سريع): الصفحة الجديدة تُرسم دون حركة، فلا خطأ
+    t.ready.catch(() => { /* دون حركة */ });
+    t.finished.catch(() => { /* دون حركة */ }).finally(() => { if (document.documentElement.dataset.vt === dir) delete document.documentElement.dataset.vt; });
   } catch {
     update();
   }

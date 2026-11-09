@@ -23,7 +23,8 @@ import { load as loadKey, save as saveKey } from '@/lib/storage';
 import { customersWord, daysWord, fmtAmount, fmtDate, fmtDateTime, invoicesWord, norm, round2 } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { haptic, isShared, markShared, sharedStyle } from '@/lib/motion';
-import { LIST_BOX, LateMark } from '@/features/cheques/ui';
+import { ChequeCard, LIST_BOX, LateMark } from '@/features/cheques/ui';
+import type { ChequesData } from '@/features/cheques/types';
 import { Block, KV } from '@/features/cheques/pickers';
 import { loadAckStatus, peekAfterAck, setAckCounts, takeAfterAck } from '@/lib/ack';
 import { registerFor } from '@/features/cheques/register';
@@ -59,6 +60,8 @@ type Ack = {
     history: { cycle: string; reps: { rep: string; total: number; done: number; disputes: number }[] }[];
   };
   old_unsent?: { week: string; id: string; name: string; rep: string; state: string; error?: string; text: string }[];
+  // تحصيل الدورة لكل مندوب: رصيد الصورة، وما سُدّد منه
+  collected?: Record<string, { snap: number; collected: number }>;
 };
 type CollData = { at: number; is_admin: boolean; rep: string; own_rep: string; customers: Cust[]; reps?: { rep: string; count: number; total: number; old: number }[]; ack?: Ack };
 
@@ -196,6 +199,7 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
         </div>
       </Slab>
 
+      <CycleCollect data={data} rep={rep} />
       <AckBlock data={data} list={list} rep={rep} cat={cat} setCat={(v) => { setCat(v); setLimit(PAGE); }} onOpen={() => setSheet('ack')} />
 
       {/* شريط الأدوات الموحّد: المندوب (للمدير) والفئة في لوحتين سفليتين، ثم العدسة */}
@@ -280,6 +284,31 @@ function CustomerItem({ c, d, rep }: { c: Cust; d: CollData; rep: string }) {
         {a?.answer === 'dispute' && a.note ? <Note compact className="text-foreground">{a.note}</Note> : null}
       </div>
     </li>
+  );
+}
+
+// تحصيل الدورة (8/11/2026، بطلب ZEKRI): كم سُدّد من دين الصورة منذ أُخذت. للمندوب رقمه، وللمدير الكل أو المندوب المختار
+function CycleCollect({ data, rep }: { data: CollData; rep: string }) {
+  const ak = data.ack;
+  if (!ak || ak.state !== 'ready' || !ak.collected || rep === '-') return null;
+  const code = data.is_admin ? rep : data.own_rep;
+  const list = code ? [ak.collected[code]].filter(Boolean) : Object.values(ak.collected);
+  const snap = round2(list.reduce((t, x) => t + x.snap, 0));
+  if (!snap) return null;
+  const got = round2(list.reduce((t, x) => t + x.collected, 0));
+  const pct = Math.min(100, Math.round((got / snap) * 100));
+  const self = !data.is_admin || code === data.own_rep;
+  return (
+    <section className="cycle-collect mt-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="m-0 text-base font-bold">تحصيل الدورة: <Num>{pct + '%'}</Num></h2>
+        <span className="text-sm text-muted">من دين صورة يوم {dayOf(ak.taken_at)}</span>
+      </div>
+      <div role="progressbar" aria-label="تحصيل الدورة" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className="my-2 h-2 bg-surface-alt">
+        <div className="h-full bg-foreground transition-[width] duration-200" style={{ width: `${pct}%` }} />
+      </div>
+      <p className="m-0 text-sm text-muted">{self ? 'حصّلت' : 'حُصّل'} <Amount value={got} className="font-semibold text-foreground" /> من <Amount value={snap} /></p>
+    </section>
   );
 }
 
@@ -383,6 +412,7 @@ function AckDetails({ ack, reload }: { ack: Ack; reload: () => void }) {
               <span className="min-w-0">
                 <Ltr className="block font-semibold">{p.rep}</Ltr>
                 <span className="block text-sm text-muted">{p.last ? 'آخر جواب ' + timeOf(p.last) : 'لم يبدأ بعد'}</span>
+                {ack.collected?.[p.rep]?.snap ? <span className="block text-sm text-muted">حصّل <Num>{Math.min(100, Math.round((ack.collected[p.rep].collected / ack.collected[p.rep].snap) * 100)) + '%'}</Num> من دين الصورة</span> : null}
               </span>
               <span className="flex flex-none flex-col items-end">
                 <Num className="font-display font-semibold">{`${p.done}/${p.total}`}</Num>
@@ -842,8 +872,8 @@ function CustomerPage({ data, id, me, onBack, onChanged }: { data: CollData | nu
     <>
       <Slab>
         <SlabTop onBack={onBack} />
-        <h1 className="m-0" style={sharedStyle(true, 'cust')}><Ltr className="block text-lg font-bold leading-snug [overflow-wrap:anywhere]">{c.name}</Ltr></h1>
-        <Amount value={c.balance} style={sharedStyle(true, 'amt')} className="mt-1 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
+        <h1 className="m-0" style={sharedStyle(isShared(c.id), 'cust')}><Ltr className="block text-lg font-bold leading-snug [overflow-wrap:anywhere]">{c.name}</Ltr></h1>
+        <Amount value={c.balance} style={sharedStyle(isShared(c.id), 'amt')} className="mt-1 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
         <div className="mt-2 flex flex-wrap gap-2">
           <Badge tone={isOld(c) ? 'dark' : 'inverse'}>{lateText(c)}</Badge>
           {c.invoices.length ? <Badge tone="inverse">{invoicesWord(c.invoices.length)}</Badge> : null}
@@ -888,6 +918,8 @@ function CustomerPage({ data, id, me, onBack, onChanged }: { data: CollData | nu
           </dl>
         </Block>
 
+        <CustomerCheques me={me} id={c.id} />
+
         {c.invoices.length ? (
           <Block title="الفواتير غير المسدّدة">
             <ul className="m-0 list-none p-0">
@@ -912,5 +944,35 @@ function CustomerPage({ data, id, me, onBack, onChanged }: { data: CollData | nu
           : <Button blocked className="py-2" onClick={() => toast('لا رقم هاتف لهذا العميل في زوهو.', 'warn')}>واتساب</Button>}
       </div>
     </>
+  );
+}
+
+// شيكات العميل في صفحته (8/11/2026، بطلب ZEKRI): الأحدث أولاً، وكل شيك يفتح صفحته.
+// من قائمة الشيكات نفسها (المحفوظة على الهاتف ثم الجديدة)، قراءة فقط.
+const CUST_CHEQUES = 8;
+function CustomerCheques({ me, id }: { me: Me; id: string }) {
+  const key = 'cheques:' + me.user.username;
+  const [data, setData] = useState<ChequesData | null>(() => readCache<ChequesData>(key)?.data || null);
+  const [all, setAll] = useState(false);
+  useEffect(() => {
+    api<ChequesData>('/api/m/cheques').then((d) => { setData(d); writeCache(key, d); }).catch(() => { /* تبقى آخر نسخة */ });
+  }, []);
+  if (!data) return null;
+  const mine = data.all.filter((x) => x.customer_id === id).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const inHand = mine.filter((x) => x.status === 'في الحوزة');
+  const shown = all ? mine : mine.slice(0, CUST_CHEQUES);
+  return (
+    // دون إطار «Block»: القائمة نفسها لها إطارها، كما في شاشات الشيكات
+    <section>
+      <h2 className="mb-2 mt-0 text-sm font-semibold text-muted">شيكاته{mine.length ? <span className="font-normal"> ({mine.length}{inHand.length ? ` · في الحوزة ${inHand.length}` : ''})</span> : null}</h2>
+      {mine.length ? (
+        <>
+          <ul className={LIST_BOX}>
+            {shown.map((x) => <ChequeCard key={x.id} c={x} o={{ link: true, showStatus: true, ageInHandOnly: true, lateOnly: true }} />)}
+          </ul>
+          {mine.length > shown.length ? <Button className="mt-2 w-full" onClick={() => setAll(true)}>عرض {mine.length - shown.length} أخرى</Button> : null}
+        </>
+      ) : <Note plain>لا شيكات مسجّلة لهذا العميل.</Note>}
+    </section>
   );
 }
