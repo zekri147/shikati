@@ -25,7 +25,7 @@ import type { Cheque, Line } from './types';
 
 const LOCK_TEXT: Record<string, string> = {
   pending: 'الإيداع قيد التنفيذ الآن', done: 'سجّل التطبيق إيداعه',
-  unknown: 'بانتظار التحقق: انقطع الرد بعد محاولة الإيداع', failed: 'محاولة إيداع لم تتم',
+  unknown: 'بانتظار التحقق: انقطع الرد أثناء إيداعه أو التراجع عنه', failed: 'محاولة إيداع لم تتم',
 };
 const ENDORSE_TEXT: Record<string, string> = {
   pending: 'التظهير قيد التنفيذ الآن', done: 'ظُهّر من التطبيق للمورد',
@@ -106,7 +106,7 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, onDeposi
         {d.can_endorse ? <EndorsePanel d={d} reload={reload} innerRef={endorseRef} /> : null}
         {d.wrong_account ? <Note tone="warn">{isAdmin ? d.wrong_account + '.' : 'سُجّل هذا الشيك في حساب خطأ في زوهو. أبلغ المدير ليصحّحه قبل إيداعه.'}</Note> : null}
         {d.box_alert ? <Note tone="alert">صندوق غير مطابق: {d.box_alert}</Note> : null}
-        {lock && lock.state === 'unknown' ? <Note tone="alert">بانتظار التحقق: انقطع الرد بعد محاولة إيداع هذا الشيك. تحقق في صفحة الإدارة قبل أي محاولة جديدة.</Note> : null}
+        {lock && lock.state === 'unknown' ? <Note tone="alert">بانتظار التحقق: انقطع الرد أثناء إيداع هذا الشيك أو التراجع عن إيداعه. تحقق في صفحة الإدارة قبل أي محاولة جديدة.</Note> : null}
 
         {/* الصورة أولاً وكبيرة: هي الدليل الذي يطابقه الموظف مع الشيك في يده. تُكبَّر باللمس */}
         {d.has_image ? (
