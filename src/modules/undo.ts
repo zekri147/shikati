@@ -166,6 +166,13 @@ export async function canUndo(env: Env, user: User, kind: UndoKind, pid: string)
   return (await performer(env, kind, pid)) === user.id;
 }
 
+// قفل الإيداع «قيد التنفيذ» أو «غير معروف»: إيداع أو تراجع عنه لم تُعرف نتيجته بعد
+async function depositUnsettled(env: Env, pid: string): Promise<boolean> {
+  const row = await env.DB.prepare("SELECT 1 FROM deposits WHERE payment_id = ? AND state IN ('pending', 'unknown')").bind(pid).first();
+  return !!row;
+}
+const UNSETTLED = 'عملية سابقة على إيداع هذا الشيك لم تُعرف نتيجتها. لا تعد المحاولة، وأخبر المدير ليتحقق في زوهو.';
+
 const NOT_YOURS = 'يتراجع المندوب عن العمليات التي أنجزها هو من التطبيق فقط. اطلب ذلك من المدير.';
 
 // لصفحة التفاصيل: خيار التراجع المتاح لهذا المستخدم، أو لا شيء
@@ -182,7 +189,8 @@ export async function undoForDetail(env: Env, user: User, p: Payment): Promise<(
     // المندوب لا يرى زر تراجع لعملية غيره
     return null;
   }
-  return { kind: plan.kind, title: plan.title, effect: plan.effect, blocker: plan.blocker, allowed: !plan.blocker };
+  const blocker = plan.blocker || (plan.kind === 'deposit' && (await depositUnsettled(env, p.payment_id)) ? UNSETTLED : null);
+  return { kind: plan.kind, title: plan.title, effect: plan.effect, blocker, allowed: !blocker };
 }
 
 function logLine(user: User, text: string): string {
@@ -228,6 +236,26 @@ async function del(env: Env, path: string): Promise<{ ok: boolean; message: stri
   return { ok: true, message: '' };
 }
 
+const UNDO_UNKNOWN = 'انقطع الرد بعد طلب حذف الإيداع (تراجع). تحقق في زوهو: إن حُذف الإيداع فأرجع حالة الشيك «في الحوزة» وفرّغ تاريخ الإيداع، ثم حرّر القفل.';
+
+// قفل «غير معروف» على الشيك بعد تراجع منقطع. يُبقي صاحب الإيداع الأصلي إن وُجد سطره
+async function markUndoUnknown(env: Env, user: User, p: Payment, txnId: string): Promise<void> {
+  const cf = p.custom_field_hash || {};
+  try {
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO deposits (payment_id, state, user_id, username, display_name, customer, cheque_number, amount, bank_txn_id, message, finished_at) " +
+        "VALUES (?, 'unknown', ?, ?, ?, ?, ?, ?, ?, ?, datetime('now')) " +
+        "ON CONFLICT(payment_id) DO UPDATE SET state = 'unknown', message = excluded.message, bank_txn_id = excluded.bank_txn_id, finished_at = datetime('now')",
+      ).bind(p.payment_id, user.id, user.username, user.display_name, str(p.customer_name) || null, str(cf.cf_n_cheque) || null,
+        Number(p.amount) || null, txnId || null, UNDO_UNKNOWN),
+      env.DB.prepare('DELETE FROM cache WHERE key = ?').bind(CACHE_KEY),
+    ]);
+  } catch (e) {
+    console.error('undo unknown lock', e instanceof Error ? e.message : e);
+  }
+}
+
 export async function handleUndo(req: Request, env: Env, user: User): Promise<Response> {
   const b = await readJson<{ payment_id?: string; kind?: string }>(req);
   const pid = str(b.payment_id);
@@ -242,6 +270,9 @@ export async function handleUndo(req: Request, env: Env, user: User): Promise<Re
   };
 
   if (!(await canUndo(env, user, kind, pid))) return deny(403, NOT_YOURS);
+
+  // إيداع أو تراجع سابق عن الإيداع لم تُعرف نتيجته: لا محاولة جديدة حتى يتحقق المدير ويحرّر القفل
+  if (kind === 'deposit' && (await depositUnsettled(env, pid))) return deny(409, UNSETTLED);
 
   // 1. قراءة الشيك من جديد، والتأكد أن آخر عملية هي التي طلب المستخدم التراجع عنها
   const p = await readPayment(env, pid);
@@ -261,6 +292,9 @@ export async function handleUndo(req: Request, env: Env, user: User): Promise<Re
   if (kind === 'deposit') {
     const r = await del(env, `/banktransactions/${plan.txn_id}`).catch(async (e) => {
       await audit(env, user, 'undo.deposit', 'error', target, String(e.message));
+      // انقطع الرد بعد طلب الحذف: قد يكون الإيداع حُذف والحالة بقيت «مودع في البنك».
+      // يُقفل الشيك «بانتظار التحقق» كما في الإيداع، فيظهر تنبيه للمدير ولا تُعاد المحاولة.
+      if (e instanceof HttpError && e.status === 504) await markUndoUnknown(env, user, p, plan.txn_id || '');
       throw e;
     });
     if (!r.ok) return deny(502, r.message);

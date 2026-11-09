@@ -11,7 +11,7 @@
 // سيناريوهات حسب آخر رقم في معرّف الدفعة 74184000000000XN:
 //   1 نجاح عادي              2 له إيداع سابق في زوهو     3 حالته «محصّل»
 //   4 ينقطع الرد بعد الإيداع  5 الإيداع لا يُربط فيُحذف      6 تحديث الحالة يفشل بعد الإيداع
-//   7 زوهو يرفض الإيداع       8 الإيداع ينجح بعد تأخير 1.5 ثانية
+//   7 زوهو يرفض الإيداع       8 الإيداع ينجح بعد تأخير 1.5 ثانية، وحذفه (التراجع) يُنفَّذ ثم ينقطع الرد
 //
 // شيكات إضافية بحالات أخرى لتجربة «كل الشيكات» و«التنبيهات» وصفحة التفاصيل
 // (معرّفاتها تنتهي بـ 0 أو 9، فلا تدخل في سيناريوهات الإيداع أعلاه):
@@ -414,7 +414,10 @@ http.createServer((req, res) => {
       if (req.method === 'DELETE') {
         log.push(`DELETE ${m[1]}`);
         delete txns[m[1]];
+        const owner = Object.values(payments).find((p) => p.deposit_details.some((d) => d.deposit_id === m[1]));
         for (const p of Object.values(payments)) p.deposit_details = p.deposit_details.filter((d) => d.deposit_id !== m[1]);
+        // الدفعة المنتهية بـ 8: الحذف يُنفَّذ ثم ينقطع الرد (تجربة التراجع المنقطع)
+        if (owner && String(owner.payment_id).endsWith('8')) { req.socket.destroy(); return; }
         return send({ code: 0 });
       }
     }
