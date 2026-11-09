@@ -102,6 +102,15 @@ function weekGroups(items: Cheque[]): { title: string; items: Cheque[] }[] {
 
 const byStatus = (c: Cheque, s: string) => !s || (s === 'other' ? !MAIN_STATUSES.includes(c.status) : c.status === s);
 const learned = () => loadKey(HINT_KEY) === '1';
+// المندوب يودع ما في عهدته وحده (بطلب ZEKRI يوم 9/11/2026)، والخادم يرفض غيره. المدير يودع أي شيك
+const heldByMe = (c: Cheque) => !!c.custody?.mine && !c.custody.outgoing;
+const whyNotHeld = (c: Cheque) => {
+  const k = c.custody;
+  if (k?.incoming) return 'سُلّم إليك: أكّد استلامه من صفحته، ثم أودِعه.';
+  if (k?.outgoing) return 'سلّمته وينتظر تأكيد المستلم، فلا تودعه.';
+  if (!k?.holder) return 'عهدته غير محددة: إن كان معك، افتحه واضغط «هو في عهدتي».';
+  return `في عهدة ${k.holder}: يودعه هو، أو يسلّمه إليك.`;
+};
 
 export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   const isAdmin = me.user.role === 'admin';
@@ -292,7 +301,11 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
           </div>
           {agb.length ? (
             <CardList>
-              {agb.map((c) => <ChequeCard key={c.id} c={c} o={{ ...opts, selectable: data.can_deposit, link: !data.can_deposit, selected: selected.has(c.id), leaving: leaving.has(c.id) }} />)}
+              {agb.map((c) => {
+                const mayDeposit = data.can_deposit && (isAdmin || heldByMe(c));
+                return <ChequeCard key={c.id} c={c} o={{ ...opts, selectable: mayDeposit, link: !mayDeposit, selected: selected.has(c.id), leaving: leaving.has(c.id),
+                  note: data.can_deposit && !mayDeposit ? whyNotHeld(c) : undefined }} />;
+              })}
             </CardList>
           ) : <Empty>{q || loc || custody ? 'لا شيك يطابق البحث أو التصفية.' : 'لا شيكات تنتظر الإيداع في بنك AGB.'}</Empty>}
         </section>
@@ -423,7 +436,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
       ) : route.view === 'detail' && route.id ? (
         <DetailPage id={route.id} isAdmin={isAdmin} preview={data?.all.find((c) => c.id === route.id)}
           // «أودِع هذا الشيك» في صفحته: لشيك في الحوزة لبنك AGB، دون قفل، وبعد وصول البيانات الجديدة
-          depositable={fresh && data?.can_deposit ? data.agb_in_hand.items.find((c) => c.id === route.id && !c.lock) || null : null}
+          depositable={fresh && data?.can_deposit ? data.agb_in_hand.items.find((c) => c.id === route.id && !c.lock && (isAdmin || heldByMe(c))) || null : null}
           onDeposited={() => load(true)} onBack={() => { if (fromList.current || cameFrom()) history.back(); else location.hash = '#cheques'; }} />
       ) : route.view === 'new' ? (
         <RegisterPage onDone={(pid) => { load(true); location.hash = '#cheques/c/' + pid; }} />

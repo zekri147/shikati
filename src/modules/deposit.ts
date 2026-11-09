@@ -102,6 +102,20 @@ export async function handleDeposit(req: Request, env: Env, user: User): Promise
   const depositDate = String(body.date || today).trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(depositDate) || depositDate > today) throw new HttpError(400, 'تاريخ الإيداع غير صالح: لا يكون بعد اليوم.');
 
+  // 0. العهدة (بطلب ZEKRI يوم 9/11/2026): المندوب يودع ما في عهدته وحده، دون تسليم معلّق منه. المدير يودع أي شيك.
+  // قبل أي قفل أو طلب إلى زوهو، فالرفض لا يترك أثراً.
+  if (user.role !== 'admin') {
+    const k = await env.DB.prepare('SELECT holder_id, to_id FROM custody WHERE payment_id = ?').bind(pid).first<{ holder_id: number | null; to_id: number | null }>();
+    if (!k || k.holder_id !== user.id) {
+      await audit(env, user, 'deposit', 'denied', pid, 'not_holder');
+      throw new HttpError(403, 'هذا الشيك ليس في عهدتك، فلا تودعه. إن كان معك وعهدته غير محددة، افتحه واضغط «هو في عهدتي»، وإلا اطلب من حامله أن يسلّمه إليك.');
+    }
+    if (k.to_id) {
+      await audit(env, user, 'deposit', 'denied', pid, 'handover_pending');
+      throw new HttpError(409, 'سلّمت هذا الشيك وينتظر تأكيد المستلم. إن كان ما زال معك، ألغِ التسليم أولاً من صفحته.');
+    }
+  }
+
   // 1. القفل: إدخال ذرّي، لا ينجح إلا إن لم يوجد سطر، أو كان السطر السابق «فشل»
   const lock = await env.DB.prepare(
     "INSERT INTO deposits (payment_id, state, user_id, username, display_name) VALUES (?, 'pending', ?, ?, ?) " +
