@@ -21,7 +21,7 @@ import { NotifyTab } from './admin-notify';
 const ROLE: Record<string, string> = { admin: 'مدير', rep: 'مندوب' };
 const ACTION: Record<string, string> = {
   login: 'دخول', 'user.create': 'إنشاء مستخدم', 'user.disable': 'إيقاف مستخدم', 'user.enable': 'تفعيل مستخدم',
-  'user.password': 'تغيير رمز سري', 'user.rep': 'تغيير رمز المندوب', 'coll.review': 'مراجعة عميل', 'coll.review.cancel': 'إلغاء مراجعة',
+  'user.password': 'تغيير رمز سري', 'user.rep': 'تغيير رمز المندوب', 'user.name': 'تغيير الاسم الظاهر', 'coll.review': 'مراجعة عميل', 'coll.review.cancel': 'إلغاء مراجعة',
   'coll.comment': 'تعليق مراجعة في زوهو', 'passkey.add': 'تفعيل البصمة', 'passkey.clear': 'حذف البصمة', 'coll.comment.resolve': 'حسم تعليق مراجعة', setup: 'الإعداد الأولي',
   deposit: 'إيداع شيك', 'deposit.release': 'تحرير إيداع', 'deposit.reverted': 'إيداع أُلغي في زوهو',
   'push.subscribe': 'تفعيل الإشعارات', 'push.unsubscribe': 'إيقاف الإشعارات', 'notify.settings': 'إعدادات الإشعارات', 'notify.send': 'إشعار يدوي',
@@ -29,7 +29,7 @@ const ACTION: Record<string, string> = {
 const RESULT: Record<string, string> = { ok: 'تمّ', denied: 'مرفوض', error: 'خطأ' };
 const DEP_STATE: Record<string, string> = { pending: 'قيد التنفيذ', done: 'تم', failed: 'لم يتم', unknown: 'بانتظار التحقق' };
 
-type Ask = { title: string; text: string; okText: string; danger?: boolean; password?: boolean; field?: { label: string; value: string; placeholder: string }; run: (v?: string) => Promise<void> };
+type Ask = { title: string; text: string; okText: string; danger?: boolean; password?: boolean; field?: { label: string; value: string; placeholder: string; text?: boolean }; run: (v?: string) => Promise<void> };
 
 // بطاقة تأكيد بدل نوافذ المتصفح. مع password يطلب رمزاً سرياً في حقل مخفي، ومع field نصاً قصيراً.
 function AskDialog({ a, onClose }: { a: Ask; onClose: () => void }) {
@@ -49,8 +49,8 @@ function AskDialog({ a, onClose }: { a: Ask; onClose: () => void }) {
       <p>{a.text}</p>
       {a.password || a.field ? (
         <Field label={a.field ? a.field.label : 'الرمز السري الجديد (8 أحرف على الأقل)'}>
-          <Input autoFocus type={a.password ? 'password' : 'text'} dir="ltr" autoComplete={a.password ? 'new-password' : 'off'}
-            autoCapitalize={a.field ? 'characters' : undefined} spellCheck={false} placeholder={a.field?.placeholder} value={v} onChange={(e) => setV(e.target.value)} />
+          <Input autoFocus type={a.password ? 'password' : 'text'} dir={a.field?.text ? 'auto' : 'ltr'} autoComplete={a.password ? 'new-password' : 'off'}
+            autoCapitalize={a.field?.text ? 'words' : a.field ? 'characters' : undefined} spellCheck={false} placeholder={a.field?.placeholder} value={v} onChange={(e) => setV(e.target.value)} />
         </Field>
       ) : null}
       {error ? <FormError>{error}</FormError> : null}
@@ -97,6 +97,11 @@ function UserActions({ u, self, setAsk, refresh }: { u: any; self: boolean; setA
       <p className="m-0 text-sm text-muted"><Ltr>{u.username}</Ltr> · {ROLE[u.role] || u.role} · {u.active ? 'نشط' : 'موقوف'}{u.passkeys ? ' · البصمة مفعّلة' : ''}{u.push ? ' · الإشعارات مفعّلة' : ''}</p>
       <Button onClick={() => setAsk({ title: 'رمز سري جديد لـ ' + u.display_name, text: 'أعطه الرمز الجديد بنفسك، لا في رسالة مكتوبة.', okText: 'حفظ الرمز', password: true,
         run: async (p) => { await post('password', { password: p }); toast('حُفظ الرمز السري الجديد'); await refresh(); } })}>رمز سري جديد</Button>
+      {/* الاسم الظاهر: في قائمة المستخدمين والعهدة والسجل وصفحة الشيك. اسم الدخول لا يتغير */}
+      <Button onClick={() => setAsk({ title: 'الاسم الظاهر لـ ' + u.display_name,
+        text: 'هكذا يظهر في التطبيق: في القائمة والعهدة وصفحة الشيك. اسم الدخول لا يتغير، والعمليات القديمة تبقى بالاسم الذي سُجّلت به.',
+        okText: 'حفظ الاسم', field: { label: 'الاسم الظاهر', value: u.display_name || '', placeholder: 'أمين', text: true },
+        run: async (name) => { await post('name', { display_name: name }); toast('حُفظ الاسم'); await refresh(); } })}>تغيير الاسم الظاهر</Button>
       {/* رمز المندوب: يربط المستخدم بعملائه في زوهو (حقل «Owner») فيرى تحصيلهم */}
       <Button onClick={() => setAsk({ title: 'رمز المندوب لـ ' + u.display_name,
         text: u.role === 'rep' ? 'اكتبه كما في حقل «Owner» على العميل في زوهو. يرى المندوب في التحصيل عملاء هذا الرمز فقط.' : 'اكتبه كما في حقل «Owner» في زوهو ليرى قسم التحصيل لعملائه. اتركه فارغاً لإزالته.',

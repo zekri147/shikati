@@ -63,8 +63,8 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
     return json({ ok: true }, 201);
   }
 
-  // POST /api/admin/users/:id/(disable|enable|password|rep|passkeys)
-  const m = path.match(/^\/users\/(\d+)\/(disable|enable|password|rep|passkeys)$/);
+  // POST /api/admin/users/:id/(disable|enable|password|rep|name|passkeys)
+  const m = path.match(/^\/users\/(\d+)\/(disable|enable|password|rep|name|passkeys)$/);
   if (req.method === 'POST' && m) {
     const id = Number(m[1]);
     const action = m[2];
@@ -78,6 +78,17 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
       const code = validateRepCode(b.rep_code, target.role);
       await env.DB.prepare('UPDATE users SET rep_code = ? WHERE id = ?').bind(code, id).run();
       await audit(env, admin, 'user.rep', 'ok', target.username, code || '—');
+      return json({ ok: true });
+    }
+
+    // الاسم الظاهر (10/11/2026، بطلب ZEKRI): في القائمة والسجل الجديد وصفحة الشيك. يسري من الطلب التالي دون خروج.
+    // العمليات القديمة تبقى بالاسم الذي سُجّلت به.
+    if (action === 'name') {
+      const b = await readJson<{ display_name?: string }>(req);
+      const name = String(b.display_name || '').trim().replace(/\s+/g, ' ');
+      if (!name || name.length > 60) throw new HttpError(400, 'أدخل الاسم الظاهر، 60 حرفاً على الأكثر.');
+      await env.DB.prepare('UPDATE users SET display_name = ? WHERE id = ?').bind(name, id).run();
+      await audit(env, admin, 'user.name', 'ok', target.username, name);
       return json({ ok: true });
     }
 
