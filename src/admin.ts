@@ -7,6 +7,7 @@ import { listDeposits, releaseDeposit } from './modules/deposit';
 import { handleReconcile } from './modules/reconcile';
 import { probeImage } from './modules/image';
 import { handleNotifyAdmin } from './notifysettings';
+import { importReps, listMissingReps } from './reps';
 
 const USERNAME_RE = /^[a-z0-9._-]{3,32}$/;
 const ROLES: Role[] = ['admin', 'rep'];
@@ -108,6 +109,10 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
     await audit(env, admin, `user.${action}`, 'ok', target.username);
     return json({ ok: true });
   }
+
+  // المندوبون في زوهو بلا حساب، وإضافتهم
+  if (req.method === 'GET' && path === '/reps') return listMissingReps(env);
+  if (req.method === 'POST' && path === '/reps') return importReps(req, env, admin);
 
   // GET /api/admin/deposits
   // إعدادات الإشعارات والإشعار اليدوي
