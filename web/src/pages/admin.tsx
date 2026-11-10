@@ -129,6 +129,10 @@ export function AdminPage() {
   const [adding, setAdding] = useState(false);
   const [nu, setNu] = useState({ display_name: '', username: '', role: 'rep', rep_code: '', password: '' });
   const [nuError, setNuError] = useState('');
+  // مندوبون في زوهو (حقل «Owner») بلا حساب، والحسابات التي أُنشئت للتو برموزها السرية (تُعرض مرة واحدة)
+  const [reps, setReps] = useState<any[] | null>(null);
+  const [repsError, setRepsError] = useState('');
+  const [created, setCreated] = useState<any[] | null>(null);
   const [rec, setRec] = useState<any>(null);
   const [recBusy, setRecBusy] = useState(false);
   const [recError, setRecError] = useState('');
@@ -140,6 +144,20 @@ export function AdminPage() {
     } catch (e) { toast(errText(e), 'err'); }
   }, []);
   useEffect(() => { api<Me>('/api/me').then(setMe).catch(() => {}); refresh(); }, [refresh]);
+  const loadReps = useCallback(async () => {
+    try { setReps((await api<{ reps: any[] }>('/api/admin/reps')).reps); setRepsError(''); } catch (e) { setRepsError(errText(e)); }
+  }, []);
+  useEffect(() => { if (tab === 'users') loadReps(); }, [tab, loadReps]);
+  const importReps = () => setAsk({
+    title: reps!.length === 1 ? 'إضافة مندوب من زوهو' : `إضافة ${reps!.length} مندوبين من زوهو`,
+    text: 'يُنشأ لكل واحد حساب مندوب برمزه في زوهو، ورمز سري يولّده التطبيق ويظهر لك مرة واحدة بعد الإضافة. لا يُكتب شيء في زوهو.',
+    okText: reps!.length === 1 ? 'أضف المندوب' : `أضف ${reps!.length} مندوبين`,
+    run: async () => {
+      const r = await api<{ created: any[] }>('/api/admin/reps', { method: 'POST', body: { codes: reps!.map((x) => x.code) } });
+      await Promise.all([refresh(), loadReps()]);
+      if (r.created.length) afterOverlay(() => setCreated(r.created)); else toast('لم يُضف أحد: لكل رمز حساب من قبل.');
+    },
+  });
 
   async function addUser(e: React.FormEvent) {
     e.preventDefault();
@@ -195,6 +213,15 @@ export function AdminPage() {
               ))}
             </ul>
           )}
+          {reps && reps.length ? (
+            <div className="mt-4 border-s-4 border-s-warning bg-surface-alt px-3 py-3">
+              <p className="m-0 font-semibold">{reps.length === 1 ? 'مندوب في زوهو بلا حساب' : `${reps.length} مندوبين في زوهو بلا حساب`}</p>
+              <ul className="m-0 mt-1 list-none p-0 text-sm text-muted">
+                {reps.map((r) => <li key={r.code} className="mt-2"><span className="block font-semibold text-foreground">{r.display_name}</span>الرمز <Ltr>{r.code}</Ltr> · الدخول <Ltr>{r.username}</Ltr> · عملاؤه المدينون <Num>{r.customers}</Num></li>)}
+              </ul>
+              <Button className="mt-3 w-full" onClick={importReps}>{reps.length === 1 ? 'أضف المندوب' : `أضف ${reps.length} مندوبين`}</Button>
+            </div>
+          ) : repsError ? <p className="mb-0 mt-3 text-sm text-muted">{repsError}</p> : null}
           <Button variant="primary" size="lg" className="mt-4" onClick={() => { setNuError(''); setAdding(true); }}>إضافة مستخدم</Button>
         </Section> : null}
 
@@ -290,6 +317,21 @@ export function AdminPage() {
           </form>
       </Modal>
       {ask ? <AskDialog a={ask} onClose={() => setAsk(null)} /> : null}
+      <Modal open={!!created} onClose={() => setCreated(null)} title="حسابات المندوبين الجدد">
+        <p className="mt-0">احفظ هذه الرموز الآن، فلن تظهر مرة أخرى. أعطِ كل مندوب اسم دخوله ورمزه بنفسك، ويفعّل البصمة بعد أول دخول.</p>
+        <ul className={LIST_BOX}>
+          {(created || []).map((c) => (
+            <li key={c.username} className="bg-surface px-3 py-2">
+              <span className="block font-semibold">{c.display_name}</span>
+              <span className="flex flex-wrap gap-x-3 text-base">
+                <span>الدخول <Ltr className="font-semibold">{c.username}</Ltr></span>
+                <span>الرمز <Ltr className="font-semibold select-all">{c.password}</Ltr></span>
+              </span>
+            </li>
+          ))}
+        </ul>
+        <ModalActions><Button variant="primary" onClick={() => setCreated(null)}>حفظتُ الرموز</Button></ModalActions>
+      </Modal>
     </>
   );
 }
