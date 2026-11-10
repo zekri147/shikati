@@ -162,6 +162,16 @@ const LOCK_MESSAGES: Record<string, string> = {
   unknown: 'محاولة سابقة لتسجيل هذا الشيك لم تُعرف نتيجتها. تحقق في «كل الشيكات» قبل أي محاولة، وأخبر المدير.',
 };
 
+// هل حُذفت الدفعة من زوهو؟ نعم فقط إن ردّ زوهو صراحة بأنها غير موجودة. أي خطأ آخر أو انقطاع: لا.
+async function paymentDeleted(env: Env, pid: string): Promise<boolean> {
+  try {
+    const r = await zohoRequest<{ payment?: unknown }>(env, 'GET', `/customerpayments/${pid}`, { timeoutMs: 15_000 });
+    return r.status === 404 || r.data?.code === 1002;
+  } catch {
+    return false;
+  }
+}
+
 export function decodeBase64(data: string): Uint8Array {
   const bin = atob(data);
   const out = new Uint8Array(bin.length);
@@ -198,21 +208,34 @@ export async function handleRegister(req: Request, env: Env, user: User): Promis
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today) throw new HttpError(400, 'تاريخ الاستلام غير صالح: لا يكون بعد اليوم.');
 
   // 2. القفل: إدخال ذرّي. يرفض الطلب نفسه مرتين، والشيك نفسه لنفس العميل ما دام تسجيله السابق لم يفشل.
+  const lock = () => env.DB.prepare(
+    'INSERT INTO registrations (request_id, state, user_id, username, display_name, customer_id, customer, cheque_number, amount) ' +
+    "VALUES (?, 'pending', ?, ?, ?, ?, ?, ?, ?)",
+  ).bind(requestId, user.id, user.username, user.display_name, customerId, customer, chq, amount).run();
   try {
-    await env.DB.prepare(
-      'INSERT INTO registrations (request_id, state, user_id, username, display_name, customer_id, customer, cheque_number, amount) ' +
-      "VALUES (?, 'pending', ?, ?, ?, ?, ?, ?, ?)",
-    ).bind(requestId, user.id, user.username, user.display_name, customerId, customer, chq, amount).run();
+    await lock();
   } catch {
     const same = await env.DB.prepare('SELECT state, payment_id FROM registrations WHERE request_id = ?')
       .bind(requestId).first<{ state: string; payment_id: string | null }>();
     if (same?.state === 'done') return json({ ok: true, payment_id: same.payment_id, repeated: true });
     const other = await env.DB.prepare(
-      "SELECT state FROM registrations WHERE customer_id = ? AND cheque_number = ? AND state != 'failed'",
-    ).bind(customerId, chq).first<{ state: string }>();
-    const state = same?.state || other?.state || 'pending';
-    await audit(env, user, 'register', 'denied', `${customerId} / ${chq}`, `locked:${state}`);
-    throw new HttpError(409, LOCK_MESSAGES[state] || LOCK_MESSAGES.pending);
+      "SELECT state, payment_id FROM registrations WHERE customer_id = ? AND cheque_number = ? AND state != 'failed'",
+    ).bind(customerId, chq).first<{ state: string; payment_id: string | null }>();
+    // التسجيل السابق تم، لكن دفعته حُذفت من زوهو مباشرة (لا من التطبيق): يُحرَّر القفل ويُعاد الإدخال مرة واحدة.
+    // هذا قفل في قاعدة التطبيق وحدها، لا إعادة لطلب كتابة في زوهو.
+    let freed = false;
+    if (!same && other?.state === 'done' && other.payment_id && await paymentDeleted(env, other.payment_id)) {
+      await env.DB.prepare(
+        "UPDATE registrations SET state = 'failed', message = ?, finished_at = COALESCE(finished_at, datetime('now')) WHERE payment_id = ? AND state = 'done'",
+      ).bind('حُذفت دفعته من زوهو، فصار تسجيله من جديد ممكناً.', other.payment_id).run();
+      await audit(env, user, 'register', 'ok', `${other.payment_id} / ${chq}`, 'unlocked: payment deleted in Zoho');
+      try { await lock(); freed = true; } catch { /* سباق مع طلب آخر: يبقى الرفض */ }
+    }
+    if (!freed) {
+      const state = same?.state || other?.state || 'pending';
+      await audit(env, user, 'register', 'denied', `${customerId} / ${chq}`, `locked:${state}`);
+      throw new HttpError(409, LOCK_MESSAGES[state] || LOCK_MESSAGES.pending);
+    }
   }
 
   const finish = async (state: 'done' | 'failed' | 'unknown', message: string, paymentId: string | null = null) => {
