@@ -63,8 +63,8 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
     return json({ ok: true }, 201);
   }
 
-  // POST /api/admin/users/:id/(disable|enable|password|rep|name|passkeys)
-  const m = path.match(/^\/users\/(\d+)\/(disable|enable|password|rep|name|passkeys)$/);
+  // POST /api/admin/users/:id/(disable|enable|password|rep|name|passkeys|push)
+  const m = path.match(/^\/users\/(\d+)\/(disable|enable|password|rep|name|passkeys|push)$/);
   if (req.method === 'POST' && m) {
     const id = Number(m[1]);
     const action = m[2];
@@ -96,6 +96,17 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
     if (action === 'passkeys') {
       await env.DB.prepare('DELETE FROM passkeys WHERE user_id = ?').bind(id).run();
       await audit(env, admin, 'passkey.clear', 'ok', target.username);
+      return json({ ok: true });
+    }
+
+    // حذف أجهزة الإشعارات (10/11/2026، بطلب ZEKRI): مثل البصمة. تُحفظ عناوينها في push_revoked
+    // حتى لا يعيدها التأكيد التلقائي عند فتح التطبيق، ويستطيع هو تفعيلها من جديد من «إشعارات الهاتف»
+    if (action === 'push') {
+      await env.DB.batch([
+        env.DB.prepare('INSERT OR REPLACE INTO push_revoked (endpoint, user_id) SELECT endpoint, user_id FROM push_subs WHERE user_id = ?').bind(id),
+        env.DB.prepare('DELETE FROM push_subs WHERE user_id = ?').bind(id),
+      ]);
+      await audit(env, admin, 'push.clear', 'ok', target.username);
       return json({ ok: true });
     }
 
