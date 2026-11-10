@@ -178,7 +178,7 @@ export async function handlePush(req: Request, env: Env, user: User, path: strin
   }
 
   if (path === '/subscribe' && req.method === 'POST') {
-    const b = await readJson<{ endpoint?: string; keys?: { p256dh?: string; auth?: string }; label?: string }>(req);
+    const b = await readJson<{ endpoint?: string; keys?: { p256dh?: string; auth?: string }; label?: string; sync?: boolean }>(req);
     const endpoint = String(b.endpoint || '');
     const p256dh = String(b.keys?.p256dh || '');
     const auth = String(b.keys?.auth || '');
@@ -191,6 +191,12 @@ export async function handlePush(req: Request, env: Env, user: User, path: strin
     const same = await env.DB.prepare('SELECT 1 FROM push_subs WHERE endpoint = ? AND user_id = ? AND p256dh = ? AND auth = ?')
       .bind(endpoint, user.id, p256dh, auth).first();
     if (same) return json({ ok: true });
+    // اشتراك حذفه المدير: التأكيد التلقائي لا يعيده، والهاتف يلغي اشتراكه. التفعيل الصريح يعيده
+    if (b.sync) {
+      if (await env.DB.prepare('SELECT 1 FROM push_revoked WHERE endpoint = ?').bind(endpoint).first()) return json({ ok: true, revoked: true });
+    } else {
+      await env.DB.prepare('DELETE FROM push_revoked WHERE endpoint = ?').bind(endpoint).run();
+    }
     // الهاتف نفسه لمستخدم واحد: من دخل أخيراً تصله إشعاراته
     await env.DB.prepare(
       "INSERT INTO push_subs (endpoint, user_id, p256dh, auth, label) VALUES (?, ?, ?, ?, ?) " +

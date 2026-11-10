@@ -69,13 +69,17 @@ export async function disablePush(): Promise<void> {
   try { await sub.unsubscribe(); } catch { /* نكمل */ }
 }
 
-// عند كل فتح: إن كانت الإشعارات مفعّلة على الهاتف، نؤكد الاشتراك للخادم (لمن دخل أخيراً، أو بعد حذفه هناك)
+// عند كل فتح: إن كانت الإشعارات مفعّلة على الهاتف، نؤكد الاشتراك للخادم (لمن دخل أخيراً).
+// إن حذفها المدير من الإدارة يرد الخادم revoked، فيلغي الهاتف اشتراكه، ويفعّلها الموظف من جديد إن شاء
 export async function syncPush(): Promise<void> {
   if (!supported() || Notification.permission !== 'granted') return;
   const sub = await current();
   if (!sub) return;
   const j = sub.toJSON();
-  try { await api('/api/push/subscribe', { method: 'POST', body: { endpoint: j.endpoint, keys: j.keys, label: deviceLabel() }, noRedirect: true }); } catch { /* ثانوي */ }
+  try {
+    const r = await api<{ revoked?: boolean }>('/api/push/subscribe', { method: 'POST', body: { endpoint: j.endpoint, keys: j.keys, label: deviceLabel(), sync: true }, noRedirect: true });
+    if (r?.revoked) await sub.unsubscribe();
+  } catch { /* ثانوي */ }
 }
 
 export async function testPush(): Promise<void> {

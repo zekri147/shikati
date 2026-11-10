@@ -24,7 +24,7 @@ const ACTION: Record<string, string> = {
   'user.password': 'تغيير رمز سري', 'user.rep': 'تغيير رمز المندوب', 'user.name': 'تغيير الاسم الظاهر', 'coll.review': 'مراجعة عميل', 'coll.review.cancel': 'إلغاء مراجعة',
   'coll.comment': 'تعليق مراجعة في زوهو', 'passkey.add': 'تفعيل البصمة', 'passkey.clear': 'حذف البصمة', 'coll.comment.resolve': 'حسم تعليق مراجعة', setup: 'الإعداد الأولي',
   deposit: 'إيداع شيك', 'deposit.release': 'تحرير إيداع', 'deposit.reverted': 'إيداع أُلغي في زوهو',
-  'push.subscribe': 'تفعيل الإشعارات', 'push.unsubscribe': 'إيقاف الإشعارات', 'notify.settings': 'إعدادات الإشعارات', 'notify.send': 'إشعار يدوي',
+  'push.subscribe': 'تفعيل الإشعارات', 'push.unsubscribe': 'إيقاف الإشعارات', 'push.clear': 'حذف الإشعارات', 'notify.settings': 'إعدادات الإشعارات', 'notify.send': 'إشعار يدوي',
 };
 const RESULT: Record<string, string> = { ok: 'تمّ', denied: 'مرفوض', error: 'خطأ' };
 const DEP_STATE: Record<string, string> = { pending: 'قيد التنفيذ', done: 'تم', failed: 'لم يتم', unknown: 'بانتظار التحقق' };
@@ -112,6 +112,12 @@ function UserActions({ u, self, setAsk, refresh }: { u: any; self: boolean; setA
         <Button onClick={() => setAsk({ title: 'حذف البصمة لـ ' + u.display_name, okText: 'احذف البصمة', danger: true,
           text: `سيُحذف الدخول بالبصمة من ${u.passkeys === 1 ? 'جهازه' : 'أجهزته (' + u.passkeys + ')'}. يبقى دخوله بالاسم والرمز السري، ويمكنه تفعيل البصمة من جديد.`,
           run: async () => { await post('passkeys'); toast('حُذفت البصمة'); await refresh(); } })}>حذف البصمة ({u.passkeys})</Button>
+      ) : null}
+      {/* حذف أجهزة الإشعارات: مثل البصمة، لهاتف ضاع أو تغيّر. يفعّلها هو من جديد من «إشعارات الهاتف» */}
+      {u.push ? (
+        <Button onClick={() => setAsk({ title: 'حذف الإشعارات لـ ' + u.display_name, okText: 'احذف الإشعارات', danger: true,
+          text: `ستتوقف الإشعارات على ${u.push === 1 ? 'هاتفه' : 'هواتفه (' + u.push + ')'}، ولن تعود وحدها عند فتح التطبيق. يمكنه تفعيلها من جديد من «القائمة» ثم «إشعارات الهاتف».`,
+          run: async () => { await post('push'); toast('حُذفت الإشعارات'); await refresh(); } })}>حذف الإشعارات ({u.push})</Button>
       ) : null}
       {self ? null : u.active ? (
         <Button variant="danger" className="mt-4" onClick={() => setAsk({ title: 'إيقاف ' + u.display_name, text: 'سيُخرج من التطبيق فوراً، ولن يستطيع الدخول حتى تعيد تفعيله.', okText: 'إيقاف', danger: true,
