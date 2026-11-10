@@ -43,14 +43,15 @@ export function AppPage() {
   useAckRefresh(hasAck);
   const locked = hasAck && me!.user.role === 'rep' && ackLeft(ack) > 0;
 
-  // شاشة البداية للمندوب (بطلب ZEKRI يوم 8/11/2026): التسجيل في كل فتح للتطبيق، أو الإقرار ما دام لم ينهه.
+  // شاشة البداية (بطلب ZEKRI يوم 8/11/2026، وللمدير أيضاً منذ 10/11/2026): التسجيل في كل فتح للتطبيق،
+  // أو الإقرار للمندوب ما دام لم ينهه (المدير لا يُقفل عليه، فيفتح على التسجيل دائماً).
   // مرة واحدة عند الفتح، وقبل الرسم، فلا تظهر شاشة الإيداع لحظة. الفتح من إشعار أو رابط يبقى على شاشته.
   const landed = useRef(false);
   const autoHash = useRef('');
   useLayoutEffect(() => {
     if (!me || landed.current) return;
     landed.current = true;
-    if (!OPENED_AT && me.user.role === 'rep') { autoHash.current = locked ? ACK : REGISTER; replaceHash(autoHash.current); }
+    if (!OPENED_AT && available.some((m) => m.id === 'cheques')) { autoHash.current = locked ? ACK : REGISTER; replaceHash(autoHash.current); }
   }, [me]);
   // القفل: أي شاشة أخرى تعود إلى الإقرار، وتُحفظ لتُفتح بعده. وإن وصلت الحالة بعد أن فتح التطبيق على التسجيل تلقائياً، يُنقل إلى الإقرار
   useLayoutEffect(() => {
