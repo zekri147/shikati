@@ -704,6 +704,25 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
             </Block>
           ) : <Empty>{`لم يكن لعملائك دين يوم ${dayOf(list.taken_at)}. الصورة التالية يوم السبت ${dm(list.next)}.`}</Empty>}
           {stuck.length ? <Note tone="warn">{`لم يصل إلى زوهو اعتراضك على ${customersWord(stuck.length)}. الإدارة تتابعه.`}</Note> : null}
+          {rows.length ? (
+            // أجوبتك (بطلب ZEKRI يوم 10/11/2026): التراجع عن أي إقرار بعد الانتهاء دون التنقل عميلاً بعد عميل.
+            // لمس الاسم يفتح العميل، و«تراجع» يعيده دون جواب ويفتحه ليجيب من جديد
+            <Block title="أجوبتك">
+              <ul className="m-0 list-none p-0">
+                {rows.map((x, i) => (
+                  <li key={'ans-' + x.id} className="flex items-center justify-between gap-2 border-b border-line py-1 last:border-b-0">
+                    <button type="button" className="ack-row flex min-h-11 min-w-0 flex-1 flex-col items-start justify-center bg-transparent p-0 text-start text-foreground" onClick={() => go(i)}>
+                      <Ltr className="block w-full truncate text-base font-semibold">{x.name}</Ltr>
+                      <span className={cn('text-sm', x.answer === 'dispute' ? 'font-semibold text-warning' : 'text-muted')}>
+                        {x.answer === 'ok' ? 'أقررت' : 'اعترضت'} · <Amount value={x.balance} />
+                      </span>
+                    </button>
+                    {x.answer === 'ok' ? <Button variant="ghost" className="ack-list-undo -me-2 flex-none px-2 font-semibold underline underline-offset-4" onClick={() => undo(x.id)}>تراجع</Button> : null}
+                  </li>
+                ))}
+              </ul>
+            </Block>
+          ) : null}
         </div>
         <div className={bar}>
           {peekAfterAck() ? <Button variant="primary" className="!flex-[2] py-2" onClick={() => { location.hash = takeAfterAck(); }}>{afterLabel(peekAfterAck())}</Button>
