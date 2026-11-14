@@ -5,6 +5,7 @@ import { audit } from './audit';
 import { handleDiag } from './diag';
 import { listDeposits, releaseDeposit } from './modules/deposit';
 import { handleReconcile } from './modules/reconcile';
+import { ackReport, ackReportXlsx } from './modules/ackreport';
 import { probeImage } from './modules/image';
 import { handleNotifyAdmin } from './notifysettings';
 import { importReps, listMissingReps } from './reps';
@@ -147,6 +148,10 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
 
   // GET /api/admin/reconcile
   if (req.method === 'GET' && path === '/reconcile') return handleReconcile(env);
+
+  // GET /api/admin/ack و/ack/xlsx: تقرير إقرار الدين، قراءة فقط
+  if (req.method === 'GET' && path === '/ack') return ackReport(env, new URL(req.url));
+  if (req.method === 'GET' && path === '/ack/xlsx') return ackReportXlsx(env, new URL(req.url));
 
   // GET /api/admin/diag?image=<payment_id>
   if (req.method === 'GET' && path === '/diag') {
