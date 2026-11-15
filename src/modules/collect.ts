@@ -5,7 +5,7 @@ import { cacheGet, cachePut, zohoGet } from '../zoho';
 import { todayAlgiers } from './constants';
 import type { AppModule } from './types';
 import { commentText, postReviewComment, type CommentResult } from './collcomment';
-import { ackAdmin, ackAdminClose, ackAdminResolve, ackAdminSend, ackItems, ackList, ackStatus, cycleCollected, ensureSnapshot, saveAck } from './debtack';
+import { ackAdmin, ackAdminClose, ackAdminUndo, ackAdminResolve, ackAdminSend, ackItems, ackList, ackStatus, cycleCollected, ensureSnapshot, saveAck } from './debtack';
 
 // قسم «التحصيل» (7/11/2026، بطلب ZEKRI): أرصدة العملاء المدينين لكل مندوب، قراءة فقط من زوهو.
 // نقل من تبويب «التحصيل» في قائمة الاتصال، لكن الأرقام هنا حيّة بدل سكربت الصباح.
@@ -318,6 +318,7 @@ export const collectModule: AppModule = {
     if (req.method === 'POST' && subpath === '/ack/send' && user.role === 'admin') return ackAdminSend(req, env, user);
     if (req.method === 'POST' && subpath === '/ack/resolve' && user.role === 'admin') return ackAdminResolve(req, env, user);
     if (req.method === 'POST' && subpath === '/ack/close' && user.role === 'admin') return ackAdminClose(req, env, user);
+    if (req.method === 'POST' && subpath === '/ack/undo' && user.role === 'admin') return ackAdminUndo(req, env, user);
     // المراجعات الأسبوعية القديمة: للمدير وحده
     if (req.method === 'POST' && subpath === '/review/send' && user.role === 'admin') return adminSend(req, env, user);
     if (req.method === 'POST' && subpath === '/review/resolve' && user.role === 'admin') return adminResolve(req, env, user);

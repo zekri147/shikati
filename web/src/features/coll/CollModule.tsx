@@ -28,6 +28,7 @@ import type { ChequesData } from '@/features/cheques/types';
 import { Block, KV } from '@/features/cheques/pickers';
 import { loadAckStatus, peekAfterAck, setAckCounts, takeAfterAck } from '@/lib/ack';
 import { registerFor } from '@/features/cheques/register';
+import { AdminUndoAck } from './undo-ack';
 
 const STALE_MS = 5 * 60_000;
 const PAGE = 40;
@@ -911,7 +912,8 @@ function CustomerPage({ data, id, me, onBack, onChanged }: { data: CollData | nu
               : a.answer === 'ok' ? (
                 <div className="flex flex-col gap-2">
                   <Note plain className="text-foreground">{`${mine ? 'أقررت' : 'أقرّ ' + (a.by || '')} بدينه في صورة يوم ${day}، ${a.at ? timeOf(a.at) : ''}.`.replace('  ', ' ')}</Note>
-                  {mine ? <Button className="w-full" disabled={undoing} onClick={undoAck}>{undoing ? 'جارٍ التراجع…' : 'تراجع عن إقرارك'}</Button> : null}
+                  {mine ? <Button className="w-full" disabled={undoing} onClick={undoAck}>{undoing ? 'جارٍ التراجع…' : 'تراجع عن إقرارك'}</Button>
+                    : data.is_admin && ak ? <AdminUndoAck cycle={ak.cycle} id={c.id} name={c.name} rep={c.owner} onDone={onChanged} /> : null}
                 </div>
               ) : (
                 <Block title={`اعتراض ${mine ? '' : (a.by || '') + ' '}${a.at ? timeOf(a.at) : ''}`.replace('  ', ' ')} className="border-s-3 border-s-warning ps-3">

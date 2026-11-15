@@ -25,6 +25,7 @@ const ACTION: Record<string, string> = {
   'user.password': 'تغيير رمز سري', 'user.rep': 'تغيير رمز المندوب', 'user.name': 'تغيير الاسم الظاهر', 'coll.review': 'مراجعة عميل', 'coll.review.cancel': 'إلغاء مراجعة',
   'coll.comment': 'تعليق مراجعة في زوهو', 'passkey.add': 'تفعيل البصمة', 'passkey.clear': 'حذف البصمة', 'coll.comment.resolve': 'حسم تعليق مراجعة', setup: 'الإعداد الأولي',
   deposit: 'إيداع شيك', 'deposit.release': 'تحرير إيداع', 'deposit.reverted': 'إيداع أُلغي في زوهو',
+  'coll.ack.undo': 'تراجع عن إقرار دين', 'coll.dispute': 'اعتراض على دين', 'coll.dispute.comment': 'تعليق اعتراض في زوهو', 'coll.dispute.resolve': 'حسم تعليق اعتراض', 'coll.dispute.close': 'إغلاق اعتراض',
   'push.subscribe': 'تفعيل الإشعارات', 'push.unsubscribe': 'إيقاف الإشعارات', 'push.clear': 'حذف الإشعارات', 'notify.settings': 'إعدادات الإشعارات', 'notify.send': 'إشعار يدوي',
 };
 const RESULT: Record<string, string> = { ok: 'تمّ', denied: 'مرفوض', error: 'خطأ' };

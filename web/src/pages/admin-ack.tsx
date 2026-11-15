@@ -10,6 +10,7 @@ import { ErrorBox, Note, SkeletonList } from '@/components/shell';
 import { api, errText } from '@/lib/api';
 import { customersWord, fmtAmount, fmtDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { AdminUndoAck } from '@/features/coll/undo-ack';
 
 type RepSum = {
   rep: string; name: string; total: number; ok: number; disputes: number; open: number; left: number;
@@ -135,7 +136,8 @@ export function AckTab() {
         options={[{ value: '', label: 'الكل' }, { value: 'left', label: `لم يُجب ${count('left')}` }, { value: 'dispute', label: `اعترض ${count('dispute')}` }, { value: 'ok', label: `أقرّ ${count('ok')}` }]} />
       {rows.length ? (
         <ul className={LIST_BOX}>
-          {rows.slice(0, limit).map((r) => <AckRow key={r.id} r={r} repName={rep ? '' : repName(r.rep)} />)}
+          {rows.slice(0, limit).map((r) => <AckRow key={r.id} r={r} repName={rep ? '' : repName(r.rep)}
+            undo={data.current && r.answer === 'ok' ? <AdminUndoAck small cycle={data.cycle!} id={r.id} name={r.name} rep={repName(r.rep)} onDone={() => load(data.cycle!)} /> : null} />)}
         </ul>
       ) : <p className="m-0 py-4 text-center text-muted">{filter === 'left' ? 'لا أحد دون جواب ✓' : 'لا عملاء بهذه التصفية.'}</p>}
       {rows.length > limit ? <Button className="mt-2 w-full" onClick={() => setLimit(limit + PAGE)}>عرض {customersWord(Math.min(PAGE, rows.length - limit))} آخرين</Button> : null}
@@ -149,7 +151,7 @@ function match(r: Row, f: Filter) {
   return r.answer === f;
 }
 
-function AckRow({ r, repName }: { r: Row; repName: string }) {
+function AckRow({ r, repName, undo }: { r: Row; repName: string; undo: React.ReactNode }) {
   const paid = r.remaining != null ? Math.round((r.balance - r.remaining) * 100) / 100 : 0;
   return (
     <li className="ack-row px-3 py-2">
@@ -157,7 +159,7 @@ function AckRow({ r, repName }: { r: Row; repName: string }) {
         <Ltr className="min-w-0 font-semibold [overflow-wrap:anywhere]">{r.name}</Ltr>
         <Amount value={r.balance} className="flex-none" />
       </div>
-      <div className="mt-1 flex flex-wrap justify-between gap-x-3 text-sm">
+      <div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 text-sm">
         <span className="text-muted">
           {repName ? <>{repName} · </> : null}
           {!r.answer ? <span className="font-semibold text-warning">لم يُجب</span>
@@ -165,7 +167,12 @@ function AckRow({ r, repName }: { r: Row; repName: string }) {
             : <span className="font-semibold text-warning">اعترض</span>}
           {r.at ? <> · <Num>{fmtDateTime(r.at)}</Num></> : null}
         </span>
-        {paid > 0 ? <span className="text-muted">حُصّل <bdi dir="ltr" className="num">{fmtAmount(paid)}</bdi></span> : null}
+        {paid > 0 || undo ? (
+          <span className="flex items-center gap-3">
+            {paid > 0 ? <span className="text-muted">حُصّل <bdi dir="ltr" className="num">{fmtAmount(paid)}</bdi></span> : null}
+            {undo}
+          </span>
+        ) : null}
       </div>
       {r.answer === 'dispute' ? (
         <>
