@@ -1,4 +1,4 @@
-// صفحة الإدارة: المستخدمون، وإضافة مستخدم، ومطابقة الأسبوع، والإيداعات، وسجل العمليات.
+// صفحة الإدارة: المستخدمون، وإضافة مستخدم، ومطابقة الأسبوع، والإيداعات، وسجل العمليات، والإشعارات، وتقرير إقرار الدين.
 import { useCallback, useEffect, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,7 @@ import { api, errText, type Me } from '@/lib/api';
 import { fmtDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { NotifyTab } from './admin-notify';
+import { AckTab } from './admin-ack';
 
 // دوران فقط منذ 7/11/2026: كل مستخدم غير المدير مندوب، يرى كل الشيكات ويسجّل ويودع
 const ROLE: Record<string, string> = { admin: 'مدير', rep: 'مندوب' };
@@ -200,7 +201,9 @@ export function AdminPage() {
         <h1 className="m-0 text-2xl font-bold">الإدارة</h1>
         {/* تبويبات بدل صفحة طويلة: يفتح المدير ما يريده مباشرة، وتنبيه الإيداعات المعلّقة على تبويبها. ثلاثة في كل صف حتى لا تتجاوز عرض الهاتف */}
         <Segmented label="أقسام الإدارة" className="mt-3 grid grid-cols-3" value={tab} onChange={(v) => { setTab(v); save(TAB_KEY, v); }}
-          options={[{ value: 'users', label: 'المستخدمون' }, { value: 'deposits', label: attention ? '⚠ الإيداعات' : 'الإيداعات' }, { value: 'audit', label: 'السجل' }, { value: 'reconcile', label: 'المطابقة' }, { value: 'notify', label: 'الإشعارات' }]} />
+          options={[{ value: 'users', label: 'المستخدمون' }, { value: 'deposits', label: attention ? '⚠ الإيداعات' : 'الإيداعات' }, { value: 'audit', label: 'السجل' }, { value: 'reconcile', label: 'المطابقة' }, { value: 'notify', label: 'الإشعارات' }, { value: 'ack', label: 'الإقرار' }]} />
+
+        {tab === 'ack' ? <Section title="إقرار الدين" meta="تقرير لكل دورة" className="border-0 bg-transparent px-0"><AckTab /></Section> : null}
 
         {tab === 'notify' ? <Section title="الإشعارات" meta="لكل المستخدمين" className="border-0 bg-transparent px-0"><NotifyTab /></Section> : null}
 
