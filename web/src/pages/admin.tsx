@@ -273,7 +273,7 @@ export function AdminPage() {
         </Section> : null}
 
         {tab === 'deposits' ? <Section title="الإيداعات" meta="آخر 100 محاولة">
-          {attention ? <Note tone="warn" className="mb-3">إيداعات «بانتظار التحقق»: افتح الدفعة في زوهو وتأكد هل أُنشئ إيداعها، ثم اضغط «تحرير» فقط إن لم يُنشأ أو بعد تصحيحه يدوياً.</Note> : null}
+          {attention ? <Note tone="warn" className="mb-3">إيداعات «بانتظار التحقق»: افتح الدفعة في زوهو، ثم المس «تحرير» فقط إن لم يُنشأ إيداعها، أو بعد أن تصحّحه يدوياً.</Note> : null}
           <Table cols={8} head={['الوقت', 'الموظف', 'العميل', 'الشيك', 'المبلغ', 'الحالة', 'الرسالة', '']} empty={!deposits ? 'جارٍ التحميل…' : deposits.length ? null : 'لا محاولات إيداع بعد.'}>
             {(deposits || []).map((d, i) => {
               const state = d.stale ? 'unknown' : d.state;

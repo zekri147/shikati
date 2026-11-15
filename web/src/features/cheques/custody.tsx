@@ -62,7 +62,7 @@ export function CustodyBlock({ id, k, onChanged }: { id: string; k: CustodyDetai
   return (
     <Block title="العهدة: من يحمل الشيك">
       <p className="m-0 py-1 text-base font-semibold">{who}</p>
-      {!k.holder && !k.to ? <p className="m-0 text-sm text-muted">سُجّل قبل العهدة أو من خارج التطبيق. إن كان الشيك معك، اضغط «هو في عهدتي».</p> : null}
+      {!k.holder && !k.to ? <p className="m-0 text-sm text-muted">سُجّل قبل العهدة أو من خارج التطبيق. إن كان الشيك معك فالمس «هو في عهدتي».</p> : null}
       {k.incoming ? <Note tone="warn" className="mt-1">سلّمه إليك {k.from || 'زميل'}. أكّد استلامه إن كان في يدك، أو ارفضه.</Note>
         : k.to ? <Note className="mt-1">سلّمه {k.from || '—'} إلى {k.to}، وينتظر تأكيد الاستلام.</Note> : null}
       {k.actions.length ? (

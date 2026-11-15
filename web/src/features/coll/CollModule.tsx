@@ -41,7 +41,7 @@ const CAT_NOTE: Record<string, string> = {
   d90: 'أقدم فاتورة غير مسدّدة تأخرت بين شهر وثلاثة أشهر.',
   d30: 'أقدم فاتورة غير مسدّدة تأخرت شهراً على الأكثر.',
   due: 'فواتيرهم لم يحن موعد دفعها بعد.',
-  open: 'أرصدة نُقلت عند بداية زوهو بوكس، بلا تاريخ استحقاق. تابعها مع الإدارة.',
+  open: 'أرصدة نُقلت عند بداية زوهو بوكس، بلا تاريخ استحقاق. تابعها مع المدير.',
 };
 // حالة الإرسال إلى زوهو بكلمة قصيرة
 const ZOHO_WORD: Record<string, string> = { done: 'في زوهو', pending: 'قيد الإرسال', unknown: 'بانتظار التحقق', failed: 'لم يُرسل إلى زوهو', none: 'لم يُرسل إلى زوهو' };
@@ -220,7 +220,7 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
             {shown.map((c) => <CustomerItem key={c.id} c={c} d={data} rep={rep} />)}
           </ul>
         ) : <Empty>{q ? 'لا عميل يطابق البحث.' : list.length ? 'لا عملاء في هذه الفئة.'
-          : data.is_admin ? 'لا أرصدة مفتوحة لهذا الاختيار.' : 'لا رصيد مفتوح على عملائك. إن كان هذا غير صحيح، تأكد مع الإدارة أن حقل «Owner» على عملائك في زوهو يحمل رمزك.'}</Empty>}
+          : data.is_admin ? 'لا أرصدة مفتوحة لهذا الاختيار.' : 'لا رصيد مفتوح على عملائك. إن كان هذا خطأ، أخبر المدير ليضع رمزك في حقل «Owner» على عملائك في زوهو.'}</Empty>}
         {more > 0 ? <Button className="mt-2 w-full py-3" onClick={() => setLimit(limit + PAGE)}>عرض {customersWord(more)} آخرين</Button> : null}
       </section>
 
@@ -426,7 +426,7 @@ function AckDetails({ ack, reload }: { ack: Ack; reload: () => void }) {
       {disputes.length ? (
         <Fold open={dispOpen} onOpenChange={setDispOpen} tone="warn" className="mt-2"
           head={<div className="flex items-center justify-between gap-3"><span className="font-bold">اعتراضات مفتوحة</span><span className="text-sm text-muted">{disputes.length}</span></div>}>
-          <p className="mb-2 mt-0 text-sm text-muted">صحّح الخطأ في زوهو، ثم اضغط «عولج». تبقى هنا من كل الدورات حتى تغلقها.</p>
+          <p className="mb-2 mt-0 text-sm text-muted">صحّح الخطأ في زوهو، ثم المس «عولج». تبقى هنا من كل الدورات حتى تغلقها.</p>
           <ul className={LIST_BOX}>
             {disputes.map((x) => (
               <li key={x.cycle + x.id} className="px-3 py-2">
@@ -476,7 +476,7 @@ function UnsentList({ list, reload }: { list: Unsent[]; reload: () => void }) {
     setBusy(u.key);
     try {
       const res = await api(u.path + what, { method: 'POST', body });
-      if (res.state && res.state !== 'done') toast(res.state === 'unknown' ? 'لم يصل رد واضح من زوهو. تحقق قبل أي إعادة.' : (res.error || 'زوهو رفض التعليق.'), 'warn');
+      if (res.state && res.state !== 'done') toast(res.state === 'unknown' ? 'لم يصل رد واضح من زوهو. تحقق في زوهو قبل أي محاولة جديدة.' : (res.error || 'زوهو رفض التعليق.'), 'warn');
       else toast(okText);
       reload();
     } catch (e) {
@@ -632,8 +632,8 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
     changed.current = true;
     if (res.zoho === 'done') toast('سُجّل الاعتراض على ' + row.name + ' في زوهو ✓');
     else toast(res.zoho === 'unknown'
-      ? 'سُجّل الاعتراض في التطبيق، لكن لم يصل رد واضح من زوهو. لا تعد المحاولة: الإدارة تتحقق منه.'
-      : 'سُجّل الاعتراض في التطبيق، وزوهو رفض التعليق. الإدارة تعيد إرساله.', 'warn');
+      ? 'سُجّل الاعتراض في التطبيق، ولم يصل رد واضح من زوهو. لا تعد المحاولة، فالمدير يتحقق منه.'
+      : 'سُجّل الاعتراض في التطبيق، ورفض زوهو التعليق. المدير يعيد إرساله.', 'warn');
     go(nextFrom(pos, after));
   }
 
@@ -670,7 +670,7 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
   }
   if (!list) return <><Slab>{head}</Slab><SkeletonList rows={3} /></>;
   if (!list.can_ack) {
-    return <><Slab>{head}</Slab><div className="mt-4"><Empty>الإقرار لصاحب رمز المندوب. اطلب من الإدارة ربط حسابك برمزك في زوهو.</Empty></div></>;
+    return <><Slab>{head}</Slab><div className="mt-4"><Empty>الإقرار لصاحب رمز المندوب. اطلب من المدير ربط حسابك برمزك في زوهو.</Empty></div></>;
   }
   if (list.state !== 'ready') {
     return (
@@ -703,7 +703,7 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
               </dl>
             </Block>
           ) : <Empty>{`لم يكن لعملائك دين يوم ${dayOf(list.taken_at)}. الصورة التالية يوم السبت ${dm(list.next)}.`}</Empty>}
-          {stuck.length ? <Note tone="warn">{`لم يصل إلى زوهو اعتراضك على ${customersWord(stuck.length)}. الإدارة تتابعه.`}</Note> : null}
+          {stuck.length ? <Note tone="warn">{`لم يصل إلى زوهو اعتراضك على ${customersWord(stuck.length)}. المدير يتابعه.`}</Note> : null}
           {rows.length ? (
             // أجوبتك (بطلب ZEKRI يوم 10/11/2026): التراجع عن أي إقرار بعد الانتهاء دون التنقل عميلاً بعد عميل.
             // لمس الاسم يفتح العميل، و«تراجع» يعيده دون جواب ويفتحه ليجيب من جديد
@@ -790,7 +790,7 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
           <Block title="اعترضت على دينه" className="border-s-3 border-s-warning ps-3">
             <p className="my-1 text-base [overflow-wrap:anywhere]">{reasonText(r.reason)}{r.note ? ': ' + r.note : '.'}</p>
             <p className={cn('m-0 text-sm', r.zoho === 'done' ? 'text-muted' : 'font-semibold text-warning')}>
-              {r.zoho === 'done' ? '✓ مكتوب في سجل العميل في زوهو، فلا يُغيَّر.' : fixed(r) ? 'لم يصل رد واضح من زوهو. لا تعد المحاولة: الإدارة تتحقق منه.' : 'لم يصل إلى زوهو بعد.'}
+              {r.zoho === 'done' ? '✓ مكتوب في سجل العميل في زوهو، فلا يُغيَّر.' : fixed(r) ? 'لم يصل رد واضح من زوهو. لا تعد المحاولة، فالمدير يتحقق منه.' : 'لم يصل إلى زوهو بعد.'}
             </p>
           </Block>
         ) : null}
@@ -918,7 +918,7 @@ function CustomerPage({ data, id, me, onBack, onChanged }: { data: CollData | nu
                   <p className="my-1 text-base [overflow-wrap:anywhere]">{reasonText(a.reason)}{a.note ? ': ' + a.note : '.'}</p>
                   <p className={cn('m-0 text-sm', a.zoho === 'done' ? 'text-muted' : 'font-semibold text-warning')}>
                     {a.zoho === 'done' ? '✓ مكتوب في سجل العميل في زوهو.' : a.zoho === 'unknown' || a.zoho === 'pending'
-                      ? 'لم يصل رد واضح من زوهو. لا تعد المحاولة: الإدارة تتحقق منه.' : 'لم يصل إلى زوهو بعد.'}
+                      ? 'لم يصل رد واضح من زوهو. لا تعد المحاولة، فالمدير يتحقق منه.' : 'لم يصل إلى زوهو بعد.'}
                   </p>
                 </Block>
               )

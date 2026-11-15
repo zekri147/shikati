@@ -135,7 +135,7 @@ export async function saveAck(req: Request, env: Env, user: User): Promise<Respo
   if (b.cycle && b.cycle !== cycle) throw new HttpError(409, 'بدأت صورة دين جديدة. أعد فتح شاشة الإقرار.');
   const row = await env.DB.prepare('SELECT rep, customer_name FROM debt_snapshot WHERE cycle = ? AND customer_id = ?').bind(cycle, id).first<{ rep: string; customer_name: string }>();
   if (!row || row.rep !== own) throw new HttpError(403, 'هذا العميل ليس في صورة دين عملائك لهذه الدورة.');
-  const busy = () => new HttpError(409, 'اعتراضك على هذا العميل أُرسل إلى زوهو، فلا يُغيَّر. إن كان خطأ، أبلغ المدير.');
+  const busy = () => new HttpError(409, 'اعتراضك على هذا العميل أُرسل إلى زوهو، فلا يُغيَّر. إن كان خطأ، أخبر المدير.');
 
   if (b.answer === 'ok') {
     const r = await env.DB.prepare(
