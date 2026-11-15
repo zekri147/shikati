@@ -551,6 +551,8 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
   const [cool, setCool] = useState(false);
   // آخر عميل أقرّ المندوب بدينه: سطر «تراجع» في أعلى الشاشة حتى الجواب التالي
   const [lastOk, setLastOk] = useState('');
+  // لوحة «أجوبتك» أثناء الإقرار
+  const [answers, setAnswers] = useState(false);
   const coolT = useRef(0);
   const changed = useRef(false);
   const go = (i: number) => {
@@ -719,19 +721,7 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
             // أجوبتك (بطلب ZEKRI يوم 10/11/2026): التراجع عن أي إقرار بعد الانتهاء دون التنقل عميلاً بعد عميل.
             // لمس الاسم يفتح العميل، و«تراجع» يعيده دون جواب ويفتحه ليجيب من جديد
             <Block title="أجوبتك">
-              <ul className="m-0 list-none p-0">
-                {rows.map((x, i) => (
-                  <li key={'ans-' + x.id} className="flex items-center justify-between gap-2 border-b border-line py-1 last:border-b-0">
-                    <button type="button" className="ack-row flex min-h-11 min-w-0 flex-1 flex-col items-start justify-center bg-transparent p-0 text-start text-foreground" onClick={() => go(i)}>
-                      <Ltr className="block w-full truncate text-base font-semibold">{x.name}</Ltr>
-                      <span className={cn('text-sm', x.answer === 'dispute' ? 'font-semibold text-warning' : 'text-muted')}>
-                        {x.answer === 'ok' ? 'أقررت' : 'اعترضت'} · <Amount value={x.balance} />
-                      </span>
-                    </button>
-                    {x.answer === 'ok' ? <Button variant="ghost" className="ack-list-undo -me-2 flex-none px-2 font-semibold underline underline-offset-4" onClick={() => undo(x.id)}>تراجع</Button> : null}
-                  </li>
-                ))}
-              </ul>
+              <AnswersList rows={rows} onGo={go} onUndo={undo} />
             </Block>
           ) : null}
         </div>
@@ -762,7 +752,13 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
         </div>
       </Slab>
 
-      {undoLine ? <div className="mt-2">{undoLine}</div> : null}
+      {undoLine ? <div className="mt-2">{undoLine}</div> : done ? (
+        // أجوبة سابقة (من هذه الجلسة أو قبلها): تُفتح في لوحة فيها التراجع، دون انتظار نهاية الإقرار
+        <button type="button" className="ack-answers mt-2 flex min-h-11 w-full items-center justify-between gap-3 border-b border-line text-start text-sm" onClick={() => setAnswers(true)}>
+          <span>أجبت عن {customersWord(done)}</span>
+          <span className="flex items-center gap-1 font-semibold underline underline-offset-4">أجوبتك والتراجع<ChevronLeft aria-hidden className="size-4 flex-none" /></span>
+        </button>
+      ) : null}
       {/* مفتاح مختلف عن مفتاح اللوحة السفلية أدناه: مفتاحان متطابقان بين الإخوة يُبقيان محتوى العميل السابق */}
       <div key={'body-' + r.id} className="mt-4 flex animate-fade-in flex-col gap-3">
         <dl className="m-0 flex flex-col">
@@ -817,8 +813,33 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
         )}
       </div>
 
+      <Sheet open={answers} onClose={() => setAnswers(false)} title="أجوبتك" action={<Button onClick={() => setAnswers(false)}>إغلاق</Button>}>
+        <div className="px-4 pb-2">
+          <AnswersList rows={rows} onGo={(i) => { setAnswers(false); go(i); }} onUndo={(id) => { setAnswers(false); undo(id); }} />
+        </div>
+      </Sheet>
       <DisputeSheet key={'sheet-' + r.id} open={dispute} row={r} cycle={list.cycle} rep={list.rep || ''} takenAt={list.taken_at} onClose={() => setDispute(false)} onSaved={disputed} />
     </>
+  );
+}
+
+// أجوبة المندوب في الدورة: لمس الاسم يفتح العميل، و«تراجع» يعيد الإقرار دون جواب.
+// في نهاية الإقرار، وفي لوحة «أجوبتك» أثناءه (بطلب ZEKRI يوم 15/11/2026: الإقرار من جلسة سابقة لم يكن له تراجع حتى النهاية)
+function AnswersList({ rows, onGo, onUndo }: { rows: AckRow[]; onGo: (i: number) => void; onUndo: (id: string) => void }) {
+  return (
+    <ul className="m-0 list-none p-0">
+      {rows.map((x, i) => (x.answer ? (
+        <li key={'ans-' + x.id} className="flex items-center justify-between gap-2 border-b border-line py-1 last:border-b-0">
+          <button type="button" className="ack-row flex min-h-11 min-w-0 flex-1 flex-col items-start justify-center bg-transparent p-0 text-start text-foreground" onClick={() => onGo(i)}>
+            <Ltr className="block w-full truncate text-base font-semibold">{x.name}</Ltr>
+            <span className={cn('text-sm', x.answer === 'dispute' ? 'font-semibold text-warning' : 'text-muted')}>
+              {x.answer === 'ok' ? 'أقررت' : 'اعترضت'} · <Amount value={x.balance} />
+            </span>
+          </button>
+          {x.answer === 'ok' ? <Button variant="ghost" className="ack-list-undo -me-2 flex-none px-2 font-semibold underline underline-offset-4" onClick={() => onUndo(x.id)}>تراجع</Button> : null}
+        </li>
+      ) : null))}
+    </ul>
   );
 }
 
