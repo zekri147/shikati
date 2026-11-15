@@ -273,6 +273,21 @@ export async function ackAdminResolve(req: Request, env: Env, user: User): Promi
   return json({ ok: true });
 }
 
+// تراجع المدير عن إقرار مندوب (15/11/2026، بطلب ZEKRI): في الدورة الحالية وحدها، وللإقرار وحده.
+// يعود العميل «لم يُجب»، فيعود القفل على المندوب حتى يجيب من جديد. في التطبيق وحده، لا شيء في زوهو.
+export async function ackAdminUndo(req: Request, env: Env, user: User): Promise<Response> {
+  const { cycle, id } = adminTarget(await readJson(req));
+  if (cycle !== cycleOf(todayAlgiers())) throw new HttpError(409, 'التراجع في الدورة الحالية فقط. هذه الدورة انتهت.');
+  const row = await env.DB.prepare('SELECT rep, customer_name FROM debt_snapshot WHERE cycle = ? AND customer_id = ?').bind(cycle, id).first<{ rep: string; customer_name: string }>();
+  const r = await env.DB.prepare(
+    "UPDATE debt_snapshot SET answer = NULL, reason = NULL, note = '', user_id = NULL, username = NULL, answered_at = NULL, zoho_state = 'skip', zoho_error = NULL "
+    + "WHERE cycle = ? AND customer_id = ? AND answer = 'ok'",
+  ).bind(cycle, id).run();
+  if (!r.meta.changes) throw new HttpError(409, 'لا إقرار تتراجع عنه لهذا العميل.');
+  await audit(env, user, 'coll.ack.undo', 'ok', row?.customer_name || id, `admin ${row?.rep || ''}`.trim());
+  return json({ ok: true });
+}
+
 // «عولج»: المدير يغلق الاعتراض بعد تصحيحه، في التطبيق وحده
 export async function ackAdminClose(req: Request, env: Env, user: User): Promise<Response> {
   const { cycle, id } = adminTarget(await readJson(req));

@@ -28,6 +28,7 @@ import type { ChequesData } from '@/features/cheques/types';
 import { Block, KV } from '@/features/cheques/pickers';
 import { loadAckStatus, peekAfterAck, setAckCounts, takeAfterAck } from '@/lib/ack';
 import { registerFor } from '@/features/cheques/register';
+import { AdminUndoAck } from './undo-ack';
 
 const STALE_MS = 5 * 60_000;
 const PAGE = 40;
@@ -328,7 +329,11 @@ function AckBlock({ data, rep, cat, setCat, onOpen }: { data: CollData; list: Cu
     if (!prog.length && !unsent && !ad?.history.length) return null;
     const finished = prog.filter((p) => p.done === p.total).length;
     const disputes = ad?.disputes.length || 0;
+    // إقراري أنا (بطلب ZEKRI يوم 15/11/2026): المدير صاحب رمز مندوب يصل إلى شاشة إقراره وأجوبته من هنا،
+    // كما يصل المندوب، فيكمل أو يتراجع عن أي إقرار. دون قفل عليه
+    const mine = ak.can_ack && data.own_rep ? prog.find((p) => p.rep === data.own_rep) : undefined;
     return (
+      <>
       <button type="button" onClick={onOpen} aria-haspopup="dialog"
         className="ack-btn mt-3 flex min-h-11 w-full items-center gap-2 border-b border-line py-2 text-start active:bg-surface-alt">
         <span className="min-w-0 flex-1">
@@ -339,6 +344,12 @@ function AckBlock({ data, rep, cat, setCat, onOpen }: { data: CollData; list: Cu
         </span>
         <ChevronLeft aria-hidden className="size-4.5 flex-none text-soft" />
       </button>
+      {mine ? (
+        <Button asChild className="ack-self mt-2 w-full">
+          <a href="#coll/ack">{mine.done < mine.total ? `أكمل إقراري: بقي ${customersWord(mine.total - mine.done)}` : 'راجع أجوبتي في الإقرار'}</a>
+        </Button>
+      ) : null}
+      </>
     );
   }
   const items = Object.values(ak.items);
@@ -911,7 +922,8 @@ function CustomerPage({ data, id, me, onBack, onChanged }: { data: CollData | nu
               : a.answer === 'ok' ? (
                 <div className="flex flex-col gap-2">
                   <Note plain className="text-foreground">{`${mine ? 'أقررت' : 'أقرّ ' + (a.by || '')} بدينه في صورة يوم ${day}، ${a.at ? timeOf(a.at) : ''}.`.replace('  ', ' ')}</Note>
-                  {mine ? <Button className="w-full" disabled={undoing} onClick={undoAck}>{undoing ? 'جارٍ التراجع…' : 'تراجع عن إقرارك'}</Button> : null}
+                  {mine ? <Button className="w-full" disabled={undoing} onClick={undoAck}>{undoing ? 'جارٍ التراجع…' : 'تراجع عن إقرارك'}</Button>
+                    : data.is_admin && ak ? <AdminUndoAck cycle={ak.cycle} id={c.id} name={c.name} rep={c.owner} onDone={onChanged} /> : null}
                 </div>
               ) : (
                 <Block title={`اعتراض ${mine ? '' : (a.by || '') + ' '}${a.at ? timeOf(a.at) : ''}`.replace('  ', ' ')} className="border-s-3 border-s-warning ps-3">
