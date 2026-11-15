@@ -25,11 +25,11 @@ import type { Cheque, Line } from './types';
 
 const LOCK_TEXT: Record<string, string> = {
   pending: 'الإيداع قيد التنفيذ الآن', done: 'سجّل التطبيق إيداعه',
-  unknown: 'بانتظار التحقق: انقطع الرد أثناء إيداعه أو التراجع عنه', failed: 'محاولة إيداع لم تتم',
+  unknown: 'بانتظار التحقق', failed: 'محاولة إيداع لم تتم',
 };
 const ENDORSE_TEXT: Record<string, string> = {
   pending: 'التظهير قيد التنفيذ الآن', done: 'ظُهّر من التطبيق للمورد',
-  unknown: 'بانتظار التحقق: انقطع الرد بعد إرسال دفعة المورد', failed: 'محاولة تظهير لم تتم',
+  unknown: 'بانتظار التحقق', failed: 'محاولة تظهير لم تتم',
 };
 const ACTION_TEXT: Record<string, string> = {
   deposit: 'إيداع', 'deposit.release': 'تحرير القفل', 'deposit.reverted': 'إلغاء الإيداع في زوهو', register: 'تسجيل الشيك',
@@ -102,17 +102,17 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, onDeposi
       </Slab>
       <div className="mt-4 flex flex-col gap-3" aria-live="polite">
         {editing && d.edit ? <EditPanel d={d} onSaved={reload} onCancel={() => setEditing(false)} /> : null}
-        {en && en.state === 'unknown' ? <Note tone="alert">بانتظار التحقق: انقطع الرد بعد إرسال دفعة المورد لهذا الشيك. تحقق في زوهو قبل أي محاولة جديدة.</Note> : null}
+        {en && en.state === 'unknown' ? <Note tone="alert">بانتظار التحقق: انقطع الرد بعد إرسال دفعة المورد. تحقق في زوهو قبل أي محاولة جديدة.</Note> : null}
         {d.can_endorse ? <EndorsePanel d={d} reload={reload} innerRef={endorseRef} /> : null}
-        {d.wrong_account ? <Note tone="warn">{isAdmin ? d.wrong_account + '.' : 'سُجّل هذا الشيك في حساب خطأ في زوهو. أبلغ المدير ليصحّحه قبل إيداعه.'}</Note> : null}
+        {d.wrong_account ? <Note tone="warn">{isAdmin ? d.wrong_account + '.' : 'سُجّل هذا الشيك في حساب خطأ في زوهو. أخبر المدير ليصحّحه قبل إيداعه.'}</Note> : null}
         {d.box_alert ? <Note tone="alert">صندوق غير مطابق: {d.box_alert}</Note> : null}
-        {lock && lock.state === 'unknown' ? <Note tone="alert">بانتظار التحقق: انقطع الرد أثناء إيداع هذا الشيك أو التراجع عن إيداعه. تحقق في صفحة الإدارة قبل أي محاولة جديدة.</Note> : null}
+        {lock && lock.state === 'unknown' ? <Note tone="alert">{'بانتظار التحقق: ' + (isAdmin ? 'انقطع الرد أثناء إيداعه أو التراجع عنه. تحقق في زوهو، ثم حرّر القفل من صفحة الإدارة.' : 'انقطع الرد أثناء إيداعه أو التراجع عنه، فلا نعرف النتيجة. لا تعد المحاولة، وأخبر المدير.')}</Note> : null}
 
         {/* الصورة أولاً وكبيرة: هي الدليل الذي يطابقه الموظف مع الشيك في يده. تُكبَّر باللمس */}
         {d.has_image ? (
           <figure className="m-0">
             <ChequeImage id={d.id} hasImage v={d.edit ? d.edit.version : ''} size="big" />
-            <figcaption className="mt-1 text-sm text-muted">اضغط الصورة لتكبيرها{d.captured_at ? <> · صُوّرت <Num>{d.captured_at}</Num></> : null}</figcaption>
+            <figcaption className="mt-1 text-sm text-muted">المس الصورة لتكبيرها{d.captured_at ? <> · صُوّرت <Num>{d.captured_at}</Num></> : null}</figcaption>
           </figure>
         ) : d.drive_url ? <a className="flex min-h-11 items-center justify-center bg-surface-alt p-2 text-center text-sm font-semibold text-danger no-underline" href={d.drive_url} target="_blank" rel="noopener noreferrer">الصورة في غوغل درايف</a>
           : <div className="flex min-h-11 items-center justify-center bg-surface-alt p-2 text-center text-sm text-soft">لا توجد صورة لهذا الشيك</div>}

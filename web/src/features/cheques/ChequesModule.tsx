@@ -51,16 +51,16 @@ type Tier = 'urgent' | 'follow' | 'info';
 // admin: المدير يرى التفصيل كما في زوهو، والموظف يرى جملة تقول ما يفعل
 const REASONS: Record<AlertKind, { rank: number; tier: Tier; text: (t: string | undefined, admin: boolean) => string | null; quiet?: boolean }> = {
   unknown_lock: { rank: 0, tier: 'urgent', text: (_t, admin) => admin
-    ? 'بانتظار التحقق: انقطع الرد أثناء إيداعه أو التراجع عن إيداعه. تحقق في زوهو (السبب في صفحة الإدارة)، ثم حرّر القفل.'
-    : 'انقطع الرد أثناء إيداعه أو التراجع عنه، فلا نعرف النتيجة. لا تعد المحاولة، وأبلغ المدير.' },
+    ? 'انقطع الرد أثناء إيداعه أو التراجع عنه. تحقق في زوهو، ثم حرّر القفل من صفحة الإدارة.'
+    : 'انقطع الرد أثناء إيداعه أو التراجع عنه، فلا نعرف النتيجة. لا تعد المحاولة، وأخبر المدير.' },
   rejected: { rank: 1, tier: 'urgent', text: () => 'تابعه مع العميل.' },
   endorse_incomplete: { rank: 2, tier: 'urgent', text: () => 'تظهير غير مكتمل: لم تُنشأ دفعة المورد. افتح الشيك وأتمّ التظهير.' },
   // سُلّم إليك شيك: أكّد استلامه من صفحته (العهدة)
   handover: { rank: 2.9, tier: 'follow', text: (t) => `سلّمه إليك ${t || 'زميل'}. افتح الشيك وأكّد استلامه أو ارفضه.` },
   collect_late: { rank: 3, tier: 'follow', text: () => null },
   late: { rank: 4, tier: 'follow', text: () => null },
-  wrong_account: { rank: 5, tier: 'follow', text: (t, admin) => admin && t ? t + '.' : 'سُجّل في حساب خطأ في زوهو. أبلغ المدير ليصحّحه.' },
-  box: { rank: 6, tier: 'follow', text: (t, admin) => admin && t ? 'الصندوق غير مطابق: ' + t.replace(/\s*\|\s*/g, ' · ') : 'الصندوق المسجّل لا يطابق من استلم الشيك. أبلغ المدير.' },
+  wrong_account: { rank: 5, tier: 'follow', text: (t, admin) => admin && t ? t + '.' : 'سُجّل في حساب خطأ في زوهو. أخبر المدير ليصحّحه.' },
+  box: { rank: 6, tier: 'follow', text: (t, admin) => admin && t ? 'الصندوق غير مطابق: ' + t.replace(/\s*\|\s*/g, ' · ') : 'الصندوق المسجّل لا يطابق من استلم الشيك. أخبر المدير.' },
   fiscal: { rank: 7, tier: 'info', text: (t) => 'الملف الجبائي للعميل ناقص' + (t ? ': ' + t : '.'), quiet: true },
 };
 // التأخر بعد 14 يوماً عاجل، كما يرسمه شريط البطاقة الأحمر
@@ -108,7 +108,7 @@ const whyNotHeld = (c: Cheque) => {
   const k = c.custody;
   if (k?.incoming) return 'سُلّم إليك: أكّد استلامه من صفحته، ثم أودِعه.';
   if (k?.outgoing) return 'سلّمته وينتظر تأكيد المستلم، فلا تودعه.';
-  if (!k?.holder) return 'عهدته غير محددة: إن كان معك، افتحه واضغط «هو في عهدتي».';
+  if (!k?.holder) return 'عهدته غير محددة: إن كان معك، افتحه والمس «هو في عهدتي».';
   return `في عهدة ${k.holder}: يودعه هو، أو يسلّمه إليك.`;
 };
 

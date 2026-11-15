@@ -108,7 +108,7 @@ export async function handleDeposit(req: Request, env: Env, user: User): Promise
     const k = await env.DB.prepare('SELECT holder_id, to_id FROM custody WHERE payment_id = ?').bind(pid).first<{ holder_id: number | null; to_id: number | null }>();
     if (!k || k.holder_id !== user.id) {
       await audit(env, user, 'deposit', 'denied', pid, 'not_holder');
-      throw new HttpError(403, 'هذا الشيك ليس في عهدتك، فلا تودعه. إن كان معك وعهدته غير محددة، افتحه واضغط «هو في عهدتي»، وإلا اطلب من حامله أن يسلّمه إليك.');
+      throw new HttpError(403, 'هذا الشيك ليس في عهدتك، فلا تودعه. إن كان معك وعهدته غير محددة، افتحه والمس «هو في عهدتي»، وإلا اطلب من حامله أن يسلّمه إليك.');
     }
     if (k.to_id) {
       await audit(env, user, 'deposit', 'denied', pid, 'handover_pending');

@@ -66,7 +66,7 @@ export function PartyPicker({ kind, value, onChange, autoFocus, suggest }: {
                 ))}
               </ul>
             </>
-          ) : <p className="text-sm text-muted">{isVendor ? 'لم أجد مورداً بهذا الاسم في زوهو. ابحث بجزء آخر من اسمه.' : 'لم أجد عميلاً بهذا الاسم في زوهو. ابحث بجزء آخر من اسمه.'}</p>}
+          ) : <p className="text-sm text-muted">{isVendor ? 'لا مورد بهذا الاسم في زوهو. ابحث بجزء آخر من اسمه.' : 'لا عميل بهذا الاسم في زوهو. ابحث بجزء آخر من اسمه.'}</p>}
         </div>
       ) : null}
       {list ? (
