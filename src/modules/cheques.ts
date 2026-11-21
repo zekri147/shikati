@@ -10,6 +10,7 @@ import { ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, CACHE_KEY, DEST, STATUS, tod
 import { handleBillsPreview, handleEndorse, searchVendors } from './endorse';
 import { handleOutCheque } from './outcheque';
 import { handleUndo } from './undo';
+import { handleTransfer, handleTransferUndo, listTransfers } from './transfer';
 import { handleEdit, handleEditPreview } from './edit';
 import { custodyMap, custodyPeople, handleCustody, type CustodyInfo } from './custody';
 import { chequeNumber, wrongAccountText } from './fields';
@@ -315,6 +316,10 @@ export const chequesModule: AppModule = {
     if (req.method === 'POST' && subpath === '/register/preview') return handlePreview(req, env, user);
     if (req.method === 'POST' && subpath === '/register') return handleRegister(req, env, user);
     if (req.method === 'POST' && subpath === '/register/out') return handleOutCheque(req, env, user);
+    // التحويل البنكي من عميل: في حساب البنك مباشرة، دون حوزة ولا إيداع
+    if (req.method === 'POST' && subpath === '/register/transfer') return handleTransfer(req, env, user);
+    if (req.method === 'GET' && subpath === '/transfers') return listTransfers(env, user);
+    if (req.method === 'POST' && subpath === '/transfers/undo') return handleTransferUndo(req, env, user);
     const img = subpath.match(/^\/image\/(\d{10,25})$/);
     if (req.method === 'GET' && img) return handleChequeImage(env, img[1]);
     const rot = subpath.match(/^\/image\/(\d{10,25})\/rotation$/);

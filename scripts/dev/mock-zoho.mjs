@@ -27,6 +27,9 @@
 //
 // تسجيل شيك جديد (POST /customerpayments) حسب آخر رقم في رقم الشيك:
 //   4 ينقطع الرد بعد الإرسال    7 زوهو يرفض التسجيل    غير ذلك: نجاح
+// والتحويل البنكي (payment_mode «Bank Transfer») حسب آخر حرف في المرجع:
+//   4 ينقطع الرد بعد الإرسال    7 زوهو يرفض التسجيل    غير ذلك: نجاح
+//   وGET /customerpayments يحترم filter_by (الشيكات أو التحويلات).
 // قسم التحصيل: GET /contacts دون بحث يعيد العملاء المدينين بحقل «Owner» (cf_owner)،
 // وGET /invoices?status=unpaid يعيد كل الفواتير غير المسدّدة. المندوبون: AMINE وZAKARIA وSMAIL،
 // وعميل بلا مندوب، وعميل برصيد افتتاحي فقط، وآخر بفواتير ورصيد افتتاحي معاً، وSARL BATIMETAL له شيكات ودين معاً.
@@ -47,6 +50,9 @@ const pushes = [];
 const RELAY_KEY = 'k'.repeat(40);
 const TOKEN = 'T';
 const CIH = '7418406000000000358';
+const ACCOUNT_NAMES = {
+  [CIH]: 'Cheques in Hand', '7418406000000261404': 'Bank – AGB', '7418406000000903878': 'Bank Ammar Rostomia', '7418406000000261410': 'Bank – CPA',
+};
 const JPG = fs.readFileSync(new URL('./cheque-sample.jpg', import.meta.url));
 
 const CUSTOMERS = ['SARL COMINOX', 'EURL HOUSE FIX', 'SARL WELD FIXE', 'SARL BATIMETAL', 'EURL SOUDURE PLUS', 'SARL INOX ALGER', 'SARL TECHNO FER', 'EURL AL AMANE'];
@@ -311,14 +317,18 @@ http.createServer((req, res) => {
       const cf = Object.fromEntries(j.custom_fields.map((f) => [f.api_name, f.value]));
       log.push(`CREATE ${body}`);
       const chq = String(cf.cf_n_cheque || '');
+      // التحويل البنكي: حسب آخر حرف في المرجع، 4 ينقطع الرد بعد الإرسال، و7 زوهو يرفض
+      const transfer = j.payment_mode === 'Bank Transfer';
+      const ref = String(j.reference_number || '');
+      if (transfer && ref.endsWith('7')) return send({ code: 9, message: 'Payment Mode: قاعدة تحقق (تجربة): الحساب لا يطابق الوجهة' }, 400);
       if (!/^\d{7}$/.test(chq)) return send({ code: 9, message: 'Payment Mode: رقم الشيك إجباري: اكتب رقم الشيك (7 أرقام) قبل حفظ الدفعة' }, 400);
-      if (chq.endsWith('7')) return send({ code: 9, message: 'Payment Mode: الدفعة بشيك: يجب اختيار وجهة الشيك في حقل Déposé vers' }, 400);
+      if (!transfer && chq.endsWith('7')) return send({ code: 9, message: 'Payment Mode: الدفعة بشيك: يجب اختيار وجهة الشيك في حقل Déposé vers' }, 400);
       const id = `74184000000${String(++newSeq).padStart(5, '0')}`;
       const contact = CONTACTS.find((c) => c.contact_id === j.customer_id);
       payments[id] = {
         payment_id: id, payment_number: `N${newSeq}`, customer_id: j.customer_id, customer_name: contact ? contact.contact_name : '?',
-        amount: j.amount, date: j.date, account_id: j.account_id, account_name: j.account_id === CIH ? 'Cheques in Hand' : 'Endorsed Cheques',
-        payment_mode: 'Check', location_name: j.location_id === '7418406000000093289' ? 'ALGER' : 'EL EULMA', location_id: j.location_id,
+        amount: j.amount, date: j.date, account_id: j.account_id, account_name: ACCOUNT_NAMES[j.account_id] || 'Endorsed Cheques',
+        payment_mode: j.payment_mode || 'Check', reference_number: j.reference_number || '', payment_refunds: [], location_name: j.location_id === '7418406000000093289' ? 'ALGER' : 'EL EULMA', location_id: j.location_id,
         currency_id: 'DZD1', created_by: 'ZEKRI', description: j.description,
         invoice_numbers: j.invoices.map((i) => i.invoice_id).join(','),
         invoices: j.invoices.map((i) => {
@@ -328,7 +338,7 @@ http.createServer((req, res) => {
         deposit_details: [], has_attachment: false, documents: [], last_modified_time: new Date().toISOString(),
         custom_field_hash: { ...cf, cf_023de7: '✔ كاملة', cf_a1dfce: `CHQ-${chq}`, cf_a1dfce_unformatted: `74184000008${String(newSeq).padStart(5, '0')}` },
       };
-      if (chq.endsWith('4')) { req.socket.destroy(); return; }
+      if (transfer ? ref.endsWith('4') : chq.endsWith('4')) { req.socket.destroy(); return; }
       return send({ code: 0, payment: { payment_id: id } });
     }
     if ((m = path.match(/^\/books\/v3\/customerpayments\/(\d+)\/attachment$/)) && req.method === 'POST') {
@@ -348,7 +358,10 @@ http.createServer((req, res) => {
 
     if (path === '/books/v3/customerpayments' && req.method === 'GET') {
       const cust = url.searchParams.get('customer_id');
-      const list = Object.values(payments).filter((p) => !cust || p.customer_id === cust).map((p) => ({ ...p, ...p.custom_field_hash }));
+      // طريقة الدفع كما في زوهو: الشيكات وحدها، أو التحويلات وحدها
+      const mode = { 'PaymentMode.Check': 'Check', 'PaymentMode.BankTransfer': 'Bank Transfer' }[url.searchParams.get('filter_by')];
+      const list = Object.values(payments).filter((p) => (!cust || p.customer_id === cust) && (!mode || (p.payment_mode || 'Check') === mode))
+        .map((p) => ({ ...p, ...p.custom_field_hash }));
       return send({ code: 0, customerpayments: list, page_context: { has_more_page: false } });
     }
     if ((m = path.match(/^\/books\/v3\/documents\/(D\d+)$/))) {
