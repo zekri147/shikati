@@ -1,6 +1,7 @@
 // تسجيل شيك جديد: صورة الشيك ← قراءة المبلغ والرقم بكلود ← اختيار العميل بالبحث ← دفعة في زوهو،
 // ومع وجهة «مورد آخر» دفعة مورد من حساب الشيكات المظهّرة.
 // وللمدير نوع ثانٍ «شيك منّا لمورد» (outcheque.tsx): دفعة مورد من حساب البنك.
+// ولكل من يسجّل «تحويل بنكي» (transfer.tsx): دفعة عميل في حساب البنك مباشرة، دون حوزة.
 // القراءة اقتراح فقط، ولا يُكتب شيء في زوهو قبل «تسجيل الشيك» في بطاقة التأكيد.
 import { useEffect, useRef, useState } from 'react';
 import { Check } from 'lucide-react';
@@ -22,6 +23,7 @@ import { rotateDataUrl, shrink } from './media';
 import { AllocList, Block, KV, PartyPicker, type Party, type Suggest } from './pickers';
 import { GroupField, PhotoButtons } from './edit';
 import { OutChequeForm } from './outcheque';
+import { TransferForm } from './transfer';
 import type { Line } from './types';
 
 export const LOC_FROM_LABEL: Record<string, string> = { 'الجزائر': 'ALGER', 'العلمة': 'EL EULMA' };
@@ -29,6 +31,8 @@ export type Options = {
   can_register: boolean; reader: boolean; destinations: string[]; locations: { key: string; label: string }[];
   // بنوك شيكات الشركة الصادرة: للمدير وحده، وإلا null
   out_banks: { key: string; label: string }[] | null;
+  // البنوك التي تستقبل التحويلات من العملاء
+  transfer_banks?: { key: string; label: string }[];
 };
 type Preview = { lines: Line[]; unused: number; vendor?: { lines: Line[]; unused: number } };
 
@@ -101,7 +105,7 @@ export function registerFor(p: Party) { preset = p; location.hash = '#cheques/ne
 export function RegisterPage({ onDone }: { onDone: (pid: string) => void }) {
   const [opts, setOpts] = useState<Options | null>(null);
   const [loadError, setLoadError] = useState('');
-  const [kind, setKind] = useState<'in' | 'out'>('in');
+  const [kind, setKind] = useState<'in' | 'out' | 'transfer'>('in');
   const [outKey, setOutKey] = useState(0);
   const [customer, setCustomer] = useState<Party | null>(() => { const p = preset; preset = null; return p; });
   const [suggest, setSuggest] = useState<Suggest | null>(null);
@@ -131,11 +135,21 @@ export function RegisterPage({ onDone }: { onDone: (pid: string) => void }) {
   if (!opts) return <SkeletonList className="mt-0" rows={4} />;
   if (!opts.can_register) return <Empty>ليست لديك صلاحية تسجيل الشيكات.</Empty>;
 
-  // نوع الشيك للمدير: من عميل (دفعة عميل) أو منّا لمورد (دفعة مورد من البنك). بيانات شيك العميل تبقى عند التبديل.
-  const kindSwitch = opts.out_banks ? (
-    <Segmented label="نوع الشيك" value={kind} onChange={setKind}
-      options={[{ value: 'in' as const, label: 'شيك من عميل' }, { value: 'out' as const, label: 'شيك منّا لمورد' }]} />
-  ) : null;
+  // ماذا يُسجَّل: شيك من عميل، أو تحويل بنكي من عميل، وللمدير شيك منّا لمورد (دفعة مورد من البنك).
+  // بيانات شيك العميل تبقى عند التبديل، والعميل والموقع مشتركان بين الشيك والتحويل.
+  const kinds: { value: 'in' | 'out' | 'transfer'; label: string }[] = [{ value: 'in', label: opts.out_banks ? 'شيك عميل' : 'شيك من عميل' }];
+  if (opts.transfer_banks?.length) kinds.push({ value: 'transfer', label: 'تحويل بنكي' });
+  if (opts.out_banks) kinds.push({ value: 'out', label: 'شيك لمورد' });
+  const kindSwitch = kinds.length > 1 ? <Segmented label="نوع التسجيل" value={kind} onChange={setKind} options={kinds} /> : null;
+  if (kind === 'transfer' && opts.transfer_banks?.length) {
+    return (
+      <div className="flex flex-col gap-4">
+        {kindSwitch}
+        <TransferForm opts={opts} customer={customer} setCustomer={setCustomer} location={location} setLocation={setLocation}
+          onDone={() => scrollTo({ top: 0 })} />
+      </div>
+    );
+  }
   if (kind === 'out' && opts.out_banks) {
     return (
       <div className="flex flex-col gap-4">
