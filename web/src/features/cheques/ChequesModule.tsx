@@ -25,6 +25,7 @@ import { ChequeImage } from './media';
 import { DetailPage } from './detail';
 import { RegisterPage } from './register';
 import { DepositDialog } from './deposit';
+import { HandoverDialog, IncomingSection } from './custody';
 import { byCustody, CUSTODY_FILTERS } from './custody';
 import type { AlertKind, Cheque, ChequesData } from './types';
 
@@ -55,8 +56,8 @@ const REASONS: Record<AlertKind, { rank: number; tier: Tier; text: (t: string | 
     : 'انقطع الرد أثناء إيداعه أو التراجع عنه، فلا نعرف النتيجة. لا تعد المحاولة، وأبلغ المدير.' },
   rejected: { rank: 1, tier: 'urgent', text: () => 'تابعه مع العميل.' },
   endorse_incomplete: { rank: 2, tier: 'urgent', text: () => 'تظهير غير مكتمل: لم تُنشأ دفعة المورد. افتح الشيك وأتمّ التظهير.' },
-  // سُلّم إليك شيك: أكّد استلامه من صفحته (العهدة)
-  handover: { rank: 2.9, tier: 'follow', text: (t) => `سلّمه إليك ${t || 'زميل'}. افتح الشيك وأكّد استلامه أو ارفضه.` },
+  // سُلّم إليك شيك: له قسم مستقل في أعلى التنبيهات (IncomingSection)، فلا يتكرر في المجموعات. يُحسب في عدد التبويب
+  handover: { rank: 2.9, tier: 'follow', text: (t) => `سلّمه إليك ${t || 'زميل'}. أكّد استلامه أو ارفضه.` },
   collect_late: { rank: 3, tier: 'follow', text: () => null },
   late: { rank: 4, tier: 'follow', text: () => null },
   wrong_account: { rank: 5, tier: 'follow', text: (t, admin) => admin && t ? t + '.' : 'سُجّل في حساب خطأ في زوهو. أبلغ المدير ليصحّحه.' },
@@ -104,10 +105,16 @@ const byStatus = (c: Cheque, s: string) => !s || (s === 'other' ? !MAIN_STATUSES
 const learned = () => loadKey(HINT_KEY) === '1';
 // المندوب يودع ما في عهدته وحده (بطلب ZEKRI يوم 9/11/2026)، والخادم يرفض غيره. المدير يودع أي شيك
 const heldByMe = (c: Cheque) => !!c.custody?.mine && !c.custody.outgoing;
+const isRost = (c: Cheque | undefined) => c?.destination === 'ROSTOMIA';
+// تسليم لم يُؤكَّد: الشيك مقفل على الجميع، المدير أيضاً (بطلب ZEKRI يوم 23/11/2026)
+const inTransit = (c: Cheque) => !!c.custody?.to;
+// يُحدَّد للإيداع وللتسليم إلى زميل: ما في عهدتي، وللمدير أي شيك، دون تسليم معلّق
+const canPick = (c: Cheque, isAdmin: boolean) => !inTransit(c) && (isAdmin || heldByMe(c));
 const whyNotHeld = (c: Cheque) => {
   const k = c.custody;
-  if (k?.incoming) return 'سُلّم إليك: أكّد استلامه من صفحته، ثم أودِعه.';
+  if (k?.incoming) return 'سُلّم إليك: أكّد استلامه من «التنبيهات»، ثم أودِعه.';
   if (k?.outgoing) return 'سلّمته وينتظر تأكيد المستلم، فلا تودعه.';
+  if (k?.to) return `سُلّم إلى ${k.to} وينتظر تأكيده، فلا يُودَع قبل ذلك.`;
   if (!k?.holder) return 'عهدته غير محددة: إن كان معك، افتحه واضغط «هو في عهدتي».';
   return `في عهدة ${k.holder}: يودعه هو، أو يسلّمه إليك.`;
 };
@@ -138,6 +145,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   const [scopeSheet, setScopeSheet] = useState(false);
   const [custodySheet, setCustodySheet] = useState(false);
   const [depositing, setDepositing] = useState<Cheque[] | null>(null);
+  const [handing, setHanding] = useState<Cheque[] | null>(null);
   // بعد الإيداع: الشيكات المودَعة تنطوي (leaving) ثم تُخفى (gone) حتى تصل البيانات الجديدة
   const [leaving, setLeaving] = useState<Set<string>>(new Set());
   const [gone, setGone] = useState<Set<string>>(new Set());
@@ -207,7 +215,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   // إزالة ما لم يعد قابلاً للإيداع من التحديد
   useEffect(() => {
     if (!data) return;
-    const available = new Set(data.agb_in_hand.items.filter((c) => !c.lock).map((c) => c.id));
+    const available = new Set([...data.agb_in_hand.items, ...data.rostomia_in_hand.items].filter((c) => !c.lock && canPick(c, isAdmin)).map((c) => c.id));
     setSelected((s) => {
       const n = new Map([...s].filter(([id]) => available.has(id)));
       return n.size === s.size ? s : n;
@@ -232,7 +240,19 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   const selItems = route.view === 'deposit' ? [...selected.values()] : [];
   const hint = route.view === 'deposit' && !selItems.length && !!data && data.can_deposit && !learned() && data.agb_in_hand.items.some((c) => !c.lock);
   const barShown = selItems.length > 0 || hint;
-  useFixedBottom(selItems.length ? 68 : 44, barShown);
+  const selRost = selItems.length > 0 && selItems.every(isRost);
+  const selMixed = selItems.some(isRost) && !selRost;
+  // شريط التحديد صفّان: المحدد وإلغاؤه، ثم «أودعت» و«سلّمت إلى زميل»
+  useFixedBottom(selItems.length ? 116 : 44, barShown);
+
+  async function afterHandover(r: { done: string[]; to: string }) {
+    dialogRef.current = false;
+    setHanding(null);
+    if (!r.done.length) return;
+    setSelected(new Map());
+    toast(r.done.length === 1 ? `سُلّم الشيك إلى ${r.to}، وينتظر تأكيده.` : `سُلّمت ${chequeWord(r.done.length)} إلى ${r.to}، وتنتظر تأكيده.`);
+    await load(true);
+  }
 
   async function afterDeposit(r: { done: Cheque[]; failed: Cheque[]; attempted: boolean }) {
     dialogRef.current = false;
@@ -246,7 +266,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
       setLeaving(ids);
       setTimeout(() => { setGone(ids); setLeaving(new Set()); }, 320);
     }
-    if (r.done.length && !r.failed.length) toast(`تم إيداع ${chequeWord(r.done.length, true)} · ${fmtAmount(sum(r.done))}`);
+    if (r.done.length && !r.failed.length) toast(isRost(r.done[0]) ? `سُجّل تسليم ${chequeWord(r.done.length, true)} للرستمية · ${fmtAmount(sum(r.done))}` : `تم إيداع ${chequeWord(r.done.length, true)} · ${fmtAmount(sum(r.done))}`);
     else if (r.done.length) toast(`أُودع ${chequeWord(r.done.length)}، وبقي ${chequeWord(r.failed.length)} دون إيداع`, 'warn');
     else toast('لم يُسجَّل أي إيداع. راجع الرسائل.', 'err');
     await load(true);
@@ -265,7 +285,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     // العهدة تصفّي ما في الحوزة وحده
     const held = (items: Cheque[]) => pick(items).filter((c) => byCustody(c.custody, custody));
     const agb = held(data.agb_in_hand.items).filter((c) => !gone.has(c.id));
-    const rost = held(data.rostomia_in_hand.items);
+    const rost = held(data.rostomia_in_hand.items).filter((c) => !gone.has(c.id));
     const noDest = held(data.no_destination.items);
     const waiting = [...agb, ...rost, ...noDest];
     // ما أُودع اليوم: من تاريخ الإيداع في زوهو، فيشمل ما أودعته دالة رسائل البنك أيضاً
@@ -302,9 +322,9 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
           {agb.length ? (
             <CardList>
               {agb.map((c) => {
-                const mayDeposit = data.can_deposit && (isAdmin || heldByMe(c));
-                return <ChequeCard key={c.id} c={c} o={{ ...opts, selectable: mayDeposit, link: !mayDeposit, selected: selected.has(c.id), leaving: leaving.has(c.id),
-                  note: data.can_deposit && !mayDeposit ? whyNotHeld(c) : undefined }} />;
+                const may = canPick(c, isAdmin);
+                return <ChequeCard key={c.id} c={c} o={{ ...opts, selectable: may, link: !may, selected: selected.has(c.id), leaving: leaving.has(c.id),
+                  note: !may ? whyNotHeld(c) : undefined }} />;
               })}
             </CardList>
           ) : <Empty>{q || loc || custody ? 'لا شيك يطابق البحث أو التصفية.' : 'لا شيكات تنتظر الإيداع في بنك AGB.'}</Empty>}
@@ -314,8 +334,15 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
             open={openFold('rejected', rejected.length > 0)} onOpenChange={setFold('rejected')} /> : null}
           {noDest.length ? <ChequeSection title="في الحوزة والوجهة غير محددة" items={noDest} opts={opts} collapsible noteTone="warn"
             note="لا تأخذها إلى البنك قبل أن يحدد المدير وجهتها." open={openFold('nodest', noDest.length > 0)} onOpenChange={setFold('nodest')} /> : null}
-          <ChequeSection title="لبنك الرستمية" items={rost} opts={opts} collapsible note="إيداعها في الرستمية لا يُسجَّل من التطبيق بعد. القائمة للاطلاع فقط."
-            open={openFold('rost', rost.length > 0)} onOpenChange={setFold('rost')} />
+          {/* الرستمية: إيداعها تسليمها إلى عمار أو سمير، يسجّله حامل الشيك وحده، المدير أيضاً */}
+          <ChequeSection title="للرستمية" items={rost} opts={opts} collapsible
+            note={data.can_deposit ? 'إيداعها تسليمها إلى عمار أو سمير. المس ما سلّمته منها، ثم «سلّمت المحدد».' : 'إيداعها تسليمها إلى عمار أو سمير.'}
+            optsFor={(c) => {
+              // تسليم الرستمية لحامل الشيك وحده، والتسليم إلى زميل للمدير أيضاً: المدير يحدد أي شيك، والخادم يرفض الرستمية لغير الحامل
+              const may = canPick(c, isAdmin);
+              return { selectable: may, link: !may, selected: selected.has(c.id), leaving: leaving.has(c.id), note: !may ? whyNotHeld(c) : undefined };
+            }}
+            open={q ? rost.length > 0 : open.rost ?? rost.some(heldByMe)} onOpenChange={setFold('rost')} />
           <ChequeSection title="في بنك AGB بانتظار التحصيل" items={inBank} opts={opts} collapsible
             open={openFold('pending', inBank.length > 0)} onOpenChange={setFold('pending')} />
           <ChequeSection title="آخر 5 شيكات أُودعت في بنك AGB" items={pick(data.agb_recent.items)} opts={{ ...opts, showStatus: true, noAge: true }} collapsible hideTotal
@@ -354,9 +381,11 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     statusText = alertCount ? <>تحتاج متابعة: <span className="font-semibold text-foreground">{chequeWord(alertCount)}</span></> : 'لا شيك يحتاج متابعة.';
     // كل شيك مرة واحدة: أسبابه كلها، وأعجلها يحدد مجموعته وترتيبه
     const groups = new Map<string, { c: Cheque; kinds: { kind: AlertKind; text?: string }[]; rank: number; tier: Tier }>();
+    // ما سُلّم إليّ وينتظر تأكيدي: قسم مستقل في الأعلى، دون تصفية الموقع أو البحث أو النطاق
+    const incoming = data.all.filter((c) => c.custody?.incoming);
     for (const x of data.alerts) {
       const c = byId.get(x.id);
-      if (!REASONS[x.kind] || !c || !matches(c) || !inScope(c)) continue;
+      if (x.kind === 'handover' || !REASONS[x.kind] || !c || !matches(c) || !inScope(c)) continue;
       const def = reasonOf(x.kind, c);
       const g = groups.get(x.id) || { c, kinds: [], rank: 99, tier: 'info' as Tier };
       if (!g.kinds.some((k) => k.kind === x.kind)) g.kinds.push({ kind: x.kind, text: x.text });
@@ -396,7 +425,9 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
         </section>
       );
     }).filter(Boolean);
-    body = parts.length ? <div>{parts}</div>
+    const inc = <IncomingSection items={incoming} onChanged={() => load(true)} />;
+    body = parts.length ? <div>{inc}{parts}</div>
+      : incoming.length ? inc
       : <div className="mt-4"><Empty>{q || loc ? 'لا تنبيه يطابق البحث أو الموقع.' : scope ? 'لا تنبيهات لعملائك ولا لشيكات عهدتك. لرؤية تنبيهات الشركة كلها اختر «كل الشركة».' : 'لا توجد تنبيهات. كل الشيكات في وضع سليم.'}</Empty></div>;
   }
 
@@ -436,7 +467,8 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
       ) : route.view === 'detail' && route.id ? (
         <DetailPage id={route.id} isAdmin={isAdmin} preview={data?.all.find((c) => c.id === route.id)}
           // «أودِع هذا الشيك» في صفحته: لشيك في الحوزة لبنك AGB، دون قفل، وبعد وصول البيانات الجديدة
-          depositable={fresh && data?.can_deposit ? data.agb_in_hand.items.find((c) => c.id === route.id && !c.lock && (isAdmin || heldByMe(c))) || null : null}
+          depositable={fresh && data?.can_deposit ? data.agb_in_hand.items.find((c) => c.id === route.id && !c.lock && canPick(c, isAdmin))
+            || data.rostomia_in_hand.items.find((c) => c.id === route.id && !c.lock && !inTransit(c) && heldByMe(c)) || null : null}
           onDeposited={() => load(true)} onBack={() => { if (fromList.current || cameFrom()) history.back(); else location.hash = '#cheques'; }} />
       ) : route.view === 'new' ? (
         <RegisterPage onDone={(pid) => { load(true); location.hash = '#cheques/c/' + pid; }} />
@@ -445,23 +477,35 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
       {/* شريط الإيداع فوق شريط التنقل: المحدد والمجموع والزران، أو شرح المس والإيداع قبل أول إيداع */}
       {barShown ? (
         selItems.length ? (
-          <div className="actionbar fixed inset-x-0 z-[21] flex animate-bar-in items-center justify-between gap-2 border-t-3 border-t-brand bg-bar px-4 py-2 text-white bottom-[calc(var(--nav-h,60px)+env(safe-area-inset-bottom))]">
-            <div className="flex flex-col text-sm leading-snug">
-              <span className="font-semibold">المحدد: {chequeWord(selItems.length)}</span>
-              <Amount value={sum(selItems)} className="font-display text-base font-semibold" />
+          <div className="actionbar fixed inset-x-0 z-[21] flex animate-bar-in flex-col gap-2 border-t-3 border-t-brand bg-bar px-4 py-2 text-white bottom-[calc(var(--nav-h,60px)+env(safe-area-inset-bottom))]">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-baseline gap-x-2 text-sm leading-snug">
+                <span className="font-semibold">المحدد: {chequeWord(selItems.length)}</span>
+                <Amount value={sum(selItems)} className="font-display text-base font-semibold" />
+              </div>
+              <Button className="border-line-on-dark bg-transparent px-3 py-1 text-white hover:bg-press-on-dark active:bg-press-on-dark" onClick={() => setSelected(new Map())}>إلغاء التحديد</Button>
             </div>
-            <div className="flex gap-2">
-              <Button variant="primary" className="px-4 py-2" blocked={!fresh} onClick={() => {
-                // البيانات المعروضة من آخر فتح: لا إيداع قبل وصول الجديدة، فقد يكون الشيك تغيّر
-                if (!fresh) { toast(busy ? 'انتظر لحظة حتى يكتمل التحديث، ثم أودع.' : 'البيانات قديمة. حدّث الشاشة أولاً، ثم أودع.', 'warn'); return; }
-                dialogRef.current = true; setDepositing(selItems);
-              }}>أودعت المحدد</Button>
-              <Button className="border-line-on-dark bg-transparent px-2 py-2 text-white hover:bg-press-on-dark active:bg-press-on-dark" onClick={() => setSelected(new Map())}>إلغاء التحديد</Button>
+            <div className="flex gap-2 [&>*]:flex-1">
+              {data?.can_deposit ? (
+                <Button variant="primary" className="px-3 py-2" blocked={!fresh} onClick={() => {
+                  // البيانات المعروضة من آخر فتح: لا إيداع قبل وصول الجديدة، فقد يكون الشيك تغيّر
+                  if (!fresh) { toast(busy ? 'انتظر لحظة حتى يكتمل التحديث، ثم أودع.' : 'البيانات قديمة. حدّث الشاشة أولاً، ثم أودع.', 'warn'); return; }
+                  // AGB يُودَع في البنك، والرستمية تُسلَّم إلى عمار أو سمير: لا يجتمعان في تأكيد واحد
+                  if (selMixed) { toast('للإيداع حدّد شيكات AGB وحدها أو شيكات الرستمية وحدها. التسليم إلى زميل يقبلها معاً.', 'warn'); return; }
+                  if (selRost && selItems.some((c) => !heldByMe(c))) { toast('شيكات الرستمية يسلّمها حاملها وحده. خذها في عهدتك أولاً من صفحتها.', 'warn'); return; }
+                  dialogRef.current = true; setDepositing(selItems);
+                }}>{selRost ? 'سلّمت للرستمية' : 'أودعت المحدد'}</Button>
+              ) : null}
+              {/* التسليم إلى زميل في قاعدة التطبيق وحدها: يؤكده المستلم، وقبل ذلك لا يُودَع الشيك */}
+              <Button className="border-line-on-dark bg-transparent px-3 py-2 text-white hover:bg-press-on-dark active:bg-press-on-dark" blocked={!fresh} onClick={() => {
+                if (!fresh) { toast(busy ? 'انتظر لحظة حتى يكتمل التحديث.' : 'البيانات قديمة. حدّث الشاشة أولاً.', 'warn'); return; }
+                dialogRef.current = true; setHanding(selItems);
+              }}>سلّمت إلى زميل…</Button>
             </div>
           </div>
         ) : (
           <div className="actionbar fixed inset-x-0 z-[21] flex min-h-11 items-center border-t border-line-strong bg-surface px-4 py-2 text-sm text-muted bottom-[calc(var(--nav-h,60px)+env(safe-area-inset-bottom))]">
-            المس الشيكات التي سلّمتها للبنك، ثم «أودعت المحدد».
+            المس الشيكات التي سلّمتها للبنك أو لزميل، ثم اختر من الشريط.
           </div>
         )
       ) : null}
@@ -504,6 +548,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
       </Sheet>
 
       {depositing ? <DepositDialog items={depositing} onClosed={afterDeposit} /> : null}
+      {handing ? <HandoverDialog items={handing} onClosed={afterHandover} /> : null}
     </>
   );
 }

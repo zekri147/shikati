@@ -9,7 +9,8 @@ import { ackLeftByRep, ensureSnapshot } from './modules/debtack';
 import { hasSubscribers, notifySafe, notifyUsers, type PushMessage } from './push';
 
 // ما يُرسل من إشعارات (8/11/2026، بطلب ZEKRI). النص يذكر اسم العميل والمبلغ (اختيار ZEKRI).
-// - فوراً، من الخادم عند العملية: شيك سُلّم إليك (وإن رفض المستلم، يصل من سلّمه).
+// - فوراً، من الخادم عند العملية: شيك سُلّم إليك (وحين يؤكد المستلم أو يرفض، يصل من سلّمه). التسليم لعدة شيكات بإشعار واحد.
+// - صباحاً مع التأخر: تذكير المستلم بما سُلّم إليه ولم يؤكد استلامه، مرة في اليوم.
 // - كل ساعة من 7:00 إلى 20:00 بتوقيت الجزائر (المهمة المجدولة في wrangler.toml):
 //   · شيك صار «مرفوضاً»: للمدير، ولمندوب العميل (cf_owner)، ولمن سجّله، ولمن كان في عهدته.
 //   · صباحاً (8:00 افتراضياً): لكل من في عهدته شيكات تأخر إيداعها (أكثر من 7 أيام افتراضياً)، وللمدير ملخص التنبيهات.
@@ -60,36 +61,71 @@ async function activeUsers(env: Env): Promise<UserRow[]> {
 
 // ——— فوراً: العهدة ———
 
-// اسم العميل ومبلغ الشيك لنص الإشعار: من قائمة الشيكات المخزّنة، وإلا من زوهو
-async function chequeBrief(env: Env, pid: string): Promise<string> {
+// نص الشيكات في الإشعار: «شيك العميل بمبلغ…» لشيك واحد، و«3 شيكات مجموعها…» لأكثر،
+// من قائمة الشيكات المخزّنة
+async function chequesBrief(env: Env, pids: string[]): Promise<string> {
   try {
     const view = await getView(env, false);
-    const c = view.all.find((x) => x.id === pid);
-    if (c) return `شيك ${c.customer} بمبلغ ${money(c.amount)}`;
+    const list = pids.map((id) => view.all.find((x) => x.id === id)).filter((c): c is NonNullable<typeof c> => !!c);
+    if (pids.length === 1 && list.length === 1) return `شيك ${list[0].customer} بمبلغ ${money(list[0].amount)}`;
+    if (list.length === pids.length) return `${cheques(pids.length)} مجموعها ${money(list.reduce((t, c) => t + c.amount, 0))}`;
   } catch { /* نكمل بنص عام */ }
-  return 'شيك';
+  return pids.length === 1 ? 'شيك' : cheques(pids.length);
 }
 
-export async function notifyCustody(env: Env, actor: User, action: string, pid: string, to: number | null, giver: number | null): Promise<void> {
+// ‎items: الشيكات التي تمت عليها العملية، ومن سلّمها (لتأكيد الاستلام والرفض)
+export async function notifyCustody(env: Env, actor: User, action: string, items: { pid: string; giver: number | null }[], to: number | null): Promise<void> {
   try {
-    if (!(await getNotifySettings(env)).handover) return;
+    if (!items.length || !(await getNotifySettings(env)).handover) return;
     if (action === 'give' && to) {
-      const brief = await chequeBrief(env, pid);
+      const one = items.length === 1;
+      const brief = await chequesBrief(env, items.map((x) => x.pid));
       await notifySafe(env, [to], {
-        title: 'شيك سُلّم إليك',
-        body: `سلّمك ${actor.display_name} ${brief}. افتحه لتأكيد الاستلام أو رفضه.`,
-        url: chequeUrl(pid), tag: 'custody-' + pid,
+        title: one ? 'شيك سُلّم إليك' : 'شيكات سُلّمت إليك',
+        body: `سلّمك ${actor.display_name} ${brief}. أكّد استلام${one ? 'ه' : 'ها'} في التطبيق إن كان${one ? '' : 'ت'} في يدك، ولا ${one ? 'يُودَع' : 'تُودَع'} قبل ذلك.`,
+        url: '/#cheques/alerts', tag: 'custody-in',
       });
-    } else if (action === 'refuse' && giver && giver !== actor.id) {
-      const brief = await chequeBrief(env, pid);
-      await notifySafe(env, [giver], {
-        title: 'رُفض استلام الشيك',
-        body: `رفض ${actor.display_name} استلام ${brief}، فبقي عند من كان معه.`,
-        url: chequeUrl(pid), tag: 'custody-' + pid,
-      });
+      return;
+    }
+    if (action !== 'accept' && action !== 'refuse') return;
+    // لمن سلّمها: يعرف أن المستلم أكّد أو رفض. كل مسلِّم بإشعار يجمع شيكاته
+    const byGiver = new Map<number, string[]>();
+    for (const x of items) if (x.giver && x.giver !== actor.id) byGiver.set(x.giver, [...(byGiver.get(x.giver) || []), x.pid]);
+    for (const [giver, pids] of byGiver) {
+      const brief = await chequesBrief(env, pids);
+      const one = pids.length === 1;
+      await notifySafe(env, [giver], action === 'accept'
+        ? { title: 'أُكّد الاستلام', body: `أكّد ${actor.display_name} استلام ${brief}، فصار${one ? '' : 'ت'} في عهدته.`, url: one ? chequeUrl(pids[0]) : '/#cheques', tag: 'custody-out' }
+        : { title: 'رُفض الاستلام', body: `رفض ${actor.display_name} استلام ${brief}، فبقي${one ? '' : 'ت'} في عهدتك.`, url: one ? chequeUrl(pids[0]) : '/#cheques', tag: 'custody-out' });
     }
   } catch (e) {
     console.error('notify custody', e instanceof Error ? e.message : e);
+  }
+}
+
+// ——— كل صباح: تسليم ينتظر تأكيد المستلم (بطلب ZEKRI يوم 23/11/2026) ———
+
+async function notifyHandoverPending(env: Env, today: string): Promise<void> {
+  // ما سُلّم قبل ساعة على الأقل، فلا يصل تذكير بعد التسليم بدقائق
+  const { results } = await env.DB.prepare(
+    "SELECT payment_id, to_id FROM custody WHERE to_id IS NOT NULL AND since <= datetime('now', '-1 hour')",
+  ).all<{ payment_id: string; to_id: number }>();
+  if (!results.length) return;
+  const view = await getView(env, false);
+  const inHand = new Map(view.all.filter((c) => c.status === STATUS.IN_HAND).map((c) => [c.id, c]));
+  const byUser = new Map<number, { amount: number }[]>();
+  for (const r of results) {
+    const c = inHand.get(r.payment_id);
+    if (c) byUser.set(r.to_id, [...(byUser.get(r.to_id) || []), c]);
+  }
+  for (const [uid, list] of byUser) {
+    if (!(await claim(env, `handover:${today}:${uid}`))) continue;
+    const one = list.length === 1;
+    await notifyUsers(env, [uid], {
+      title: 'استلام ينتظر تأكيدك',
+      body: `${one ? 'سُلّم' : 'سُلّمت'} إليك ${cheques(list.length)} ${one ? 'بمبلغ' : 'مجموعها'} ${money(list.reduce((t, c) => t + c.amount, 0))} ولم تؤكد استلام${one ? 'ه' : 'ها'}. لا ${one ? 'يُودَع' : 'تُودَع'} قبل التأكيد.`,
+      url: '/#cheques/alerts', tag: 'custody-in',
+    });
   }
 }
 
@@ -229,6 +265,7 @@ export async function runScheduled(env: Env, now = new Date()): Promise<void> {
   if (hour >= cfg.morning_hour) {
     if (cfg.late) await step('late', () => notifyLate(env, users, today, cfg.late_days));
     if (cfg.admin_daily) await step('admin', () => notifyAdmin(env, users, today));
+    if (cfg.handover_remind) await step('handover', () => notifyHandoverPending(env, today));
   }
   if (cfg.review && cfg.review_days.includes(dow) && hour >= cfg.review_hour) await step('ack', () => notifyAck(env, users, today));
   // تنظيف المفاتيح القديمة

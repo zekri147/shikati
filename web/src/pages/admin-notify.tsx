@@ -14,14 +14,15 @@ import { api, errText } from '@/lib/api';
 import { fmtDateTime } from '@/lib/format';
 
 type Settings = {
-  handover: boolean; rejected: boolean; late: boolean; review: boolean; admin_daily: boolean;
+  handover: boolean; rejected: boolean; late: boolean; review: boolean; admin_daily: boolean; handover_remind: boolean;
   morning_hour: number; review_hour: number; review_days: number[]; late_days: number;
 };
 type Person = { id: number; display_name: string; role: string; devices: number };
 type LogRow = { id: number; at: string; body: string; devices: number; to_id: number | null; to_name: string | null; by_name: string | null };
 
 const TYPES: { key: keyof Settings; title: string; desc: string }[] = [
-  { key: 'handover', title: 'شيك سُلّم إليك', desc: 'فوراً للمستلم، ولمن سلّمه إن رُفض الاستلام.' },
+  { key: 'handover', title: 'شيك سُلّم إليك', desc: 'فوراً للمستلم، ولمن سلّمه حين يؤكد المستلم أو يرفض.' },
+  { key: 'handover_remind', title: 'استلام ينتظر التأكيد', desc: 'كل صباح لمن سُلّمت إليه شيكات ولم يؤكد استلامها.' },
   { key: 'rejected', title: 'شيك مرفوض', desc: 'للمدير، ولمندوب العميل، ولمن سجّله، ولمن كان في عهدته.' },
   { key: 'late', title: 'شيكات تأخر إيداعها', desc: 'كل صباح لمن هي في عهدته.' },
   { key: 'review', title: 'تذكير إقرار الدين', desc: 'مرة في اليوم حتى يكمل المندوب إقرار صورة الدين.' },

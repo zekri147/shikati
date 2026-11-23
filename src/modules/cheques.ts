@@ -12,7 +12,7 @@ import { handleOutCheque } from './outcheque';
 import { handleUndo } from './undo';
 import { handleTransfer, handleTransferUndo, listTransfers } from './transfer';
 import { handleEdit, handleEditPreview } from './edit';
-import { custodyMap, custodyPeople, handleCustody, type CustodyInfo } from './custody';
+import { custodyMap, custodyPeople, handleCustody, handleCustodyBatch, type CustodyInfo } from './custody';
 import { chequeNumber, wrongAccountText } from './fields';
 import { COLLECT_LATE_DAYS, fieldDate, fillDepositDates } from './depositdate';
 import { customerOwners, normRep } from './collect';
@@ -262,9 +262,10 @@ export const chequesModule: AppModule = {
       // الأقفال تُقرأ في كل طلب، لا من التخزين المؤقت
       const locks = await lockStates(env);
       const byId = new Map(view.all.map((c) => [c.id, c]));
-      for (const c of [...view.agb_in_hand.items, ...view.all]) if (locks[c.id]) c.lock = locks[c.id];
-      await reconcileDoneLocks(env, view.agb_in_hand.items);
-      for (const c of view.agb_in_hand.items) {
+      const depositable = [...view.agb_in_hand.items, ...view.rostomia_in_hand.items];
+      for (const c of [...depositable, ...view.all]) if (locks[c.id]) c.lock = locks[c.id];
+      await reconcileDoneLocks(env, depositable);
+      for (const c of depositable) {
         const same = byId.get(c.id);
         if (same) same.lock = c.lock;
       }
@@ -295,6 +296,9 @@ export const chequesModule: AppModule = {
     if (req.method === 'POST' && subpath === '/deposit') return handleDeposit(req, env, user);
     // العهدة: من يحمل الشيك. قاعدة التطبيق وحدها، لا زوهو
     if (req.method === 'GET' && subpath === '/custody/people') return custodyPeople(env, user);
+    if (req.method === 'POST' && subpath === '/custody/batch') {
+      return handleCustodyBatch(req, env, user, async (pid) => (await getView(env, false)).all.some((c) => c.id === pid && c.status === STATUS.IN_HAND));
+    }
     if (req.method === 'POST' && subpath === '/custody') {
       return handleCustody(req, env, user, async (pid) => (await getView(env, false)).all.some((c) => c.id === pid && c.status === STATUS.IN_HAND));
     }
