@@ -109,6 +109,8 @@ export interface ChequesView {
   no_destination: Section;
   agb_pending_collection: Section;
   agb_recent: Section;
+  // آخر ما سُلّم للرستمية (إلى عمار أو سمير): إيداع في حساب الرستمية، يُتراجع عنه من صفحة الشيك
+  rostomia_recent: Section;
   // كل الشيكات بكل حالاتها، الأحدث أولاً، للبحث وصفحة التنبيهات
   all: Cheque[];
   alerts: ChequeAlert[];
@@ -168,6 +170,7 @@ export function buildView(payments: ZohoPayment[], today: string): ChequesView {
   const noDest: Cheque[] = [];
   const agbPending: Cheque[] = [];
   const agbRecent: { c: Cheque; t: string }[] = [];
+  const rostomiaRecent: { c: Cheque; t: string }[] = [];
   const all: { c: Cheque; t: string }[] = [];
   const alerts: ChequeAlert[] = [];
 
@@ -183,6 +186,9 @@ export function buildView(payments: ZohoPayment[], today: string): ChequesView {
     if (c.status === STATUS.DEPOSITED && c.destination === DEST.AGB) agbPending.push(c);
     if ((c.status === STATUS.DEPOSITED || c.status === STATUS.COLLECTED) && c.destination === DEST.AGB) {
       agbRecent.push({ c, t: p.last_modified_time || p.date });
+    }
+    if ((c.status === STATUS.DEPOSITED || c.status === STATUS.COLLECTED) && c.destination === DEST.ROSTOMIA) {
+      rostomiaRecent.push({ c, t: p.last_modified_time || p.date });
     }
 
     // التنبيهات: فقط للشيكات التي ما زالت في دورة حياتها
@@ -205,6 +211,7 @@ export function buildView(payments: ZohoPayment[], today: string): ChequesView {
   [rejected, agbInHand, rostomiaInHand, noDest, agbPending].forEach((l) => l.sort(oldestFirst));
   // لا يوجد تاريخ إيداع في القائمة، فنرتّب بآخر تعديل للدفعة كأقرب مؤشر
   agbRecent.sort((a, b) => (a.t < b.t ? 1 : a.t > b.t ? -1 : 0));
+  rostomiaRecent.sort((a, b) => (a.t < b.t ? 1 : a.t > b.t ? -1 : 0));
   all.sort((a, b) => (a.t < b.t ? 1 : a.t > b.t ? -1 : 0));
 
   const waitingItems = [...agbInHand, ...rostomiaInHand, ...noDest];
@@ -220,6 +227,7 @@ export function buildView(payments: ZohoPayment[], today: string): ChequesView {
     no_destination: section(noDest),
     agb_pending_collection: section(agbPending),
     agb_recent: section(agbRecent.slice(0, 5).map((x) => x.c)),
+    rostomia_recent: section(rostomiaRecent.slice(0, 5).map((x) => x.c)),
     all: all.map((x) => x.c),
     alerts,
   };
@@ -243,7 +251,7 @@ export async function getView(env: Env, refresh: boolean): Promise<ChequesView> 
   }
   // الأقسام نسخ من all بعد التخزين، فنكمّل تاريخ الإيداع فيها أيضاً
   const byId = new Map(view.all.map((c) => [c.id, c]));
-  for (const c of view.agb_pending_collection.items.concat(view.agb_recent.items)) {
+  for (const c of view.agb_pending_collection.items.concat(view.agb_recent.items, view.rostomia_recent?.items || [])) {
     const same = byId.get(c.id);
     if (same) { c.deposit_date = same.deposit_date; c.deposit_days = same.deposit_days; }
   }
