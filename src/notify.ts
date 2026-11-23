@@ -83,7 +83,7 @@ export async function notifyCustody(env: Env, actor: User, action: string, items
       await notifySafe(env, [to], {
         title: one ? 'شيك سُلّم إليك' : 'شيكات سُلّمت إليك',
         body: `سلّمك ${actor.display_name} ${brief}. أكّد استلام${one ? 'ه' : 'ها'} في التطبيق إن كان${one ? '' : 'ت'} في يدك، ولا ${one ? 'يُودَع' : 'تُودَع'} قبل ذلك.`,
-        url: one ? chequeUrl(items[0].pid) : '/#cheques', tag: 'custody-in',
+        url: '/#cheques/alerts', tag: 'custody-in',
       });
       return;
     }
@@ -124,7 +124,7 @@ async function notifyHandoverPending(env: Env, today: string): Promise<void> {
     await notifyUsers(env, [uid], {
       title: 'استلام ينتظر تأكيدك',
       body: `${one ? 'سُلّم' : 'سُلّمت'} إليك ${cheques(list.length)} ${one ? 'بمبلغ' : 'مجموعها'} ${money(list.reduce((t, c) => t + c.amount, 0))} ولم تؤكد استلام${one ? 'ه' : 'ها'}. لا ${one ? 'يُودَع' : 'تُودَع'} قبل التأكيد.`,
-      url: '/#cheques', tag: 'custody-in',
+      url: '/#cheques/alerts', tag: 'custody-in',
     });
   }
 }

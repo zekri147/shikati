@@ -25,7 +25,7 @@ import { ChequeImage } from './media';
 import { DetailPage } from './detail';
 import { RegisterPage } from './register';
 import { DepositDialog } from './deposit';
-import { HandoverDialog, IncomingPanel } from './custody';
+import { HandoverDialog, IncomingSection } from './custody';
 import { byCustody, CUSTODY_FILTERS } from './custody';
 import type { AlertKind, Cheque, ChequesData } from './types';
 
@@ -56,8 +56,8 @@ const REASONS: Record<AlertKind, { rank: number; tier: Tier; text: (t: string | 
     : 'انقطع الرد أثناء إيداعه أو التراجع عنه، فلا نعرف النتيجة. لا تعد المحاولة، وأبلغ المدير.' },
   rejected: { rank: 1, tier: 'urgent', text: () => 'تابعه مع العميل.' },
   endorse_incomplete: { rank: 2, tier: 'urgent', text: () => 'تظهير غير مكتمل: لم تُنشأ دفعة المورد. افتح الشيك وأتمّ التظهير.' },
-  // سُلّم إليك شيك: أكّد استلامه من صفحته (العهدة)
-  handover: { rank: 2.9, tier: 'follow', text: (t) => `سلّمه إليك ${t || 'زميل'}. افتح الشيك وأكّد استلامه أو ارفضه.` },
+  // سُلّم إليك شيك: له قسم مستقل في أعلى التنبيهات (IncomingSection)، فلا يتكرر في المجموعات. يُحسب في عدد التبويب
+  handover: { rank: 2.9, tier: 'follow', text: (t) => `سلّمه إليك ${t || 'زميل'}. أكّد استلامه أو ارفضه.` },
   collect_late: { rank: 3, tier: 'follow', text: () => null },
   late: { rank: 4, tier: 'follow', text: () => null },
   wrong_account: { rank: 5, tier: 'follow', text: (t, admin) => admin && t ? t + '.' : 'سُجّل في حساب خطأ في زوهو. أبلغ المدير ليصحّحه.' },
@@ -112,7 +112,7 @@ const inTransit = (c: Cheque) => !!c.custody?.to;
 const canPick = (c: Cheque, isAdmin: boolean) => !inTransit(c) && (isAdmin || heldByMe(c));
 const whyNotHeld = (c: Cheque) => {
   const k = c.custody;
-  if (k?.incoming) return 'سُلّم إليك: أكّد استلامه من اللوح أعلى الشاشة، ثم أودِعه.';
+  if (k?.incoming) return 'سُلّم إليك: أكّد استلامه من «التنبيهات»، ثم أودِعه.';
   if (k?.outgoing) return 'سلّمته وينتظر تأكيد المستلم، فلا تودعه.';
   if (k?.to) return `سُلّم إلى ${k.to} وينتظر تأكيده، فلا يُودَع قبل ذلك.`;
   if (!k?.holder) return 'عهدته غير محددة: إن كان معك، افتحه واضغط «هو في عهدتي».';
@@ -313,11 +313,8 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     const opts = { selected: false, onToggle: toggle, link: true };
     const rejected = pick(data.rejected.items);
     const inBank = pick(data.agb_pending_collection.items);
-    // ما سُلّم إليّ وينتظر تأكيدي: لوح واضح فوق القائمة، دون تصفية الموقع أو البحث
-    const incoming = data.all.filter((c) => c.custody?.incoming);
     body = (
       <>
-        <IncomingPanel items={incoming} onChanged={() => load(true)} />
         <section className="mt-4">
           <div className="mb-2 border-b border-line-strong pb-2">
             <SectionHead title="في الحوزة لبنك AGB" count={agb.length} primary meta={agb.length > 1 ? 'الأقدم أولاً' : null} />
@@ -384,9 +381,11 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     statusText = alertCount ? <>تحتاج متابعة: <span className="font-semibold text-foreground">{chequeWord(alertCount)}</span></> : 'لا شيك يحتاج متابعة.';
     // كل شيك مرة واحدة: أسبابه كلها، وأعجلها يحدد مجموعته وترتيبه
     const groups = new Map<string, { c: Cheque; kinds: { kind: AlertKind; text?: string }[]; rank: number; tier: Tier }>();
+    // ما سُلّم إليّ وينتظر تأكيدي: قسم مستقل في الأعلى، دون تصفية الموقع أو البحث أو النطاق
+    const incoming = data.all.filter((c) => c.custody?.incoming);
     for (const x of data.alerts) {
       const c = byId.get(x.id);
-      if (!REASONS[x.kind] || !c || !matches(c) || !inScope(c)) continue;
+      if (x.kind === 'handover' || !REASONS[x.kind] || !c || !matches(c) || !inScope(c)) continue;
       const def = reasonOf(x.kind, c);
       const g = groups.get(x.id) || { c, kinds: [], rank: 99, tier: 'info' as Tier };
       if (!g.kinds.some((k) => k.kind === x.kind)) g.kinds.push({ kind: x.kind, text: x.text });
@@ -426,7 +425,9 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
         </section>
       );
     }).filter(Boolean);
-    body = parts.length ? <div>{parts}</div>
+    const inc = <IncomingSection items={incoming} onChanged={() => load(true)} />;
+    body = parts.length ? <div>{inc}{parts}</div>
+      : incoming.length ? inc
       : <div className="mt-4"><Empty>{q || loc ? 'لا تنبيه يطابق البحث أو الموقع.' : scope ? 'لا تنبيهات لعملائك ولا لشيكات عهدتك. لرؤية تنبيهات الشركة كلها اختر «كل الشركة».' : 'لا توجد تنبيهات. كل الشيكات في وضع سليم.'}</Empty></div>;
   }
 

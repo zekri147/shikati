@@ -1,9 +1,8 @@
 // العهدة: من يحمل الشيك فعلياً (المرحلة الثانية من خطة التحصيل، 7/11/2026).
 // في قاعدة التطبيق وحدها. منذ 23/11/2026 (بطلب ZEKRI): التسليم ببطاقة تأكيد تعرض الشيكات والمستلم،
-// ولعدة شيكات مرة واحدة، والمستلم يرى لوحاً واضحاً في شاشة الإيداع يؤكد منه الاستلام.
+// ولعدة شيكات مرة واحدة، والمستلم يؤكد الاستلام من قسم مستقل في أعلى شاشة التنبيهات.
 // الشيك المسلَّم لا يُودَع ولا يُظهَّر حتى يؤكد المستلم أو يُلغى التسليم (الفحص في الخادم).
 import { useEffect, useRef, useState } from 'react';
-import { ChevronLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { CLOSE_MS, Modal, ModalActions, Sheet, SheetOption } from '@/components/ui/dialog';
 import { Amount, Num } from '@/components/ltr';
@@ -15,6 +14,7 @@ import { haptic } from '@/lib/motion';
 import { cn } from '@/lib/utils';
 import { ChequeImage } from './media';
 import { Block } from './pickers';
+import { SectionHead } from './ui';
 import type { Cheque, Custody } from './types';
 
 // ما يلزم لعرض الشيك في بطاقة التسليم ولوح الاستلام
@@ -171,37 +171,24 @@ export function HandoverDialog({ items, onClosed }: { items: HandCheque[]; onClo
   );
 }
 
-// ——— للمستلم: لوح في شاشة الإيداع بما سُلّم إليه، ولوحة يؤكد منها الاستلام ———
+// ——— للمستلم: قسم مستقل في أعلى شاشة التنبيهات بما سُلّم إليه، يؤكد منه الاستلام (بطلب ZEKRI يوم 23/11/2026) ———
 
-type RowResult = { tone: 'ok' | 'muted' | 'err'; text: string };
-
-export function IncomingPanel({ items, onChanged }: { items: HandCheque[]; onChanged: () => void }) {
-  const [open, setOpen] = useState(false);
-  // الشيكات كما كانت عند فتح اللوحة، فلا تختفي من أمامه حين تتحدث القائمة بعد التأكيد
-  const [snap, setSnap] = useState<HandCheque[]>([]);
+export function IncomingSection({ items, onChanged }: { items: HandCheque[]; onChanged: () => void }) {
   const [busy, setBusy] = useState('');
-  const [rows, setRows] = useState<Record<string, RowResult>>({});
-  if (!items.length && !open) return null;
-
+  if (!items.length) return null;
   const givers = [...new Set(items.map((c) => c.custody?.from).filter(Boolean))].join(' و');
-  const pending = snap.filter((c) => !rows[c.id]);
-  const show = () => { setSnap(items); setRows({}); setOpen(true); };
-  const close = () => { if (!busy) setOpen(false); };
+  const n = items.length;
 
   async function acceptAll() {
     setBusy('all');
     try {
-      const r = await api('/api/m/cheques/custody/batch', { method: 'POST', body: { action: 'accept', payment_ids: pending.map((c) => c.id) } });
-      const next = { ...rows };
-      let ok = 0;
-      for (const x of r.results as { id: string; ok: boolean; error?: string }[]) {
-        next[x.id] = x.ok ? { tone: 'ok', text: 'استلمته، وصار في عهدتك' } : { tone: 'err', text: x.error || 'لم يُسجَّل.' };
-        if (x.ok) ok++;
-      }
-      setRows(next);
+      const r = await api('/api/m/cheques/custody/batch', { method: 'POST', body: { action: 'accept', payment_ids: items.map((c) => c.id) } });
+      const res = r.results as { id: string; ok: boolean; error?: string }[];
+      const ok = res.filter((x) => x.ok).length;
+      const failed = res.find((x) => !x.ok);
       if (ok) { haptic('success'); toast(ok === 1 ? 'استلمت الشيك، وصار في عهدتك.' : `استلمت ${chequeWord(ok, true)}، وصارت في عهدتك.`); }
+      if (failed) toast(failed.error || 'لم يُسجَّل استلام بعض الشيكات.', 'err');
       onChanged();
-      if (ok === pending.length) setTimeout(() => setOpen(false), 600);
     } catch (e) {
       toast(errText(e), 'err');
     } finally {
@@ -213,55 +200,42 @@ export function IncomingPanel({ items, onChanged }: { items: HandCheque[]; onCha
     setBusy(c.id);
     try {
       await api('/api/m/cheques/custody', { method: 'POST', body: { payment_id: c.id, action: 'refuse' } });
-      setRows((s) => ({ ...s, [c.id]: { tone: 'muted', text: `رفضته، فبقي عند ${c.custody?.from || 'من سلّمه'}` } }));
+      toast(`رفضت استلام شيك ${c.customer}، فبقي عند ${c.custody?.from || 'من سلّمه'}.`);
       onChanged();
     } catch (e) {
-      setRows((s) => ({ ...s, [c.id]: { tone: 'err', text: errText(e) } }));
+      toast(errText(e), 'err');
     } finally {
       setBusy('');
     }
   }
 
   return (
-    <>
-      {items.length ? (
-        <button type="button" onClick={show}
-          className="incoming mt-3 flex min-h-14 w-full items-center gap-2 border-s-3 border-s-brand bg-brand-tint px-4 py-2 text-start text-foreground active:bg-surface-alt">
-          <span className="flex min-w-0 flex-1 flex-col">
-            <span className="text-base font-semibold">{items.length === 1 ? 'سُلّم إليك شيك' : `سُلّمت إليك ${chequeWord(items.length)}`} · <Amount value={sum(items)} /></span>
-            <span className="text-sm text-muted">من {givers || 'زميل'}. أكّد استلام{items.length === 1 ? 'ه' : 'ها'} قبل أي عملية.</span>
-          </span>
-          <span className="flex-none text-sm font-semibold">أكّد الاستلام</span>
-          <ChevronLeft aria-hidden className="size-4.5 flex-none text-soft" />
-        </button>
-      ) : null}
-      <Sheet open={open} onClose={close} title="تأكيد الاستلام" action={<Button disabled={!!busy} onClick={close}>إغلاق</Button>}>
-        <p className="m-0 px-4 pb-2 text-sm text-muted">طابق كل شيك في يدك مع صورته. ما ليس معك اضغط تحته «ليس معي»، فيبقى عند من سلّمه.</p>
-        <ul className="m-0 list-none border-t border-line p-0">
-          {snap.map((c) => {
-            const r = rows[c.id];
-            return (
-              <li key={c.id} className="grid grid-cols-[76px_1fr] items-start gap-3 border-b border-line px-4 py-3">
-                <ChequeImage id={c.id} hasImage={!!c.has_image} v={c.v} size="thumb" />
-                <div className="flex min-w-0 flex-col gap-1 text-base [overflow-wrap:anywhere]">
-                  <div className="font-semibold">{c.customer}</div>
-                  <div className="text-sm text-muted">شيك رقم {c.cheque_number ? <Num>{c.cheque_number}</Num> : 'غير مسجّل'} · من {c.custody?.from || 'زميل'}</div>
-                  <Amount value={c.amount} className="font-display text-base font-semibold" />
-                  {r ? <div className={cn('text-sm', r.tone === 'ok' && 'font-semibold text-success', r.tone === 'err' && 'text-danger', r.tone === 'muted' && 'text-muted')}>{r.tone === 'ok' ? '✓ ' : ''}{r.text}</div>
-                    : <Button className="mt-1 self-start px-4 py-1" disabled={!!busy} onClick={() => refuse(c)}>{busy === c.id ? 'جارٍ الحفظ…' : 'ليس معي'}</Button>}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-        {pending.length ? (
-          <div className="px-4 pb-2 pt-3">
-            <Button variant="primary" className="w-full py-3" disabled={!!busy} onClick={acceptAll}>
-              {busy === 'all' ? 'جارٍ الحفظ…' : pending.length === 1 ? 'استلمته، هو في يدي' : pending.length === 2 ? 'استلمت الشيكين، هما في يدي' : `استلمت ${chequeWord(pending.length)}، كلها في يدي`}
-            </Button>
-          </div>
-        ) : null}
-      </Sheet>
-    </>
+    <section className="incoming mt-4" aria-live="polite">
+      <div className="mb-2 border-b border-brand pb-2">
+        <SectionHead title="استلام ينتظر تأكيدك" count={n} total={sum(items)} primary />
+      </div>
+      <p className="m-0 mb-2 text-sm text-muted">
+        سلّم{n === 1 ? 'ه' : 'ها'} إليك {givers || 'زميل'}. طابق كل شيك في يدك مع صورته، واضغط «ليس معي» تحت ما لم يصلك.
+        لا {n === 1 ? 'يُودَع' : 'تُودَع'} قبل تأكيدك.
+      </p>
+      <ul className="m-0 list-none border border-line bg-surface p-0">
+        {items.map((c) => (
+          <li key={c.id} className="grid grid-cols-[76px_1fr] items-start gap-3 border-b border-line px-3 py-3 last:border-b-0">
+            <ChequeImage id={c.id} hasImage={!!c.has_image} v={c.v} size="thumb" />
+            <div className="flex min-w-0 flex-col gap-1 text-base [overflow-wrap:anywhere]">
+              <a href={'#cheques/c/' + c.id} className="font-semibold text-foreground no-underline">{c.customer}</a>
+              <div className="text-sm text-muted">شيك رقم {c.cheque_number ? <Num>{c.cheque_number}</Num> : 'غير مسجّل'} · من {c.custody?.from || 'زميل'}</div>
+              <div className="flex items-center justify-between gap-2">
+                <Amount value={c.amount} className="font-display text-base font-semibold" />
+                <Button className="px-4 py-1" disabled={!!busy} onClick={() => refuse(c)}>{busy === c.id ? 'جارٍ الحفظ…' : 'ليس معي'}</Button>
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <Button variant="primary" className="mt-3 w-full py-3" disabled={!!busy} onClick={acceptAll}>
+        {busy === 'all' ? 'جارٍ الحفظ…' : n === 1 ? 'استلمته، هو في يدي' : n === 2 ? 'استلمت الشيكين، هما في يدي' : `استلمت ${chequeWord(n)}، كلها في يدي`}
+      </Button>
+    </section>
   );
 }

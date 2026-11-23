@@ -99,7 +99,7 @@ const DONE: Record<CustodyAction, string> = {
 export async function handoverBlock(env: Env, user: User, pid: string, what = 'تودعه'): Promise<string | null> {
   const r = await env.DB.prepare('SELECT to_id, by_id FROM custody WHERE payment_id = ? AND to_id IS NOT NULL').bind(pid).first<{ to_id: number; by_id: number | null }>();
   if (!r) return null;
-  if (r.to_id === user.id) return 'سُلّم إليك هذا الشيك ولم تؤكد استلامه بعد. أكّد أولاً أنه في يدك، من اللوح أعلى شاشة الإيداع أو من صفحته.';
+  if (r.to_id === user.id) return 'سُلّم إليك هذا الشيك ولم تؤكد استلامه بعد. أكّد أولاً أنه في يدك، من شاشة التنبيهات أو من صفحته.';
   const to = (await names(env)).get(r.to_id) || 'زميل';
   if (r.by_id === user.id) return `سلّمت هذا الشيك إلى ${to} وينتظر تأكيده، فلا ${what}. إن كان ما زال معك، ألغِ التسليم أولاً من صفحته.`;
   return `هذا الشيك سُلّم إلى ${to} وينتظر تأكيد استلامه، فلا ${what} قبل التأكيد أو إلغاء التسليم.`;
