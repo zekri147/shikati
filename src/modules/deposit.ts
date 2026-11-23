@@ -5,6 +5,7 @@ import { audit } from '../audit';
 import { DEPOSIT_DATE_FIELD } from './depositdate';
 import { bankCollectedDate, showDate } from './banksms';
 import { ACCOUNT_CHEQUES_IN_HAND, CACHE_KEY, DEST, parseRoles, STATUS, todayAlgiers } from './constants';
+import { handoverBlock } from './custody';
 
 // تسجيل إيداع شيك في بنك AGB، بنفس طريقة دالة deposer_agb في زوهو.
 // كل خطوة بعد إرسال طلب الإيداع لا تُعاد تلقائياً أبداً.
@@ -113,6 +114,12 @@ export async function handleDeposit(req: Request, env: Env, user: User): Promise
 
   // 0. العهدة (بطلب ZEKRI يوم 9/11/2026): المندوب يودع ما في عهدته وحده، دون تسليم معلّق منه. المدير يودع أي شيك.
   // قبل أي قفل أو طلب إلى زوهو، فالرفض لا يترك أثراً.
+  // والتسليم الذي لم يُؤكَّد يقفل الشيك على الجميع، المدير أيضاً (بطلب ZEKRI يوم 23/11/2026)
+  const pending = await handoverBlock(env, user, pid, recipient ? 'تسلّمه للرستمية' : 'تودعه');
+  if (pending) {
+    await audit(env, user, 'deposit', 'denied', pid, 'handover_pending');
+    throw new HttpError(409, pending);
+  }
   // تسليم الرستمية لحامل الشيك وحده، المدير أيضاً (اختيار ZEKRI): يأخذه في عهدته أولاً
   if (user.role !== 'admin' || recipient) {
     const k = await env.DB.prepare('SELECT holder_id, to_id FROM custody WHERE payment_id = ?').bind(pid).first<{ holder_id: number | null; to_id: number | null }>();

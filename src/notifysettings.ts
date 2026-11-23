@@ -12,6 +12,7 @@ export interface NotifySettings {
   late: boolean;           // شيكات تأخر إيداعها في العهدة
   review: boolean;         // تذكير إقرار الدين (كان تذكير المراجعة الأسبوعية)
   admin_daily: boolean;    // ملخص «تنبيهات اليوم» للمدير
+  handover_remind: boolean; // تذكير صباحي بتسليم ينتظر تأكيد المستلم (منذ 23/11/2026)
   morning_hour: number;    // ساعة التأخر وملخص المدير، بتوقيت الجزائر
   review_hour: number;     // ساعة تذكير الإقرار
   review_days: number[];   // أيام التذكير: 0 الأحد ... 6 السبت
@@ -19,13 +20,13 @@ export interface NotifySettings {
 }
 
 export const DEFAULTS: NotifySettings = {
-  handover: true, rejected: true, late: true, review: true, admin_daily: true,
+  handover: true, rejected: true, late: true, review: true, admin_daily: true, handover_remind: true,
   morning_hour: 8, review_hour: 9, review_days: [6, 0, 1, 2, 3, 4], late_days: 7,
 };
 // المهمة المجدولة تعمل من 7:00 إلى 20:00 (wrangler.toml)، فلا ساعة خارجها
 export const HOUR_MIN = 7;
 export const HOUR_MAX = 20;
-const BOOLS = ['handover', 'rejected', 'late', 'review', 'admin_daily'] as const;
+const BOOLS = ['handover', 'rejected', 'late', 'review', 'admin_daily', 'handover_remind'] as const;
 const BODY_MAX = 200;
 
 function clean(raw: Partial<NotifySettings>, base: NotifySettings): NotifySettings {

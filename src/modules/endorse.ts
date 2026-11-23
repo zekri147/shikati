@@ -4,6 +4,7 @@ import { zohoGet, zohoRequest, ZohoTimeout } from '../zoho';
 import { audit } from '../audit';
 import { ACCOUNT_ENDORSED, CACHE_KEY, STATUS, todayAlgiers } from './constants';
 import { searchContacts } from './register';
+import { handoverBlock } from './custody';
 
 // التظهير لمورد: دفعة عميل في حساب الشيكات المظهّرة ← دفعة مورد من الحساب نفسه.
 // ثالث مكان يكتب في زوهو، بموافقة ZEKRI يوم 2/11/2026. التوزيع آلياً على أقدم فواتير المورد.
@@ -203,6 +204,9 @@ export async function handleEndorse(req: Request, env: Env, user: User): Promise
   const vendor = String(b.vendor || '').trim().slice(0, 200);
   if (!ID_RE.test(pid)) throw new HttpError(400, 'معرّف الدفعة غير صالح.');
   if (!ID_RE.test(vendorId) || !vendor) throw new HttpError(400, 'اختر المورد.');
+  // تسليم لم يُؤكَّد استلامه يقفل الشيك، قبل أي كتابة في زوهو
+  const pending = await handoverBlock(env, user, pid, 'تظهّره');
+  if (pending) throw new HttpError(409, pending);
   const r = await endorseCheque(env, user, pid, vendorId, vendor);
   if (r.state === 'done') return json({ ok: true, vendor_payment_id: r.vendor_payment_id, warning: r.warning });
   throw new HttpError(r.state === 'unknown' ? 504 : 409, r.message);

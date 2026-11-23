@@ -154,7 +154,8 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
       history: isAdmin ? history : [],
       endorsement: endorsement || null,
     },
-    can_endorse: canEndorse,
+    // التسليم الذي لم يُؤكَّد يقفل التظهير، وسببه في قسم العهدة
+    can_endorse: canEndorse && !custody?.to,
     custody,
     undo,
     edit,

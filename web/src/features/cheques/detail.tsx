@@ -120,7 +120,8 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, onDeposi
         <ChequePath d={d} />
 
         {/* العهدة للشيك في الحوزة: من يحمله، والتسليم والاستلام */}
-        {d.custody ? <CustodyBlock id={d.id} k={d.custody} onChanged={() => { reload(); onDeposited?.(); }} /> : null}
+        {d.custody ? <CustodyBlock id={d.id} k={d.custody}
+          cheque={{ id: d.id, customer: d.customer, cheque_number: d.cheque_number, amount: d.amount, has_image: !!d.has_image, v: d.edit ? d.edit.version : '' }} onChanged={() => { reload(); onDeposited?.(); }} /> : null}
 
         {/* بيانات الشيك: سطور «عنوان وقيمة» في مجموعة واحدة، لا مربع لكل معلومة */}
         <Block title="بيانات الشيك">
