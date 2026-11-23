@@ -90,8 +90,11 @@ async function counts(env: Env, cycle: string, rep: string) {
 export async function ackStatus(env: Env, user: User): Promise<Response> {
   const own = normRep(user.rep_code);
   const cs = await ensureSnapshot(env);
-  if (!own || cs.state !== 'ready') return json({ ...cs, total: 0, done: 0, disputes: 0 });
-  return json({ ...cs, ...(await counts(env, cs.cycle, own)) });
+  // ما سُلّم إليه وينتظر تأكيده: يؤكده حتى والتطبيق مقفل بالإقرار (بطلب ZEKRI يوم 23/11/2026)
+  const inc = await env.DB.prepare('SELECT COUNT(*) AS n FROM custody WHERE to_id = ?').bind(user.id).first<{ n: number }>();
+  const incoming = inc?.n || 0;
+  if (!own || cs.state !== 'ready') return json({ ...cs, total: 0, done: 0, disputes: 0, incoming });
+  return json({ ...cs, ...(await counts(env, cs.cycle, own)), incoming });
 }
 
 // قائمة المندوب في الصورة، الأكبر ديناً أولاً، مع رصيد كل عميل في الصورة السابقة

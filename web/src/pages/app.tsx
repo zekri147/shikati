@@ -18,10 +18,12 @@ const MODULES: Record<string, React.ComponentType<{ me: Me; hash: string }>> = {
 
 // العنوان لحظة فتح التطبيق: فارغ عند الفتح من الأيقونة وبعد الدخول، وفيه الشاشة عند الفتح من إشعار أو رابط
 const OPENED_AT = typeof location !== 'undefined' ? location.hash.replace(/^#/, '') : '';
-// ما يبقى مفتوحاً للمندوب قبل أن ينهي إقرار الدين: شاشة الإقرار، وتسجيل الشيك (اختيار ZEKRI يوم 8/11/2026)
+// ما يبقى مفتوحاً للمندوب قبل أن ينهي إقرار الدين: شاشة الإقرار، وتسجيل الشيك (اختيار ZEKRI يوم 8/11/2026)،
+// وتأكيد استلام ما سُلّم إليه في التنبيهات (بطلب ZEKRI يوم 23/11/2026): تعرض له التنبيهات هذا القسم وحده
 const ACK = '#coll/ack';
 const REGISTER = '#cheques/new';
-const LOCK_OPEN = [ACK, REGISTER];
+const ALERTS = '#cheques/alerts';
+const LOCK_OPEN = [ACK, REGISTER, ALERTS];
 
 // الهيكل العام: يقرأ المستخدم والأقسام المتاحة له، ويعرض القسم المطلوب بحسب العنوان بعد #
 export function AppPage() {
@@ -94,7 +96,7 @@ export function AppPage() {
               : <Mod key={mod!.id} me={me} hash={hash} />}
       </Main>
       <Footer />
-      {me ? <AppNav hash={hash} modules={available.map((m) => m.id)} locked={locked} left={ackLeft(ack)} /> : null}
+      {me ? <AppNav hash={hash} modules={available.map((m) => m.id)} locked={locked} left={ackLeft(ack)} incoming={ack?.incoming || 0} /> : null}
       {/* الترحيب بعد القفل لا فوقه: ينتظر حالة الإقرار، فيراه المندوب حين يُفتح له التطبيق */}
       {me && (!hasAck || ack) && !locked && hash !== ACK ? <Welcome name={me.user.display_name} rep={me.user.role === 'rep'} /> : null}
       {me ? <PasskeyOffer /> : null}

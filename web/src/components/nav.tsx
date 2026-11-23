@@ -2,7 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 import { Bell, ChevronLeft, HandCoins, Landmark, List, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFixedBottom } from '@/lib/layout';
-import { customersWord } from '@/lib/format';
+import { chequeWord, customersWord } from '@/lib/format';
 
 // عدد التنبيهات في شريط التنقل: يكتبه قسم الشيكات، ويبقى ظاهراً من أي شاشة
 let alerts = 0;
@@ -20,7 +20,8 @@ type Tab = { id: string; label: string; href: string; Icon: React.ComponentType<
 // ولمن له قسم واحد (المندوب).
 // المندوب الذي لم يُنهِ إقرار الدين (locked): لا تبويبات، بل سطر واحد فوق شاشة التسجيل يعيده إلى الإقرار
 // (8/11/2026، بطلب ZEKRI، بدل سطر تذكير المراجعة الأسبوعية).
-export function AppNav({ hash, modules, locked, left }: { hash: string; modules: string[]; locked: boolean; left: number }) {
+// وما سُلّم إليه وينتظر تأكيده سطر ثانٍ فوقه يفتح التنبيهات، فيؤكد الاستلام قبل أن ينهي الإقرار.
+export function AppNav({ hash, modules, locked, left, incoming = 0 }: { hash: string; modules: string[]; locked: boolean; left: number; incoming?: number }) {
   const count = useAlertCount();
   const tabs: Tab[] = [];
   if (modules.includes('cheques')) {
@@ -39,7 +40,8 @@ export function AppNav({ hash, modules, locked, left }: { hash: string; modules:
   const shown = (tabs.length > 1 || strip) && !detail;
   const first = modules[0] === 'coll' ? 'coll' : 'deposit';
   const current = h.startsWith('coll') ? 'coll' : h === 'cheques/all' ? 'all' : h === 'cheques/alerts' ? 'alerts' : h === 'cheques/new' ? 'new' : h.startsWith('cheques') ? 'deposit' : first;
-  const height = strip ? STRIP_H : NAV_H;
+  const receive = strip && incoming > 0 && h !== 'cheques/alerts';
+  const height = strip ? STRIP_H * (receive ? 2 : 1) : NAV_H;
   useFixedBottom(height, shown);
   // الأشرطة الثابتة فوق التنقل (الإيداع والتسجيل) تقرأ ارتفاعه من --nav-h
   useEffect(() => {
@@ -50,6 +52,12 @@ export function AppNav({ hash, modules, locked, left }: { hash: string; modules:
   return (
     <nav aria-label="التنقل بين الشاشات" style={{ viewTransitionName: 'bottomnav' } as React.CSSProperties}
       className="bottomnav fixed inset-x-0 bottom-0 z-20 border-t border-line-strong bg-surface pb-[env(safe-area-inset-bottom)]">
+      {receive ? (
+        <a href="#cheques/alerts" className="receive-strip flex min-h-11 items-center gap-2 border-b border-line border-s-3 border-s-brand bg-brand-tint px-4 text-sm font-semibold text-foreground no-underline active:bg-surface-alt">
+          <span className="min-w-0 flex-1">{incoming === 1 ? 'سُلّم إليك شيك' : `سُلّمت إليك ${chequeWord(incoming)}`}: أكّد الاستلام.</span>
+          <ChevronLeft aria-hidden className="size-4.5 flex-none text-soft" />
+        </a>
+      ) : null}
       {strip ? (
         // سطر القفل: بقية التطبيق تنتظر إقرار الدين، والتسجيل وحده مفتوح
         <a href="#coll/ack" className="ack-strip flex min-h-11 items-center gap-2 border-s-3 border-s-brand bg-brand-tint px-4 text-sm font-semibold text-foreground no-underline active:bg-surface-alt">

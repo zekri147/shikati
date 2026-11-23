@@ -173,7 +173,8 @@ export function HandoverDialog({ items, onClosed }: { items: HandCheque[]; onClo
 
 // ——— للمستلم: قسم مستقل في أعلى شاشة التنبيهات بما سُلّم إليه، يؤكد منه الاستلام (بطلب ZEKRI يوم 23/11/2026) ———
 
-export function IncomingSection({ items, onChanged }: { items: HandCheque[]; onChanged: () => void }) {
+// linkable: اسم العميل يفتح صفحة الشيك، إلا والتطبيق مقفل بإقرار الدين
+export function IncomingSection({ items, onChanged, linkable = true }: { items: HandCheque[]; onChanged: () => void; linkable?: boolean }) {
   const [busy, setBusy] = useState('');
   if (!items.length) return null;
   const givers = [...new Set(items.map((c) => c.custody?.from).filter(Boolean))].join(' و');
@@ -223,7 +224,8 @@ export function IncomingSection({ items, onChanged }: { items: HandCheque[]; onC
           <li key={c.id} className="grid grid-cols-[76px_1fr] items-start gap-3 border-b border-line px-3 py-3 last:border-b-0">
             <ChequeImage id={c.id} hasImage={!!c.has_image} v={c.v} size="thumb" />
             <div className="flex min-w-0 flex-col gap-1 text-base [overflow-wrap:anywhere]">
-              <a href={'#cheques/c/' + c.id} className="font-semibold text-foreground no-underline">{c.customer}</a>
+              {linkable ? <a href={'#cheques/c/' + c.id} className="font-semibold text-foreground no-underline">{c.customer}</a>
+                : <div className="font-semibold">{c.customer}</div>}
               <div className="text-sm text-muted">شيك رقم {c.cheque_number ? <Num>{c.cheque_number}</Num> : 'غير مسجّل'} · من {c.custody?.from || 'زميل'}</div>
               <div className="flex items-center justify-between gap-2">
                 <Amount value={c.amount} className="font-display text-base font-semibold" />

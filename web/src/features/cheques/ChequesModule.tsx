@@ -26,6 +26,7 @@ import { DetailPage } from './detail';
 import { RegisterPage } from './register';
 import { DepositDialog } from './deposit';
 import { HandoverDialog, IncomingSection } from './custody';
+import { ackLeft, loadAckStatus, useAckStatus } from '@/lib/ack';
 import { byCustody, CUSTODY_FILTERS } from './custody';
 import type { AlertKind, Cheque, ChequesData } from './types';
 
@@ -122,6 +123,9 @@ const whyNotHeld = (c: Cheque) => {
 export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   const isAdmin = me.user.role === 'admin';
   const route = useMemo(() => parseRoute(hash), [hash]);
+  // المندوب الذي لم يُنهِ إقرار الدين: التنبيهات تعرض له تأكيد الاستلام وحده (القفل في app.tsx)
+  const ack = useAckStatus();
+  const ackLocked = me.user.role === 'rep' && !!me.user.rep_code && me.modules.some((m) => m.id === 'coll') && ackLeft(ack) > 0;
   // آخر بيانات على الهاتف تُعرض فوراً، ثم تُحدَّث. الإيداع ينتظر البيانات الجديدة (fresh)
   const cacheKey = 'cheques:' + me.user.username;
   const [cached] = useState(() => readCache<ChequesData>(cacheKey));
@@ -425,8 +429,17 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
         </section>
       );
     }).filter(Boolean);
-    const inc = <IncomingSection items={incoming} onChanged={() => load(true)} />;
-    body = parts.length ? <div>{inc}{parts}</div>
+    const inc = <IncomingSection items={incoming} linkable={!ackLocked} onChanged={() => { load(true); loadAckStatus().catch(() => {}); }} />;
+    if (ackLocked) {
+      summary = null;
+      statusText = incoming.length ? <>ينتظر تأكيدك: <span className="font-semibold text-foreground">{chequeWord(incoming.length)}</span></> : 'لا شيء ينتظر تأكيدك.';
+    }
+    body = ackLocked ? (
+      <>
+        {incoming.length ? inc : <div className="mt-4"><Empty>لا شيك سُلّم إليك وينتظر تأكيدك.</Empty></div>}
+        <Note className="mt-4">باقي التنبيهات يُفتح بعد أن تكمل إقرار الدين. <a href="#coll/ack" className="font-semibold text-foreground">ارجع إلى الإقرار</a></Note>
+      </>
+    ) : parts.length ? <div>{inc}{parts}</div>
       : incoming.length ? inc
       : <div className="mt-4"><Empty>{q || loc ? 'لا تنبيه يطابق البحث أو الموقع.' : scope ? 'لا تنبيهات لعملائك ولا لشيكات عهدتك. لرؤية تنبيهات الشركة كلها اختر «كل الشركة».' : 'لا توجد تنبيهات. كل الشيكات في وضع سليم.'}</Empty></div>;
   }
@@ -449,7 +462,8 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
             </div>
           ) : null}
           {/* شريط الأدوات الموحّد: الموقع، والحالة في «كل الشيكات»، ثم العدسة */}
-          <ListTools key={route.view} className={onDeposit ? 'mt-3' : 'mt-2'} placeholder="بحث باسم العميل أو رقم الشيك أو الفاتورة"
+          {/* والتطبيق مقفل بالإقرار، التنبيهات تأكيد الاستلام وحده: لا تصفية */}
+          {ackLocked && route.view === 'alerts' ? null : <ListTools key={route.view} className={onDeposit ? 'mt-3' : 'mt-2'} placeholder="بحث باسم العميل أو رقم الشيك أو الفاتورة"
             onSearch={(v) => { setQ(norm(v)); setLimit(PAGE); }}>
             <Segmented label="الموقع" className="min-w-0 flex-[2]" value={loc} options={LOCATIONS} onChange={(v) => { setLoc(v); saveKey(LOC_KEY, v); setLimit(PAGE); }} />
             {route.view === 'deposit' ? (
@@ -461,7 +475,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
             {route.view === 'all' ? (
               <FilterButton className="status-btn max-w-[38%]" label={'تصفية بالحالة: ' + statusDef[1]} value={statusDef[1]} active={!!status} onClick={() => { if (data) setSheet(true); }} />
             ) : null}
-          </ListTools>
+          </ListTools>}
           {error && !data ? <ErrorBox>{error}</ErrorBox> : !data ? <SkeletonList rows={route.view === 'deposit' ? 5 : 8} /> : <div aria-live="polite">{body}</div>}
         </>
       ) : route.view === 'detail' && route.id ? (

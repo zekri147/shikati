@@ -7,6 +7,8 @@ import { readCache, writeCache } from './cache';
 export type AckStatus = {
   cycle: string; next: string; state: 'ready' | 'pending' | 'error'; taken_at: string | null;
   total: number; done: number; disputes: number;
+  // ما سُلّم إليه وينتظر تأكيد استلامه: يُفتح له في التنبيهات حتى والتطبيق مقفل
+  incoming?: number;
 };
 
 let user = '';

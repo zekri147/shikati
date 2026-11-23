@@ -20,13 +20,13 @@ import { useFixedBottom } from '@/lib/layout';
 import { savedScroll } from '@/lib/hash';
 import { readCache, writeCache } from '@/lib/cache';
 import { load as loadKey, save as saveKey } from '@/lib/storage';
-import { customersWord, daysWord, fmtAmount, fmtDate, fmtDateTime, invoicesWord, norm, round2 } from '@/lib/format';
+import { chequeWord, customersWord, daysWord, fmtAmount, fmtDate, fmtDateTime, invoicesWord, norm, round2 } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { haptic, isShared, markShared, sharedStyle } from '@/lib/motion';
 import { ChequeCard, LIST_BOX, LateMark } from '@/features/cheques/ui';
 import type { ChequesData } from '@/features/cheques/types';
 import { Block, KV } from '@/features/cheques/pickers';
-import { loadAckStatus, peekAfterAck, setAckCounts, takeAfterAck } from '@/lib/ack';
+import { loadAckStatus, peekAfterAck, setAckCounts, takeAfterAck, useAckStatus } from '@/lib/ack';
 import { registerFor } from '@/features/cheques/register';
 import { AdminUndoAck } from './undo-ack';
 
@@ -544,6 +544,8 @@ const snapLate = (r: AckRow) => (r.late === null ? 'رصيد افتتاحي' : r
 
 function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
   const locked = me.user.role === 'rep';
+  // ما سُلّم إليه وينتظر تأكيده: سطر يفتح التنبيهات، فيؤكد الاستلام قبل أن ينهي الإقرار (بطلب ZEKRI يوم 23/11/2026)
+  const incoming = useAckStatus()?.incoming || 0;
   const [list, setList] = useState<AckList | null>(null);
   const [error, setError] = useState('');
   const [pos, setPos] = useState(0);
@@ -751,6 +753,12 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
           </div>
         </div>
       </Slab>
+      {incoming ? (
+        <a href="#cheques/alerts" className="receive-line mt-2 flex min-h-11 items-center gap-2 border-s-3 border-s-brand bg-brand-tint px-3 text-sm font-semibold text-foreground no-underline active:bg-surface-alt">
+          <span className="min-w-0 flex-1">{incoming === 1 ? 'سُلّم إليك شيك' : `سُلّمت إليك ${chequeWord(incoming)}`}: أكّد الاستلام.</span>
+          <ChevronLeft aria-hidden className="size-4.5 flex-none text-soft" />
+        </a>
+      ) : null}
 
       {undoLine ? <div className="mt-2">{undoLine}</div> : done ? (
         // أجوبة سابقة (من هذه الجلسة أو قبلها): تُفتح في لوحة فيها التراجع، دون انتظار نهاية الإقرار
