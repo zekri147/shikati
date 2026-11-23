@@ -1,8 +1,10 @@
 // بطاقة تأكيد الإيداع: من شاشة الإيداع لعدة شيكات، ومن صفحة الشيك لشيك واحد.
+// وشيكات الرستمية: إيداعها تسليمها إلى عمار أو سمير، فتختار البطاقة المستلم.
 import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { CLOSE_MS, Modal, ModalActions } from '@/components/ui/dialog';
 import { DateField } from '@/components/ui/datefield';
+import { Segmented } from '@/components/ui/segmented';
 import { Amount, Num } from '@/components/ltr';
 import { FormError, Note } from '@/components/shell';
 import { api, errText, isCutOff } from '@/lib/api';
@@ -12,11 +14,17 @@ import { ChequeImage } from './media';
 import type { Cheque } from './types';
 
 type RowState = { cls: 'muted' | 'ok' | 'warn' | 'err' | ''; text: string };
+// من يستلم شيكات الرستمية: المفتاح نفسه في الخادم (ROSTOMIA_RECIPIENTS في deposit.ts)
+type Recipient = '' | 'ammar' | 'samir';
+const RECIPIENTS: { value: Recipient; label: string }[] = [{ value: 'ammar', label: 'عمار' }, { value: 'samir', label: 'سمير' }];
+const recipientName = (r: Recipient) => RECIPIENTS.find((x) => x.value === r)?.label || '';
 
 // بطاقة تأكيد الإيداع: الشيكات بصورها، والمجموع، وتاريخ الإيداع. يُرسل كل شيك مرة واحدة،
 // وإن انقطع الرد يتوقف الإيداع ولا يُحاوَل أي شيك آخر (لا إعادة تلقائية).
 export function DepositDialog({ items, onClosed }: { items: Cheque[]; onClosed: (r: { done: Cheque[]; failed: Cheque[]; attempted: boolean }) => void }) {
   const single = items.length === 1;
+  const rost = items[0]?.destination === 'ROSTOMIA';
+  const [to, setTo] = useState<Recipient>('');
   const today = todayIso();
   const minDate = items.map((c) => String(c.date || '').slice(0, 10)).sort().pop() || '';
   const [date, setDate] = useState(today);
@@ -29,8 +37,9 @@ export function DepositDialog({ items, onClosed }: { items: Cheque[]; onClosed: 
   const close = () => { if (phase === 'busy') return; setOpen(false); setTimeout(() => onClosed(result.current), CLOSE_MS); };
 
   async function run() {
+    if (rost && !to) { setMessage({ tone: 'err', text: 'اختر من استلم الشيك: عمار أو سمير.' }); return; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today || (minDate && date < minDate)) {
-      setMessage({ tone: 'err', text: minDate && date < minDate ? 'تاريخ الإيداع قبل تاريخ استلام الشيك. صحّحه.' : 'اختر تاريخ إيداع صحيحاً، لا يكون بعد اليوم.' });
+      setMessage({ tone: 'err', text: minDate && date < minDate ? `تاريخ ${rost ? 'التسليم' : 'الإيداع'} قبل تاريخ استلام الشيك. صحّحه.` : `اختر تاريخ ${rost ? 'تسليم' : 'إيداع'} صحيحاً، لا يكون بعد اليوم.` });
       return;
     }
     setMessage(null);
@@ -40,12 +49,12 @@ export function DepositDialog({ items, onClosed }: { items: Cheque[]; onClosed: 
     let stopped = false;
     const set = (id: string, r: RowState) => setRows((s) => ({ ...s, [id]: r }));
     for (const c of items) {
-      if (stopped) { set(c.id, { cls: 'muted', text: 'لم يُحاوَل، فقد توقف الإيداع' }); continue; }
+      if (stopped) { set(c.id, { cls: 'muted', text: `لم يُحاوَل، فقد توقف ${rost ? 'التسجيل' : 'الإيداع'}` }); continue; }
       set(c.id, { cls: 'muted', text: 'جارٍ التسجيل…' });
       try {
-        const res = await api('/api/m/cheques/deposit', { method: 'POST', body: { payment_id: c.id, amount: c.amount, cheque_number: c.cheque_number, date } });
+        const res = await api('/api/m/cheques/deposit', { method: 'POST', body: { payment_id: c.id, amount: c.amount, cheque_number: c.cheque_number, date, ...(rost ? { to } : {}) } });
         result.current.done.push(c);
-        if (res.warning) { warnings++; set(c.id, { cls: 'warn', text: res.warning }); } else set(c.id, { cls: 'ok', text: 'تم الإيداع' });
+        if (res.warning) { warnings++; set(c.id, { cls: 'warn', text: res.warning }); } else set(c.id, { cls: 'ok', text: rost ? `سُجّل التسليم إلى ${recipientName(to)}` : 'تم الإيداع' });
       } catch (e) {
         result.current.failed.push(c);
         set(c.id, { cls: 'err', text: errText(e) });
@@ -56,11 +65,14 @@ export function DepositDialog({ items, onClosed }: { items: Cheque[]; onClosed: 
     setPhase('finished');
     if (!result.current.failed.length && !warnings) { setTimeout(() => { setOpen(false); onClosed(result.current); }, 700); return; }
     setMessage(stopped
-      ? { tone: 'err', text: 'توقف الإيداع، ولم تُحاوَل الشيكات الباقية. اتبع الرسالة تحت الشيك.' }
-      : { tone: 'warn', text: `أُودع ${result.current.done.length} من أصل ${items.length}. راجع الرسائل أعلاه.` });
+      ? { tone: 'err', text: `توقف ${rost ? 'التسجيل' : 'الإيداع'}، ولم تُحاوَل الشيكات الباقية. اتبع الرسالة تحت الشيك.` }
+      : { tone: 'warn', text: `${rost ? 'سُجّل تسليم' : 'أُودع'} ${result.current.done.length} من أصل ${items.length}. راجع الرسائل أعلاه.` });
   }
 
-  const title = single ? 'تأكيد إيداع شيك في بنك AGB' : `تأكيد إيداع ${chequeWord(items.length, true)} في بنك AGB`;
+  const title = rost
+    ? (single ? 'تأكيد تسليم شيك للرستمية' : `تأكيد تسليم ${chequeWord(items.length, true)} للرستمية`)
+    : (single ? 'تأكيد إيداع شيك في بنك AGB' : `تأكيد إيداع ${chequeWord(items.length, true)} في بنك AGB`);
+  const name = recipientName(to);
   return (
     <Modal open={open} onClose={close} busy={phase === 'busy'} title={title}>
       <ul className="m-0 mb-2 list-none p-0">
@@ -89,14 +101,25 @@ export function DepositDialog({ items, onClosed }: { items: Cheque[]; onClosed: 
           <span>المجموع</span><Amount value={sum(items)} className="font-display text-lg font-semibold" />
         </div>
       ) : null}
-      <DateField label="تاريخ الإيداع" value={date} max={today} min={minDate || undefined} disabled={phase !== 'ready'} onChange={setDate} />
-      <p className="text-sm text-muted">تأكد أن هذه الشيكات سُلِّمت فعلاً للبنك، وطابقها مع صورها. سيُسجَّل الإيداع في زوهو باسمك.</p>
+      {rost ? (
+        <div className="mb-3">
+          <div className="mb-2 text-base font-semibold">من استلم {single ? 'الشيك' : 'الشيكات'}؟</div>
+          <fieldset disabled={phase !== 'ready'} className="m-0 border-0 p-0">
+            <Segmented label="من استلم الشيك" value={to} options={RECIPIENTS} onChange={(v) => { setTo(v); setMessage(null); }} />
+          </fieldset>
+        </div>
+      ) : null}
+      <DateField label={rost ? 'تاريخ التسليم' : 'تاريخ الإيداع'} value={date} max={today} min={minDate || undefined} disabled={phase !== 'ready'} onChange={setDate} />
+      <p className="text-sm text-muted">{rost
+        ? `تأكد أنك سلّمت ${single ? 'هذا الشيك' : 'هذه الشيكات'} فعلاً${name ? ` إلى ${name}` : ''}، وطابقها مع صورها. سيُسجَّل في زوهو إيداعاً في حساب الرستمية باسمك.`
+        : 'تأكد أن هذه الشيكات سُلِّمت فعلاً للبنك، وطابقها مع صورها. سيُسجَّل الإيداع في زوهو باسمك.'}</p>
       {message ? (message.tone === 'err' ? <FormError>{message.text}</FormError>
         : <Note tone="warn" className="mt-2 text-base">{message.text}</Note>) : null}
       <ModalActions>
         {phase !== 'finished' ? (
           <Button variant="primary" disabled={phase === 'busy'} onClick={run} autoFocus>
-            {phase === 'busy' ? 'جارٍ التسجيل…' : single ? 'تأكيد الإيداع' : `تأكيد إيداع ${chequeWord(items.length, true)}`}
+            {phase === 'busy' ? 'جارٍ التسجيل…' : rost ? (name ? `سجّل التسليم إلى ${name}` : 'سجّل التسليم')
+              : single ? 'تأكيد الإيداع' : `تأكيد إيداع ${chequeWord(items.length, true)}`}
           </Button>
         ) : null}
         <Button disabled={phase === 'busy'} onClick={close}>{phase === 'finished' ? 'إغلاق' : 'إلغاء'}</Button>

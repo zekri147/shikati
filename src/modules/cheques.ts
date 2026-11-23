@@ -262,9 +262,10 @@ export const chequesModule: AppModule = {
       // الأقفال تُقرأ في كل طلب، لا من التخزين المؤقت
       const locks = await lockStates(env);
       const byId = new Map(view.all.map((c) => [c.id, c]));
-      for (const c of [...view.agb_in_hand.items, ...view.all]) if (locks[c.id]) c.lock = locks[c.id];
-      await reconcileDoneLocks(env, view.agb_in_hand.items);
-      for (const c of view.agb_in_hand.items) {
+      const depositable = [...view.agb_in_hand.items, ...view.rostomia_in_hand.items];
+      for (const c of [...depositable, ...view.all]) if (locks[c.id]) c.lock = locks[c.id];
+      await reconcileDoneLocks(env, depositable);
+      for (const c of depositable) {
         const same = byId.get(c.id);
         if (same) same.lock = c.lock;
       }

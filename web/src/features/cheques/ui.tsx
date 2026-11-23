@@ -167,13 +167,15 @@ export function SectionHead({ title, count, total, primary, inTrigger, meta }: {
 }
 
 // قسم ثابت (رئيسي) أو مطوي. القسم المطوي يتذكّر حالته أثناء الجلسة.
-export function ChequeSection({ title, items, opts, note, noteTone, emptyText, collapsible, open, onOpenChange, hideTotal, noteFor }: {
+export function ChequeSection({ title, items, opts, note, noteTone, emptyText, collapsible, open, onOpenChange, hideTotal, noteFor, optsFor }: {
   title: string; items: Cheque[]; opts: CardOpts; note?: string | null; noteTone?: 'alert' | 'warn' | '';
   emptyText?: string; collapsible?: boolean; open?: boolean; onOpenChange?: (v: boolean) => void; hideTotal?: boolean;
   noteFor?: (c: Cheque) => string | null;
+  // خيارات لكل بطاقة: التحديد في قسم الرستمية لحامل الشيك وحده
+  optsFor?: (c: Cheque) => Partial<CardOpts>;
 }) {
   const list = items.length
-    ? <CardList>{items.map((c) => <ChequeCard key={c.id} c={c} o={{ ...opts, note: noteFor ? noteFor(c) : null }} />)}</CardList>
+    ? <CardList>{items.map((c) => <ChequeCard key={c.id} c={c} o={{ ...opts, note: noteFor ? noteFor(c) : null, ...optsFor?.(c) }} />)}</CardList>
     : <Empty>{emptyText || 'لا توجد شيكات هنا.'}</Empty>;
   const total = hideTotal ? null : sum(items);
   if (!collapsible) {

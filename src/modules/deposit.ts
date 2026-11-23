@@ -8,8 +8,13 @@ import { ACCOUNT_CHEQUES_IN_HAND, CACHE_KEY, DEST, parseRoles, STATUS, todayAlgi
 
 // تسجيل إيداع شيك في بنك AGB، بنفس طريقة دالة deposer_agb في زوهو.
 // كل خطوة بعد إرسال طلب الإيداع لا تُعاد تلقائياً أبداً.
+// وشيك الرستمية (بطلب ZEKRI وموافقته يوم 23/11/2026): إيداعه تسليمه إلى عمار أو سمير، فيُسجَّل
+// كما كان يُسجَّل يدوياً: إيداع من الشيكات في الحوزة إلى حساب «Bank Ammar Rostomia»، بحالة «مودع في البنك».
 
 export const ACCOUNT_AGB = '7418406000000261404';
+export const ACCOUNT_ROSTOMIA = '7418406000000903878';
+// من يستلم شيكات الرستمية. المفتاح ما ترسله الواجهة، والاسم ما يُكتب في زوهو
+export const ROSTOMIA_RECIPIENTS: Record<string, string> = { ammar: 'عمار', samir: 'سمير' };
 const STALE_PENDING_SEC = 300;
 const PAYMENT_ID_RE = /^\d{10,25}$/;
 
@@ -94,9 +99,13 @@ const LOCKED_MESSAGES: Record<DepositState, string> = {
 export async function handleDeposit(req: Request, env: Env, user: User): Promise<Response> {
   if (!canDeposit(env, user)) throw new HttpError(403, 'ليست لديك صلاحية تسجيل الإيداع.');
 
-  const body = await readJson<{ payment_id?: string; amount?: number; cheque_number?: string; date?: string }>(req);
+  const body = await readJson<{ payment_id?: string; amount?: number; cheque_number?: string; date?: string; to?: string }>(req);
   const pid = String(body.payment_id || '');
   if (!PAYMENT_ID_RE.test(pid)) throw new HttpError(400, 'معرّف الدفعة غير صالح.');
+  // المستلم يعني شيكاً للرستمية: يُفحص مع وجهته في زوهو قبل أي كتابة
+  const toKey = String(body.to || '').trim();
+  const recipient = toKey ? ROSTOMIA_RECIPIENTS[toKey] : '';
+  if (toKey && !recipient) throw new HttpError(400, 'اختر من استلم الشيك: عمار أو سمير.');
   // تاريخ الإيداع: اليوم افتراضياً، ويختاره الموظف إن أودع في يوم سابق
   const today = todayAlgiers();
   const depositDate = String(body.date || today).trim();
@@ -104,7 +113,8 @@ export async function handleDeposit(req: Request, env: Env, user: User): Promise
 
   // 0. العهدة (بطلب ZEKRI يوم 9/11/2026): المندوب يودع ما في عهدته وحده، دون تسليم معلّق منه. المدير يودع أي شيك.
   // قبل أي قفل أو طلب إلى زوهو، فالرفض لا يترك أثراً.
-  if (user.role !== 'admin') {
+  // تسليم الرستمية لحامل الشيك وحده، المدير أيضاً (اختيار ZEKRI): يأخذه في عهدته أولاً
+  if (user.role !== 'admin' || recipient) {
     const k = await env.DB.prepare('SELECT holder_id, to_id FROM custody WHERE payment_id = ?').bind(pid).first<{ holder_id: number | null; to_id: number | null }>();
     if (!k || k.holder_id !== user.id) {
       await audit(env, user, 'deposit', 'denied', pid, 'not_holder');
@@ -178,9 +188,14 @@ export async function handleDeposit(req: Request, env: Env, user: User): Promise
     return fail(409, `حالة الشيك «${status}»، لا يمكن إيداعه.`);
   }
   if (status !== STATUS.IN_HAND) return fail(409, `حالة الشيك «${status || 'فارغة'}» وليست «${STATUS.IN_HAND}».`);
-  if (p.account_id !== ACCOUNT_CHEQUES_IN_HAND || dest !== DEST.AGB) {
-    return fail(409, 'الشيك ليس في الحوزة نحو بنك AGB.');
+  if (p.account_id !== ACCOUNT_CHEQUES_IN_HAND || (dest !== DEST.AGB && dest !== DEST.ROSTOMIA)) {
+    return fail(409, 'الشيك ليس في الحوزة نحو بنك AGB أو الرستمية.');
   }
+  const rost = dest === DEST.ROSTOMIA;
+  if (rost && !recipient) return fail(409, 'هذا الشيك للرستمية: إيداعه تسليمه إلى عمار أو سمير. حدّث الصفحة واختر من استلمه.');
+  if (!rost && recipient) return fail(409, 'هذا الشيك لبنك AGB لا للرستمية. حدّث الصفحة ثم أودِعه في AGB.');
+  // ما يُكتب في زوهو: «في AGB»، أو «للرستمية: سُلّم إلى عمار»
+  const where = rost ? `للرستمية: سُلّم إلى ${recipient}` : 'في AGB';
   // ما رآه المستخدم في بطاقة التأكيد يجب أن يطابق زوهو الآن
   const shownAmount = Number(body.amount);
   const shownCheque = String(body.cheque_number ?? '').trim();
@@ -203,10 +218,10 @@ export async function handleDeposit(req: Request, env: Env, user: User): Promise
   const lineType = Array.isArray(p.invoices) && p.invoices.length > 0 ? 'invoice_payment' : 'customer_payment';
   const deposit: Record<string, unknown> = {
     transaction_type: 'deposit',
-    to_account_id: ACCOUNT_AGB,
+    to_account_id: rost ? ACCOUNT_ROSTOMIA : ACCOUNT_AGB,
     date: depositDate,
     currency_id: p.currency_id,
-    description: `إيداع شيك ${chq} في AGB — دفعة ${p.payment_number ?? ''} — من تطبيق ميداني (${user.display_name})`,
+    description: `إيداع شيك ${chq} ${where} — دفعة ${p.payment_number ?? ''} — من تطبيق ميداني (${user.display_name})`,
     line_items: [{
       from_account_id: ACCOUNT_CHEQUES_IN_HAND,
       amount: p.amount,
@@ -267,9 +282,10 @@ export async function handleDeposit(req: Request, env: Env, user: User): Promise
   // 5. تحديث حالة الشيك وإضافة سطر في سجل الدفعة باسم الموظف
   const logOld = String(cfh.cf_fffaad || '').trim();
   // إن كان البنك قد أكّد التحصيل برسالة من قبل، فالشيك محصّل لا «مودع» فقط، حتى لا يضيع أثر التحصيل
-  const collected = bankCollectedDate(logOld);
+  // رسائل التحصيل من AGB وحده، فلا تخص شيك الرستمية
+  const collected = rost ? '' : bankCollectedDate(logOld);
   const newStatus = collected ? STATUS.COLLECTED : STATUS.DEPOSITED;
-  const logLine = `${today} — إيداع في AGB${depositDate !== today ? ` بتاريخ ${depositDate}` : ''} من تطبيق ميداني (${user.display_name})` +
+  const logLine = `${today} — إيداع ${where}${depositDate !== today ? ` بتاريخ ${depositDate}` : ''} من تطبيق ميداني (${user.display_name})` +
     (collected ? `، والبنك أكّد التحصيل برسالة يوم ${showDate(collected)}` : '');
   let updated = false;
   try {
@@ -286,15 +302,15 @@ export async function handleDeposit(req: Request, env: Env, user: User): Promise
   } catch { /* نعالجه أدناه */ }
 
   if (!updated) {
-    const warning = `تم الإيداع وربطه بالدفعة، لكن تعذّر تحديث حالة الشيك في زوهو. حدّثها يدوياً إلى «${newStatus}».`;
+    const warning = `${rost ? `سُجّل إيداع التسليم إلى ${recipient}` : 'تم الإيداع'} وربطه بالدفعة، لكن تعذّر تحديث حالة الشيك في زوهو. حدّثها يدوياً إلى «${newStatus}».`;
     await finish('done', warning, tid);
     return json({ ok: true, warning });
   }
 
-  await finish('done', 'تم الإيداع وتحديث الحالة', tid);
+  await finish('done', rost ? `سُلّم إلى ${recipient} للرستمية، وحُدّثت الحالة` : 'تم الإيداع وتحديث الحالة', tid);
   return json({
     ok: true,
-    message: collected ? `تم تسجيل الإيداع في بنك AGB. البنك أكّد تحصيله برسالة يوم ${showDate(collected)}، فحالته «${STATUS.COLLECTED}».` : 'تم تسجيل الإيداع في بنك AGB.',
+    message: rost ? `سُجّل تسليم الشيك إلى ${recipient} للرستمية.` : collected ? `تم تسجيل الإيداع في بنك AGB. البنك أكّد تحصيله برسالة يوم ${showDate(collected)}، فحالته «${STATUS.COLLECTED}».` : 'تم تسجيل الإيداع في بنك AGB.',
   });
 }
 

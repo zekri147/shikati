@@ -208,7 +208,7 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, onDeposi
       {hasBar ? (
         <div className="detailbar fixed inset-x-0 bottom-0 z-20 flex gap-2 border-t border-line-strong bg-surface px-4 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 [&>*]:flex-1">
           {/* العمل الأنسب لحالة الشيك زراً رئيسياً: الإيداع للشيك في الحوزة لبنك AGB */}
-          {depositable && !d.can_endorse ? <Button variant="primary" className="!flex-[2] whitespace-nowrap py-2" onClick={() => setDepositing(true)}>أودِع هذا الشيك</Button> : null}
+          {depositable && !d.can_endorse ? <Button variant="primary" className="!flex-[2] whitespace-nowrap py-2" onClick={() => setDepositing(true)}>{depositable.destination === 'ROSTOMIA' ? 'سلّمته للرستمية' : 'أودِع هذا الشيك'}</Button> : null}
           {d.can_endorse ? (
             <Button variant="primary" className="py-2" onClick={() => {
               endorseRef.current?.scrollIntoView({ block: 'start' });

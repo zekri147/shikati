@@ -104,6 +104,7 @@ const byStatus = (c: Cheque, s: string) => !s || (s === 'other' ? !MAIN_STATUSES
 const learned = () => loadKey(HINT_KEY) === '1';
 // المندوب يودع ما في عهدته وحده (بطلب ZEKRI يوم 9/11/2026)، والخادم يرفض غيره. المدير يودع أي شيك
 const heldByMe = (c: Cheque) => !!c.custody?.mine && !c.custody.outgoing;
+const isRost = (c: Cheque | undefined) => c?.destination === 'ROSTOMIA';
 const whyNotHeld = (c: Cheque) => {
   const k = c.custody;
   if (k?.incoming) return 'سُلّم إليك: أكّد استلامه من صفحته، ثم أودِعه.';
@@ -207,7 +208,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   // إزالة ما لم يعد قابلاً للإيداع من التحديد
   useEffect(() => {
     if (!data) return;
-    const available = new Set(data.agb_in_hand.items.filter((c) => !c.lock).map((c) => c.id));
+    const available = new Set([...data.agb_in_hand.items, ...data.rostomia_in_hand.items].filter((c) => !c.lock).map((c) => c.id));
     setSelected((s) => {
       const n = new Map([...s].filter(([id]) => available.has(id)));
       return n.size === s.size ? s : n;
@@ -219,6 +220,11 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     setSelected((s) => {
       const n = new Map(s);
       if (n.has(c.id)) n.delete(c.id);
+      // AGB يُودَع في البنك، والرستمية تُسلَّم إلى عمار أو سمير: لا يجتمعان في تأكيد واحد
+      else if (n.size && isRost([...n.values()][0]) !== isRost(c)) {
+        toast(isRost(c) ? 'ألغِ تحديد شيكات AGB أولاً: شيكات الرستمية تُسلَّم وحدها.' : 'ألغِ تحديد شيكات الرستمية أولاً: شيكات AGB تُودَع وحدها.', 'warn');
+        return s;
+      }
       else if (n.size >= MAX_BATCH) { toast(`يمكن تحديد ${MAX_BATCH} شيكاً على الأكثر في المرة الواحدة.`, 'warn'); return s; }
       else n.set(c.id, c);
       return n;
@@ -246,7 +252,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
       setLeaving(ids);
       setTimeout(() => { setGone(ids); setLeaving(new Set()); }, 320);
     }
-    if (r.done.length && !r.failed.length) toast(`تم إيداع ${chequeWord(r.done.length, true)} · ${fmtAmount(sum(r.done))}`);
+    if (r.done.length && !r.failed.length) toast(isRost(r.done[0]) ? `سُجّل تسليم ${chequeWord(r.done.length, true)} للرستمية · ${fmtAmount(sum(r.done))}` : `تم إيداع ${chequeWord(r.done.length, true)} · ${fmtAmount(sum(r.done))}`);
     else if (r.done.length) toast(`أُودع ${chequeWord(r.done.length)}، وبقي ${chequeWord(r.failed.length)} دون إيداع`, 'warn');
     else toast('لم يُسجَّل أي إيداع. راجع الرسائل.', 'err');
     await load(true);
@@ -265,7 +271,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     // العهدة تصفّي ما في الحوزة وحده
     const held = (items: Cheque[]) => pick(items).filter((c) => byCustody(c.custody, custody));
     const agb = held(data.agb_in_hand.items).filter((c) => !gone.has(c.id));
-    const rost = held(data.rostomia_in_hand.items);
+    const rost = held(data.rostomia_in_hand.items).filter((c) => !gone.has(c.id));
     const noDest = held(data.no_destination.items);
     const waiting = [...agb, ...rost, ...noDest];
     // ما أُودع اليوم: من تاريخ الإيداع في زوهو، فيشمل ما أودعته دالة رسائل البنك أيضاً
@@ -314,8 +320,14 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
             open={openFold('rejected', rejected.length > 0)} onOpenChange={setFold('rejected')} /> : null}
           {noDest.length ? <ChequeSection title="في الحوزة والوجهة غير محددة" items={noDest} opts={opts} collapsible noteTone="warn"
             note="لا تأخذها إلى البنك قبل أن يحدد المدير وجهتها." open={openFold('nodest', noDest.length > 0)} onOpenChange={setFold('nodest')} /> : null}
-          <ChequeSection title="لبنك الرستمية" items={rost} opts={opts} collapsible note="إيداعها في الرستمية لا يُسجَّل من التطبيق بعد. القائمة للاطلاع فقط."
-            open={openFold('rost', rost.length > 0)} onOpenChange={setFold('rost')} />
+          {/* الرستمية: إيداعها تسليمها إلى عمار أو سمير، يسجّله حامل الشيك وحده، المدير أيضاً */}
+          <ChequeSection title="للرستمية" items={rost} opts={opts} collapsible
+            note={data.can_deposit ? 'إيداعها تسليمها إلى عمار أو سمير. المس ما سلّمته منها، ثم «سلّمت المحدد».' : 'إيداعها تسليمها إلى عمار أو سمير.'}
+            optsFor={(c) => {
+              const mayHand = data.can_deposit && heldByMe(c);
+              return { selectable: mayHand, link: !mayHand, selected: selected.has(c.id), leaving: leaving.has(c.id), note: data.can_deposit && !mayHand ? whyNotHeld(c) : undefined };
+            }}
+            open={q ? rost.length > 0 : open.rost ?? rost.some(heldByMe)} onOpenChange={setFold('rost')} />
           <ChequeSection title="في بنك AGB بانتظار التحصيل" items={inBank} opts={opts} collapsible
             open={openFold('pending', inBank.length > 0)} onOpenChange={setFold('pending')} />
           <ChequeSection title="آخر 5 شيكات أُودعت في بنك AGB" items={pick(data.agb_recent.items)} opts={{ ...opts, showStatus: true, noAge: true }} collapsible hideTotal
@@ -436,7 +448,8 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
       ) : route.view === 'detail' && route.id ? (
         <DetailPage id={route.id} isAdmin={isAdmin} preview={data?.all.find((c) => c.id === route.id)}
           // «أودِع هذا الشيك» في صفحته: لشيك في الحوزة لبنك AGB، دون قفل، وبعد وصول البيانات الجديدة
-          depositable={fresh && data?.can_deposit ? data.agb_in_hand.items.find((c) => c.id === route.id && !c.lock && (isAdmin || heldByMe(c))) || null : null}
+          depositable={fresh && data?.can_deposit ? data.agb_in_hand.items.find((c) => c.id === route.id && !c.lock && (isAdmin || heldByMe(c)))
+            || data.rostomia_in_hand.items.find((c) => c.id === route.id && !c.lock && heldByMe(c)) || null : null}
           onDeposited={() => load(true)} onBack={() => { if (fromList.current || cameFrom()) history.back(); else location.hash = '#cheques'; }} />
       ) : route.view === 'new' ? (
         <RegisterPage onDone={(pid) => { load(true); location.hash = '#cheques/c/' + pid; }} />
@@ -455,7 +468,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
                 // البيانات المعروضة من آخر فتح: لا إيداع قبل وصول الجديدة، فقد يكون الشيك تغيّر
                 if (!fresh) { toast(busy ? 'انتظر لحظة حتى يكتمل التحديث، ثم أودع.' : 'البيانات قديمة. حدّث الشاشة أولاً، ثم أودع.', 'warn'); return; }
                 dialogRef.current = true; setDepositing(selItems);
-              }}>أودعت المحدد</Button>
+              }}>{isRost(selItems[0]) ? 'سلّمت المحدد' : 'أودعت المحدد'}</Button>
               <Button className="border-line-on-dark bg-transparent px-2 py-2 text-white hover:bg-press-on-dark active:bg-press-on-dark" onClick={() => setSelected(new Map())}>إلغاء التحديد</Button>
             </div>
           </div>
