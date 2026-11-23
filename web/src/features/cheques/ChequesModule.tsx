@@ -286,6 +286,8 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     const held = (items: Cheque[]) => pick(items).filter((c) => byCustody(c.custody, custody));
     const agb = held(data.agb_in_hand.items).filter((c) => !gone.has(c.id));
     const rost = held(data.rostomia_in_hand.items).filter((c) => !gone.has(c.id));
+    // البيانات المحفوظة على الهاتف قبل هذا القسم لا تحمله
+    const rostRecent = pick(data.rostomia_recent?.items || []);
     const noDest = held(data.no_destination.items);
     const waiting = [...agb, ...rost, ...noDest];
     // ما أُودع اليوم: من تاريخ الإيداع في زوهو، فيشمل ما أودعته دالة رسائل البنك أيضاً
@@ -347,6 +349,9 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
             open={openFold('pending', inBank.length > 0)} onOpenChange={setFold('pending')} />
           <ChequeSection title="آخر 5 شيكات أُودعت في بنك AGB" items={pick(data.agb_recent.items)} opts={{ ...opts, showStatus: true, noAge: true }} collapsible hideTotal
             emptyText="لا توجد إيداعات بعد." open={openFold('recent', pick(data.agb_recent.items).length > 0)} onOpenChange={setFold('recent')} />
+          {/* آخر تسليمات الرستمية: التراجع عن التسليم من صفحة الشيك، كالإيداع في AGB */}
+          <ChequeSection title="آخر 5 شيكات سُلّمت للرستمية" items={rostRecent} opts={{ ...opts, showStatus: true, noAge: true }} collapsible hideTotal
+            emptyText="لا توجد تسليمات بعد." open={openFold('rostrecent', rostRecent.length > 0)} onOpenChange={setFold('rostrecent')} />
         </div>
       </>
     );

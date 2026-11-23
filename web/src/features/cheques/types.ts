@@ -14,7 +14,7 @@ export type AlertKind = 'rejected' | 'late' | 'collect_late' | 'endorse_incomple
 export type ChequesData = {
   generated_at: string; today: string; can_deposit: boolean;
   rejected: Section; agb_in_hand: Section; rostomia_in_hand: Section; no_destination: Section;
-  agb_pending_collection: Section; agb_recent: Section; all: Cheque[];
+  agb_pending_collection: Section; agb_recent: Section; rostomia_recent?: Section; all: Cheque[];
   alerts: { kind: AlertKind; id: string; text?: string }[];
 };
 export type Line = { number: string; date: string; balance: number; applied: number };

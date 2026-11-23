@@ -4,7 +4,7 @@ import { zohoRequest, ZohoTimeout } from '../zoho';
 import { audit } from '../audit';
 import { DEPOSIT_DATE_FIELD } from './depositdate';
 import { bankCollectedDate, showDate } from './banksms';
-import { ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, CACHE_KEY, STATUS, todayAlgiers } from './constants';
+import { ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, CACHE_KEY, DEST, STATUS, todayAlgiers } from './constants';
 
 // التراجع عن آخر عملية على الشيك، بموافقة ZEKRI يوم 2/11/2026:
 //   الإيداع  ← حذف المعاملة البنكية، والحالة تعود «في الحوزة»
@@ -53,6 +53,7 @@ export interface UndoPlan {
 }
 
 const str = (v: unknown) => String(v ?? '').trim();
+const isRostomia = (p: Payment) => str(p.custom_field_hash?.cf_d_pos_vers) === DEST.ROSTOMIA;
 const digits = (v: unknown) => str(v).replace(/\D/g, '').replace(/^0+/, '');
 
 async function readPayment(env: Env, pid: string): Promise<Payment | null> {
@@ -89,9 +90,13 @@ export async function undoPlan(env: Env, p: Payment): Promise<UndoPlan | null> {
   const status = str(cf.cf_5d7197);
   const deposits = p.deposit_details || [];
 
-  // 1. الإيداع
+  // 1. الإيداع. وللرستمية الإيداع هو تسليمه إلى عمار أو سمير، فيُسمّى «التسليم» (طلب ZEKRI يوم 23/11/2026)
   if (deposits.length > 0) {
-    const plan: UndoPlan = {
+    const plan: UndoPlan = isRostomia(p) ? {
+      kind: 'deposit', title: 'التراجع عن التسليم',
+      effect: `يُحذف تسليم الشيك للرستمية (الإيداع في «${str(deposits[0].account_name) || 'حساب الرستمية'}») من زوهو، وتعود حالة الشيك «${STATUS.IN_HAND}» في عهدة من سلّمه.`,
+      blocker: null,
+    } : {
       kind: 'deposit', title: 'التراجع عن الإيداع',
       effect: `يُحذف الإيداع في «${str(deposits[0].account_name) || 'البنك'}» من زوهو، وتعود حالة الشيك «${STATUS.IN_HAND}».`,
       blocker: null,
@@ -290,6 +295,8 @@ export async function handleUndo(req: Request, env: Env, user: User): Promise<Re
 
   // 2. الحذف، ثم إرجاع الحالة
   if (kind === 'deposit') {
+    const rost = isRostomia(p);
+    const what = rost ? 'التسليم' : 'الإيداع';
     const r = await del(env, `/banktransactions/${plan.txn_id}`).catch(async (e) => {
       await audit(env, user, 'undo.deposit', 'error', target, String(e.message));
       // انقطع الرد بعد طلب الحذف: قد يكون الإيداع حُذف والحالة بقيت «مودع في البنك».
@@ -300,11 +307,11 @@ export async function handleUndo(req: Request, env: Env, user: User): Promise<Re
     if (!r.ok) return deny(502, r.message);
     await env.DB.prepare(
       "UPDATE deposits SET state = 'failed', message = ?, finished_at = datetime('now') WHERE payment_id = ?",
-    ).bind(`تراجع عن الإيداع (${user.display_name})`, pid).run();
-    const ok = await setStatus(env, p, user, 'تراجع عن الإيداع', true);
+    ).bind(`تراجع عن ${what} (${user.display_name})`, pid).run();
+    const ok = await setStatus(env, p, user, rost ? 'تراجع عن التسليم للرستمية' : 'تراجع عن الإيداع', true);
     await env.DB.prepare('DELETE FROM deposit_dates WHERE payment_id = ?').bind(pid).run();
-    return done('حُذف الإيداع، وعاد الشيك «في الحوزة».',
-      ok ? undefined : 'حُذف الإيداع، لكن تعذّر إرجاع حالة الشيك إلى «في الحوزة». حدّثها في زوهو.');
+    return done(`حُذف ${what}، وعاد الشيك «في الحوزة».`,
+      ok ? undefined : `حُذف ${what}، لكن تعذّر إرجاع حالة الشيك إلى «في الحوزة». حدّثها في زوهو.`);
   }
 
   if (kind === 'endorse') {
