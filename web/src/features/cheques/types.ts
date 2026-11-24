@@ -2,7 +2,7 @@
 export type Cheque = {
   id: string; number: string; customer: string; amount: number; cheque_number: string; date: string; days: number;
   location: string; status: string; destination: string; account: string; invoices: string;
-  has_image?: boolean; lock?: string; deposit_date?: string; deposit_days?: number; v?: string; custody?: Custody;
+  has_image?: boolean; lock?: string; clock?: string; deposit_date?: string; deposit_days?: number; v?: string; custody?: Custody;
   // «لي» لصاحب رمز المندوب: في عهدته أو سُلّم إليه، أو عميله
   own?: boolean;
   customer_id?: string;

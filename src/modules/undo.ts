@@ -4,19 +4,21 @@ import { zohoRequest, ZohoTimeout } from '../zoho';
 import { audit } from '../audit';
 import { DEPOSIT_DATE_FIELD } from './depositdate';
 import { bankCollectedDate, showDate } from './banksms';
-import { ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, CACHE_KEY, DEST, STATUS, todayAlgiers } from './constants';
+import { ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, CACHE_KEY, DEST, NO_RETRY_PREFIX, STATUS, todayAlgiers } from './constants';
+import { collectUnsettled, MANUAL_LINE_RE, MANUAL_UNDO_TEXT } from './cashin';
 
 // التراجع عن آخر عملية على الشيك، بموافقة ZEKRI يوم 2/11/2026:
 //   الإيداع  ← حذف المعاملة البنكية، والحالة تعود «في الحوزة»
 //   التظهير  ← حذف دفعة المورد، والحالة تعود «في الحوزة»
 //   التسجيل  ← حذف دفعة العميل
+//   التحصيل اليدوي ← الحالة تعود «مودع في البنك» (بموافقة ZEKRI يوم 24/11/2026، للمدير، لا لتحصيل رسالة البنك)
 // يشمل ما أُنشئ قبل التطبيق. المدير يتراجع عن أي عملية، والمندوب عن عملياته هو فقط.
 // التراجع يكون من آخر عملية إلى أولها، ويُفحص كل شيء في زوهو قبل الحذف.
 // لا إعادة تلقائية بعد طلب الحذف: إن انقطع الرد يُطلب التحقق.
 
 const ID_RE = /^\d{10,25}$/;
 
-export type UndoKind = 'deposit' | 'endorse' | 'register';
+export type UndoKind = 'collect' | 'deposit' | 'endorse' | 'register';
 
 interface Payment {
   payment_id: string;
@@ -90,6 +92,19 @@ export async function undoPlan(env: Env, p: Payment): Promise<UndoPlan | null> {
   const status = str(cf.cf_5d7197);
   const deposits = p.deposit_details || [];
 
+  // 0. التحصيل اليدوي: آخر سطر تحصيل في السجل يدوي من التطبيق، ولم يؤكده البنك برسالة
+  if (status === STATUS.COLLECTED && lastIsManualCollect(cf.cf_fffaad)) {
+    const plan: UndoPlan = {
+      kind: 'collect', title: 'التراجع عن التحصيل',
+      effect: `تعود حالة الشيك «${STATUS.DEPOSITED}» في زوهو، ويبقى إيداعه كما هو.`,
+      blocker: null,
+    };
+    const bank = bankCollectedDate(cf.cf_fffaad);
+    if (bank) return { ...plan, blocker: `البنك أكّد تحصيل هذا الشيك برسالة يوم ${showDate(bank)}، فلا يمكن التراجع عن تحصيله.` };
+    if (!deposits.length) return { ...plan, blocker: 'لا إيداع لهذا الشيك في زوهو. راجعه هناك.' };
+    return plan;
+  }
+
   // 1. الإيداع. وللرستمية الإيداع هو تسليمه إلى عمار أو سمير، فيُسمّى «التسليم» (طلب ZEKRI يوم 23/11/2026)
   if (deposits.length > 0) {
     const plan: UndoPlan = isRostomia(p) ? {
@@ -155,9 +170,16 @@ export async function undoPlan(env: Env, p: Payment): Promise<UndoPlan | null> {
   return plan;
 }
 
+// آخر سطر تحصيل يدوي أو تراجع عنه في سجل الدفعة: تحصيل؟
+function lastIsManualCollect(log: unknown): boolean {
+  const lines = str(log).split('\n').map((l) => l.trim()).filter((l) => MANUAL_LINE_RE.test(l) || l.includes(MANUAL_UNDO_TEXT));
+  return lines.length > 0 && MANUAL_LINE_RE.test(lines[lines.length - 1]);
+}
+
 // من أنجز العملية في التطبيق؟ المندوب يتراجع عن عملياته هو فقط
 async function performer(env: Env, kind: UndoKind, pid: string): Promise<number | null> {
   const sql = {
+    collect: "SELECT user_id FROM collections WHERE payment_id = ? AND state IN ('done', 'unknown')",
     deposit: "SELECT user_id FROM deposits WHERE payment_id = ? AND state IN ('done', 'unknown')",
     endorse: "SELECT user_id FROM endorsements WHERE payment_id = ? AND state IN ('done', 'unknown')",
     register: "SELECT user_id FROM registrations WHERE payment_id = ? AND state = 'done'",
@@ -172,9 +194,10 @@ export async function canUndo(env: Env, user: User, kind: UndoKind, pid: string)
 }
 
 // قفل الإيداع «قيد التنفيذ» أو «غير معروف»: إيداع أو تراجع عنه لم تُعرف نتيجته بعد
+// والتحصيل اليدوي أو التراجع عنه إن لم تُعرف نتيجته يقفل الإيداع والتحصيل معاً
 async function depositUnsettled(env: Env, pid: string): Promise<boolean> {
   const row = await env.DB.prepare("SELECT 1 FROM deposits WHERE payment_id = ? AND state IN ('pending', 'unknown')").bind(pid).first();
-  return !!row;
+  return !!row || (await collectUnsettled(env, pid));
 }
 const UNSETTLED = 'عملية سابقة على إيداع هذا الشيك لم تُعرف نتيجتها. لا تعد المحاولة، وأخبر المدير ليتحقق في زوهو.';
 
@@ -194,7 +217,7 @@ export async function undoForDetail(env: Env, user: User, p: Payment): Promise<(
     // المندوب لا يرى زر تراجع لعملية غيره
     return null;
   }
-  const blocker = plan.blocker || (plan.kind === 'deposit' && (await depositUnsettled(env, p.payment_id)) ? UNSETTLED : null);
+  const blocker = plan.blocker || ((plan.kind === 'deposit' || plan.kind === 'collect') && (await depositUnsettled(env, p.payment_id)) ? UNSETTLED : null);
   return { kind: plan.kind, title: plan.title, effect: plan.effect, blocker, allowed: !blocker };
 }
 
@@ -266,7 +289,9 @@ export async function handleUndo(req: Request, env: Env, user: User): Promise<Re
   const pid = str(b.payment_id);
   const kind = str(b.kind) as UndoKind;
   if (!ID_RE.test(pid)) throw new HttpError(400, 'معرّف الدفعة غير صالح.');
-  if (!['deposit', 'endorse', 'register'].includes(kind)) throw new HttpError(400, 'نوع التراجع غير صالح.');
+  if (!['collect', 'deposit', 'endorse', 'register'].includes(kind)) throw new HttpError(400, 'نوع التراجع غير صالح.');
+  // التحصيل اليدوي للمدير وحده، والتراجع عنه كذلك
+  if (kind === 'collect' && user.role !== 'admin') throw new HttpError(403, 'التراجع عن التحصيل للمدير وحده.');
 
   const target = `${pid} / ${kind}`;
   const deny = async (status: number, message: string): Promise<never> => {
@@ -277,7 +302,7 @@ export async function handleUndo(req: Request, env: Env, user: User): Promise<Re
   if (!(await canUndo(env, user, kind, pid))) return deny(403, NOT_YOURS);
 
   // إيداع أو تراجع سابق عن الإيداع لم تُعرف نتيجته: لا محاولة جديدة حتى يتحقق المدير ويحرّر القفل
-  if (kind === 'deposit' && (await depositUnsettled(env, pid))) return deny(409, UNSETTLED);
+  if ((kind === 'deposit' || kind === 'collect') && (await depositUnsettled(env, pid))) return deny(409, UNSETTLED);
 
   // 1. قراءة الشيك من جديد، والتأكد أن آخر عملية هي التي طلب المستخدم التراجع عنها
   const p = await readPayment(env, pid);
@@ -292,6 +317,40 @@ export async function handleUndo(req: Request, env: Env, user: User): Promise<Re
     await audit(env, user, `undo.${kind}`, 'ok', target, `${chq}: ${warning || message}`);
     return json({ ok: true, message, warning });
   };
+
+  // التحصيل اليدوي: كتابة واحدة تعيد الحالة «مودع في البنك»، دون حذف
+  if (kind === 'collect') {
+    const old = str(p.custom_field_hash?.cf_fffaad);
+    const line = logLine(user, MANUAL_UNDO_TEXT);
+    let up;
+    try {
+      up = await zohoRequest(env, 'PUT', `/customerpayments/${pid}`, {
+        body: { custom_fields: [
+          { api_name: 'cf_5d7197', value: STATUS.DEPOSITED },
+          { api_name: 'cf_fffaad', value: old ? `${old}\n${line}` : line },
+        ] },
+      });
+    } catch (e) {
+      if (!(e instanceof ZohoTimeout)) throw e;
+      up = null;
+    }
+    if (!up || !up.data) {
+      const msg = `${NO_RETRY_PREFIX} طلب التراجع عن التحصيل. لا تعد المحاولة: افتح الشيك في زوهو، فإن كانت حالته «${STATUS.DEPOSITED}» فقد تم، ثم احسمه في الإدارة من تبويب «التحقق».`;
+      await env.DB.prepare(
+        "INSERT INTO collections (payment_id, state, user_id, username, display_name, customer, cheque_number, amount, message, finished_at) " +
+        "VALUES (?, 'unknown', ?, ?, ?, ?, ?, ?, ?, datetime('now')) " +
+        "ON CONFLICT(payment_id) DO UPDATE SET state = 'unknown', message = excluded.message, finished_at = datetime('now')",
+      ).bind(pid, user.id, user.username, user.display_name, str(p.customer_name) || null, chq || null, Number(p.amount) || null, msg).run();
+      await env.DB.prepare('DELETE FROM cache WHERE key = ?').bind(CACHE_KEY).run();
+      await audit(env, user, 'undo.collect', 'error', target, msg);
+      throw new HttpError(504, msg);
+    }
+    if (up.data.code !== 0) return deny(502, `زوهو رفض التراجع: ${str(up.data.message || up.data.code).slice(0, 200)}. لم يتغيّر شيء.`);
+    await env.DB.prepare(
+      "UPDATE collections SET state = 'failed', message = ?, finished_at = datetime('now') WHERE payment_id = ?",
+    ).bind(`تراجع عن التحصيل (${user.display_name})`, pid).run();
+    return done(`أُلغي التحصيل، وعادت حالة الشيك «${STATUS.DEPOSITED}».`);
+  }
 
   // 2. الحذف، ثم إرجاع الحالة
   if (kind === 'deposit') {

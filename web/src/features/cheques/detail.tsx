@@ -20,6 +20,7 @@ import { ChequeImage } from './media';
 import { AllocList, Block, KV, PartyPicker, type Party } from './pickers';
 import { EditPanel } from './edit';
 import { DepositDialog } from './deposit';
+import { CollectDialog } from './collect';
 import { CustodyBlock } from './custody';
 import type { Cheque, Line } from './types';
 
@@ -33,17 +34,19 @@ const ENDORSE_TEXT: Record<string, string> = {
 };
 const ACTION_TEXT: Record<string, string> = {
   deposit: 'إيداع', 'deposit.release': 'تحرير القفل', 'deposit.reverted': 'إلغاء الإيداع في زوهو', register: 'تسجيل الشيك',
-  endorse: 'التظهير لمورد', 'undo.deposit': 'تراجع عن الإيداع', 'undo.endorse': 'تراجع عن التظهير', 'undo.register': 'حذف التسجيل',
+  endorse: 'التظهير لمورد', collect: 'تحصيل يدوي', 'undo.collect': 'تراجع عن التحصيل', 'undo.deposit': 'تراجع عن الإيداع', 'undo.endorse': 'تراجع عن التظهير', 'undo.register': 'حذف التسجيل',
   edit: 'تعديل الشيك', 'register.read': 'قراءة الصورة',
 };
 
 export type Detail = any;
 
 // preview: الشيك من القائمة، فيظهر رأسه فوراً قبل وصول التفاصيل
-export function DetailPage({ id, isAdmin, onBack, preview, depositable, onDeposited }: {
-  id: string; isAdmin: boolean; onBack: () => void; preview?: Cheque; depositable?: Cheque | null; onDeposited?: () => void;
+// collectable: للمدير، شيك مودع في AGB بانتظار التحصيل، فيظهر «حصّلته» (التحصيل اليدوي، 24/11/2026)
+export function DetailPage({ id, isAdmin, onBack, preview, depositable, collectable, onDeposited }: {
+  id: string; isAdmin: boolean; onBack: () => void; preview?: Cheque; depositable?: Cheque | null; collectable?: Cheque | null; onDeposited?: () => void;
 }) {
   const [depositing, setDepositing] = useState(false);
+  const [collectingOne, setCollectingOne] = useState(false);
   const [d, setD] = useState<Detail | null>(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
@@ -63,7 +66,9 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, onDeposi
   }, [id]);
   useEffect(() => { setD(null); reload(); }, [reload]);
 
-  const hasBar = !!d && !editing && (d.can_endorse || d.edit || d.undo || !!depositable);
+  // الحالة من التفاصيل نفسها: لا «حصّلته» إن تغيّرت بعد تحميل القائمة
+  const collectOne = d && collectable && d.status === 'مودع في البنك' ? collectable : null;
+  const hasBar = !!d && !editing && (d.can_endorse || d.edit || d.undo || !!depositable || !!collectOne);
   useFixedBottom(68, hasBar);
 
   // رأس الصفحة: لوح أحمر ملاصق للشريط العلوي، فيه الرجوع ثم العميل والمبلغ والحالة والوجهة
@@ -210,6 +215,7 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, onDeposi
         <div className="detailbar fixed inset-x-0 bottom-0 z-20 flex gap-2 border-t border-line-strong bg-surface px-4 pb-[calc(10px+env(safe-area-inset-bottom))] pt-2 [&>*]:flex-1">
           {/* العمل الأنسب لحالة الشيك زراً رئيسياً: الإيداع للشيك في الحوزة لبنك AGB */}
           {depositable && !d.can_endorse ? <Button variant="primary" className="!flex-[2] whitespace-nowrap py-2" onClick={() => setDepositing(true)}>{depositable.destination === 'ROSTOMIA' ? 'سلّمته للرستمية' : 'أودِع هذا الشيك'}</Button> : null}
+          {collectOne && !depositable && !d.can_endorse ? <Button variant="primary" className="!flex-[2] whitespace-nowrap py-2" onClick={() => setCollectingOne(true)}>حصّلته</Button> : null}
           {d.can_endorse ? (
             <Button variant="primary" className="py-2" onClick={() => {
               endorseRef.current?.scrollIntoView({ block: 'start' });
@@ -245,7 +251,13 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, onDeposi
         if (r.done.length) { haptic('success'); toast('تم إيداع الشيك في بنك AGB'); }
         onDeposited?.(); reload();
       }} /> : null}
-      {undoOpen && u ? <UndoDialog d={d} onClose={(after) => { setUndoOpen(false); if (after === 'gone') navigate('#cheques'); else if (after === 'reload') reload(); }} /> : null}
+      {collectingOne && collectOne ? <CollectDialog items={[collectOne]} onClosed={(r) => {
+        setCollectingOne(false);
+        if (!r.attempted) return;
+        if (r.done.length) { haptic('success'); toast('حُصّل الشيك، وصارت حالته «محصّل».'); }
+        onDeposited?.(); reload();
+      }} /> : null}
+      {undoOpen && u ? <UndoDialog d={d} onClose={(after) => { setUndoOpen(false); if (after === 'gone') navigate('#cheques'); else if (after === 'reload') { reload(); onDeposited?.(); } }} /> : null}
     </>
   );
 }
@@ -383,10 +395,11 @@ function UndoDialog({ d, onClose }: { d: Detail; onClose: (after: 'gone' | 'relo
         <KV label="رقم الشيك">{d.cheque_number ? <Num>{d.cheque_number}</Num> : ''}</KV>
       </dl>
       <Note tone="warn" className="mt-3 text-base">{u.effect}</Note>
-      <p className="text-sm text-muted">الحذف في زوهو نهائي، ويُسجَّل باسمك في سجل العمليات.</p>
+      {/* التراجع عن التحصيل اليدوي يغيّر الحالة وحدها، لا حذف فيه */}
+      <p className="text-sm text-muted">{u.kind === 'collect' ? 'يُكتب في سجل الشيك أنك تراجعت عن التحصيل، ويمكنك تحصيله من جديد بعدها.' : 'الحذف في زوهو نهائي، ويُسجَّل باسمك في سجل العمليات.'}</p>
       {failed ? <FormError>{failed}</FormError> : null}
       <ModalActions>
-        {!failed ? <Button variant="danger" disabled={busy} onClick={run}>{busy ? 'جارٍ الحذف…' : u.title}</Button> : null}
+        {!failed ? <Button variant="danger" disabled={busy} onClick={run}>{busy ? (u.kind === 'collect' ? 'جارٍ التراجع…' : 'جارٍ الحذف…') : u.title}</Button> : null}
         <Button disabled={busy} onClick={() => finish(failed ? 'reload' : null)} autoFocus>{failed ? 'إغلاق' : 'إلغاء'}</Button>
       </ModalActions>
     </Modal>

@@ -16,7 +16,8 @@ export function MenuContent({ className, children, side = 'bottom', align = 'end
         align={align}
         sideOffset={side === 'top' ? 8 : 0}
         collisionPadding={8}
-        className={cn('z-50 flex min-w-60 flex-col border border-line-strong bg-surface py-1 text-foreground data-[state=open]:animate-menu-in',
+        // لا تتجاوز القائمة عرض الشاشة: النص الطويل (سبب منع التراجع مثلاً) ينكسر سطراً جديداً بدل أن يُقطع
+        className={cn('z-50 flex min-w-60 max-w-[calc(100vw-16px)] flex-col border border-line-strong bg-surface py-1 text-foreground data-[state=open]:animate-menu-in',
           side === 'top' ? 'border-b-3 border-b-brand' : 'border-t-3 border-t-brand', className)}
       >
         {children}

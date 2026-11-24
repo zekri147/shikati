@@ -3,6 +3,7 @@ import type { AppModule } from './types';
 import { HttpError, json } from '../http';
 import { cacheGet, cachePut, zohoGet } from '../zoho';
 import { canDeposit, handleDeposit, lockStates, reconcileDoneLocks } from './deposit';
+import { collectLocks, handleCollect } from './cashin';
 import { handleChequeImage, handleImageRotation } from './image';
 import { handleChequeDetail } from './detail';
 import { canRegister, handleOrient, handlePreview, handleRead, handleRegister, registerOptions, searchCustomers } from './register';
@@ -74,6 +75,8 @@ export interface Cheque {
   has_image?: boolean;
   // حالة قفل الإيداع في التطبيق، إن وُجد
   lock?: string;
+  // حالة قفل التحصيل اليدوي (قيد التنفيذ أو غير معروف)، للشيكات المودعة
+  clock?: string;
   // العهدة: من يحمل الشيك، للشيكات في الحوزة. تُضاف في كل طلب، لا تُخزَّن
   custody?: CustodyInfo;
   // «لي»: الشيك في عهدة المستخدم (أو سُلّم إليه)، أو عميله من عملاء رمز مندوبه. لتصفية التنبيهات للمندوب
@@ -278,6 +281,11 @@ export const chequesModule: AppModule = {
         const same = byId.get(c.id);
         if (same) same.lock = c.lock;
       }
+      // التحصيل اليدوي للمدير: الشيك المقفل لا يُحدَّد في «بانتظار التحصيل»
+      if (user.role === 'admin') {
+        const clocks = await collectLocks(env);
+        for (const c of [...view.agb_pending_collection.items, ...view.all]) if (clocks[c.id]) c.clock = clocks[c.id];
+      }
       for (const [id, state] of Object.entries(locks)) {
         if (state === 'unknown' && byId.has(id)) view.alerts.push({ kind: 'unknown_lock', id });
       }
@@ -309,6 +317,8 @@ export const chequesModule: AppModule = {
       if (action === 'take' || action === 'give') await requireAckDone(env, user);
     }
     if (req.method === 'POST' && subpath === '/deposit') return handleDeposit(req, env, user);
+    // التحصيل اليدوي لشيك ELONAC المودع في AGB، للمدير وحده
+    if (req.method === 'POST' && subpath === '/collect') return handleCollect(req, env, user);
     // العهدة: من يحمل الشيك. قاعدة التطبيق وحدها، لا زوهو
     if (req.method === 'GET' && subpath === '/custody/people') return custodyPeople(env, user);
     if (req.method === 'POST' && subpath === '/custody/batch') {
