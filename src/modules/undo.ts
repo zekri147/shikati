@@ -6,6 +6,7 @@ import { DEPOSIT_DATE_FIELD } from './depositdate';
 import { bankCollectedDate, showDate } from './banksms';
 import { ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, CACHE_KEY, DEST, NO_RETRY_PREFIX, STATUS, todayAlgiers } from './constants';
 import { collectUnsettled, MANUAL_LINE_RE, MANUAL_UNDO_TEXT } from './cashin';
+import { transferBankLabel } from './transfer';
 
 // التراجع عن آخر عملية على الشيك، بموافقة ZEKRI يوم 2/11/2026:
 //   الإيداع  ← حذف المعاملة البنكية، والحالة تعود «في الحوزة»
@@ -27,6 +28,7 @@ interface Payment {
   amount?: number;
   date?: string;
   account_id?: string;
+  payment_mode?: string;
   deposit_details?: { deposit_id?: string; account_name?: string }[];
   payment_refunds?: unknown[];
   custom_field_hash?: Record<string, string>;
@@ -93,15 +95,17 @@ export async function undoPlan(env: Env, p: Payment): Promise<UndoPlan | null> {
   const deposits = p.deposit_details || [];
 
   // 0. التحصيل اليدوي: آخر سطر تحصيل في السجل يدوي من التطبيق، ولم يؤكده البنك برسالة
+  // والتحويل البنكي مثله، دون إيداع لأنه في حساب البنك مباشرة (منذ 24/11/2026)
   if (status === STATUS.COLLECTED && lastIsManualCollect(cf.cf_fffaad)) {
+    const transfer = !!transferBankLabel(p);
     const plan: UndoPlan = {
       kind: 'collect', title: 'التراجع عن التحصيل',
-      effect: `تعود حالة الشيك «${STATUS.DEPOSITED}» في زوهو، ويبقى إيداعه كما هو.`,
+      effect: transfer ? `تعود حالة التحويل «${STATUS.DEPOSITED}» في زوهو.` : `تعود حالة الشيك «${STATUS.DEPOSITED}» في زوهو، ويبقى إيداعه كما هو.`,
       blocker: null,
     };
     const bank = bankCollectedDate(cf.cf_fffaad);
     if (bank) return { ...plan, blocker: `البنك أكّد تحصيل هذا الشيك برسالة يوم ${showDate(bank)}، فلا يمكن التراجع عن تحصيله.` };
-    if (!deposits.length) return { ...plan, blocker: 'لا إيداع لهذا الشيك في زوهو. راجعه هناك.' };
+    if (!deposits.length && !transfer) return { ...plan, blocker: 'لا إيداع لهذا الشيك في زوهو. راجعه هناك.' };
     return plan;
   }
 
@@ -349,7 +353,7 @@ export async function handleUndo(req: Request, env: Env, user: User): Promise<Re
     await env.DB.prepare(
       "UPDATE collections SET state = 'failed', message = ?, finished_at = datetime('now') WHERE payment_id = ?",
     ).bind(`تراجع عن التحصيل (${user.display_name})`, pid).run();
-    return done(`أُلغي التحصيل، وعادت حالة الشيك «${STATUS.DEPOSITED}».`);
+    return done(`أُلغي التحصيل، وعادت حالة ${transferBankLabel(p) ? "التحويل" : "الشيك"} «${STATUS.DEPOSITED}».`);
   }
 
   // 2. الحذف، ثم إرجاع الحالة

@@ -1,5 +1,7 @@
 // تحويل بنكي من عميل (بموافقة ZEKRI يوم 21/11/2026): دفعة عميل بطريقة «تحويل بنكي» في حساب البنك مباشرة،
-// موزّعة على أقدم فواتيره، بحالة «محصّل». لا حوزة ولا عهدة ولا إيداع، ولا يظهر في قوائم الشيكات.
+// موزّعة على أقدم فواتيره. لا حوزة ولا عهدة ولا إيداع، ولا يظهر في قوائم الشيكات.
+// منذ 24/11/2026 (بطلب ZEKRI): بحالة «مودع في البنك»، والمدير يحصّله من «في البنك بانتظار التحصيل» كالشيك،
+// وصورة الإشعار إجبارية، والتحويل المحصّل لا يُحذف حتى يُتراجع عن تحصيله من صفحته.
 // لا يُكتب شيء في زوهو قبل «سجّل التحويل» في بطاقة التأكيد، ولا إعادة بعد انقطاع الرد.
 // تحته «تحويلات سجّلتها»: آخر 30 يوماً، ومنها التراجع (حذف الدفعة) لصاحب التحويل وللمدير.
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -20,7 +22,7 @@ import { cn } from '@/lib/utils';
 import { AllocList, Block, KV, PartyPicker, type Party } from './pickers';
 import { GroupField, PhotoButtons } from './edit';
 import { shrink } from './media';
-import { CardList } from './ui';
+import { CardList, detailHash } from './ui';
 import { Step, StepsProgress, type Options } from './register';
 import type { Line } from './types';
 
@@ -57,6 +59,7 @@ export function TransferForm({ opts, customer, setCustomer, location, setLocatio
   if (!date) missing.push('التاريخ');
   if (!bank) missing.push('البنك');
   if (!location) missing.push('الموقع');
+  if (!image) missing.push('صورة الإشعار');
 
   async function onFile(f: File) {
     try { setImage(await shrink(f)); } catch (e) { toast(errText(e), 'err'); }
@@ -92,7 +95,7 @@ export function TransferForm({ opts, customer, setCustomer, location, setLocatio
 
   return (
     <>
-      <StepsProgress done={[!!customer, !!parseAmount(amount) && !!date, !!bank && !!location]} />
+      <StepsProgress done={[!!customer, !!parseAmount(amount) && !!date, !!bank && !!location, !!image]} />
       <Step n={1} title="العميل" done={!!customer}>
         <div className="py-2"><PartyPicker kind="customer" value={customer} onChange={setCustomer} /></div>
       </Step>
@@ -114,11 +117,10 @@ export function TransferForm({ opts, customer, setCustomer, location, setLocatio
         </GroupField>
       </Step>
 
-      <Block strong title="صورة إشعار التحويل (اختيارية)">
+      <Step n={4} title="صورة إشعار التحويل" done={!!image}>
         {image ? <img src={image} alt="صورة إشعار التحويل" className="mt-1 block max-h-[260px] w-full border border-line bg-surface-alt object-contain" /> : null}
         <PhotoButtons onFile={onFile} shootLabel={image ? 'إعادة التصوير' : 'تصوير الإشعار'} />
-        {image ? <Button className="mt-2 w-full py-2" onClick={() => setImage('')}>دون صورة</Button> : null}
-      </Block>
+      </Step>
 
       <div ref={errRef}>{error ? <FormError>{error}</FormError> : null}</div>
 
@@ -191,7 +193,7 @@ function TransferConfirm({ form, preview, onClose }: { form: Form; preview: Prev
       <h3 className="mb-1 mt-3 text-base">التوزيع على الفواتير</h3>
       <AllocList lines={preview.lines} emptyText="لا فواتير غير مدفوعة لهذا العميل." />
       {preview.unused > 0 ? <Note tone="warn" className="mt-2">يبقى <Amount value={preview.unused} className="font-semibold" /> رصيداً مسبقاً للعميل.</Note> : null}
-      <p className="text-sm text-muted">سيُسجَّل في زوهو باسمك تحويلاً في حساب {form.bankLabel} مباشرة، بحالة «محصّل»، دون حوزة ولا إيداع.</p>
+      <p className="text-sm text-muted">سيُسجَّل في زوهو باسمك تحويلاً في حساب {form.bankLabel} مباشرة، بحالة «مودع في البنك»، دون حوزة ولا إيداع. يحصّله المدير بعد أن يراه في كشف البنك.</p>
       {failed ? <FormError>{failed}</FormError> : null}
       <ModalActions>
         {!cut ? <Button variant="primary" disabled={busy} onClick={run}>{busy ? 'جارٍ التسجيل…' : 'سجّل التحويل'}</Button> : null}
@@ -203,7 +205,7 @@ function TransferConfirm({ form, preview, onClose }: { form: Form; preview: Prev
 
 type Transfer = {
   id: string; payment_id: string | null; state: 'done' | 'unknown'; customer: string | null; amount: number; date: string;
-  bank: string; reference: string | null; by: string | null; can_undo: boolean;
+  bank: string; reference: string | null; by: string | null; can_undo: boolean; collected: boolean;
 };
 
 // تحويلات سجّلتها: آخر 30 يوماً. الحذف داخل «المزيد» وببطاقة تأكيد، كما في صفحة الشيك
@@ -224,7 +226,9 @@ function TransfersList() {
       <CardList>
         {list.map((t) => (
           <li key={t.id} className="flex items-center gap-2 py-2 ps-4 pe-1">
-            <div className="min-w-0 flex-1">
+            {/* المس التحويل لتفتح صفحته: منها يحصّله المدير أو يتراجع عن تحصيله */}
+            <a href={t.payment_id ? detailHash(t.payment_id) : undefined} aria-label={`تفاصيل تحويل ${t.customer || ''}`}
+              className="min-w-0 flex-1 text-inherit no-underline">
               <div className="flex items-baseline justify-between gap-2">
                 <span className="min-w-0 truncate font-semibold">{t.customer}</span>
                 <Amount value={t.amount} className="flex-none font-semibold" />
@@ -235,9 +239,10 @@ function TransfersList() {
                 <Num>{fmtDate(t.date)}</Num>
                 {t.reference ? <><span aria-hidden>·</span><Ltr>{t.reference}</Ltr></> : null}
                 {t.by ? <><span aria-hidden>·</span><span>{t.by}</span></> : null}
-                {t.state === 'unknown' ? <Badge tone="warn">بانتظار التحقق</Badge> : null}
+                {t.state === 'unknown' ? <Badge tone="warn">بانتظار التحقق</Badge>
+                  : t.collected ? <Badge tone="neutral">محصّل</Badge> : <Badge tone="neutral">بانتظار التحصيل</Badge>}
               </div>
-            </div>
+            </a>
             {t.can_undo ? (
               <Menu dir="rtl">
                 <MenuTrigger asChild>
@@ -250,6 +255,9 @@ function TransfersList() {
                   </MenuItem>
                 </MenuContent>
               </Menu>
+            ) : t.collected && t.state === 'done' ? (
+              <Button aria-label={`المزيد: تحويل ${t.customer || ''}`} blocked className="size-11 flex-none border-0 p-0"
+                onClick={() => toast('هذا التحويل محصّل، فلا يُحذف. افتحه ليتراجع المدير عن تحصيله أولاً.', 'warn')}><MoreVertical aria-hidden className="size-5" /></Button>
             ) : <span className="size-11 flex-none" aria-hidden />}
           </li>
         ))}

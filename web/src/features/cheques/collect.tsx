@@ -1,4 +1,4 @@
-// بطاقة تأكيد التحصيل اليدوي لشيكات ELONAC المودعة في بنك AGB، للمدير وحده (بطلب ZEKRI يوم 24/11/2026):
+// بطاقة تأكيد التحصيل اليدوي لشيكات ELONAC المودعة في بنك AGB وللتحويلات البنكية، للمدير وحده (بطلب ZEKRI يوم 24/11/2026):
 // تحصيلها الآلي من رسائل البنك لا يعمل حالياً. من قسم «بانتظار التحصيل» لعدة شيكات، ومن صفحة الشيك لشيك واحد.
 // يُرسل كل شيك مرة واحدة، وإن انقطع الرد يتوقف ولا يُحاوَل أي شيك آخر (لا إعادة تلقائية).
 import { useRef, useState } from 'react';
@@ -8,7 +8,7 @@ import { DateField } from '@/components/ui/datefield';
 import { Amount, Num } from '@/components/ltr';
 import { FormError, Note } from '@/components/shell';
 import { api, errText, isCutOff } from '@/lib/api';
-import { chequeWord, fmtDate, sum, todayIso } from '@/lib/format';
+import { fmtDate, itemsWord, sum, todayIso } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { Cheque } from './types';
 
@@ -16,6 +16,8 @@ type RowState = { cls: 'muted' | 'ok' | 'err'; text: string };
 
 export function CollectDialog({ items, onClosed }: { items: Cheque[]; onClosed: (r: { done: Cheque[]; failed: Cheque[]; attempted: boolean }) => void }) {
   const single = items.length === 1;
+  const allTransfers = items.every((c) => c.transfer);
+  const noun = allTransfers ? (single ? 'هذا التحويل' : 'هذه التحويلات') : single ? 'هذا الشيك' : 'هذه الشيكات';
   const today = todayIso();
   // لا تحصيل قبل الإيداع: أحدث تاريخ إيداع بين المحدد
   const minDate = items.map((c) => String(c.deposit_date || c.date || '').slice(0, 10)).sort().pop() || '';
@@ -54,12 +56,12 @@ export function CollectDialog({ items, onClosed }: { items: Cheque[]; onClosed: 
     setPhase('finished');
     if (!result.current.failed.length) { setTimeout(() => { setOpen(false); onClosed(result.current); }, 700); return; }
     setMessage(stopped
-      ? { tone: 'err', text: 'توقف التحصيل، ولم تُحاوَل الشيكات الباقية. اتبع الرسالة تحت الشيك.' }
+      ? { tone: 'err', text: 'توقف التحصيل، ولم يُحاوَل الباقي. اتبع الرسالة تحت السطر الذي توقف عنده.' }
       : { tone: 'warn', text: `حُصّل ${result.current.done.length} من أصل ${items.length}. راجع الرسائل أعلاه.` });
   }
 
   return (
-    <Modal open={open} onClose={close} busy={phase === 'busy'} title={single ? 'تأكيد تحصيل شيك' : `تأكيد تحصيل ${chequeWord(items.length, true)}`}>
+    <Modal open={open} onClose={close} busy={phase === 'busy'} title={single ? `تأكيد تحصيل ${allTransfers ? 'تحويل' : 'شيك'}` : `تأكيد تحصيل ${itemsWord(items, true)}`}>
       <ul className="m-0 mb-2 list-none p-0">
         {items.map((c) => {
           const r = rows[c.id];
@@ -70,8 +72,10 @@ export function CollectDialog({ items, onClosed }: { items: Cheque[]; onClosed: 
                 <Amount value={c.amount} className="whitespace-nowrap font-display text-base font-semibold" />
               </div>
               <div className="text-sm text-muted">
-                شيك رقم {c.cheque_number ? <Num>{c.cheque_number}</Num> : 'غير مسجّل'}
-                {c.deposit_date ? <> · أُودع <Num>{fmtDate(c.deposit_date)}</Num></> : null}
+                {c.transfer ? <>تحويل إلى {c.transfer} · وصل <Num>{fmtDate(c.date)}</Num></> : <>
+                  شيك رقم {c.cheque_number ? <Num>{c.cheque_number}</Num> : 'غير مسجّل'}
+                  {c.deposit_date ? <> · أُودع <Num>{fmtDate(c.deposit_date)}</Num></> : null}
+                </>}
               </div>
               {r ? <div className={cn('mt-1 text-sm', r.cls === 'ok' && 'font-semibold text-success', r.cls === 'err' && 'text-danger', r.cls === 'muted' && 'text-muted')}>
                 {r.cls === 'ok' ? '✓ ' : null}{r.text}</div> : null}
@@ -86,14 +90,14 @@ export function CollectDialog({ items, onClosed }: { items: Cheque[]; onClosed: 
       ) : null}
       <DateField label="تاريخ التحصيل" value={date} max={today} min={minDate || undefined} disabled={phase !== 'ready'} onChange={setDate} />
       <p className="text-sm text-muted">
-        تأكد من كشف البنك أن {single ? 'هذا الشيك حُصّل' : 'هذه الشيكات حُصّلت'} فعلاً. ستصير الحالة «محصّل» في زوهو، ويُكتب في سجل الشيك أنه تحصيل يدوي باسمك. يمكنك التراجع عنه من صفحة الشيك.
+        تأكد من كشف البنك أن {noun} {single ? 'حُصّل' : 'حُصّلت'} فعلاً. ستصير الحالة «محصّل» في زوهو، ويُكتب في سجل {allTransfers ? 'التحويل' : 'الشيك'} أنه تحصيل يدوي باسمك. يمكنك التراجع عنه من {allTransfers ? 'صفحة التحويل' : 'صفحة الشيك'}.
       </p>
       {message ? (message.tone === 'err' ? <FormError>{message.text}</FormError>
         : <Note tone="warn" className="mt-2 text-base">{message.text}</Note>) : null}
       <ModalActions>
         {phase !== 'finished' ? (
           <Button variant="primary" disabled={phase === 'busy'} onClick={run} autoFocus>
-            {phase === 'busy' ? 'جارٍ التسجيل…' : single ? 'تأكيد التحصيل' : `تأكيد تحصيل ${chequeWord(items.length, true)}`}
+            {phase === 'busy' ? 'جارٍ التسجيل…' : single ? 'تأكيد التحصيل' : `تأكيد تحصيل ${itemsWord(items, true)}`}
           </Button>
         ) : null}
         <Button disabled={phase === 'busy'} onClick={close}>{phase === 'finished' ? 'إغلاق' : 'إلغاء'}</Button>

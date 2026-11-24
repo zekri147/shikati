@@ -64,8 +64,8 @@ export function ChequeCard({ c, o }: { c: Cheque; o: CardOpts }) {
   // أيام التأخر التي ترسم الشريط على طرف البطاقة: تحذير بعد 7 أيام، وأحمر بعد 14
   let lateDays = 0;
   if (c.status === 'مودع في البنك' && c.deposit_days !== undefined) {
-    // التحصيل المتأخر لبنك AGB وحده: الرستمية لا تتحوّل إلى «محصّل» في زوهو
-    const slow = c.destination === 'ELONAC' && c.deposit_days > LATE_DAYS;
+    // التحصيل المتأخر لبنك AGB وحده: الرستمية لا تتحوّل إلى «محصّل» في زوهو. والتحويل البنكي في أي بنك يُحصَّل
+    const slow = (c.destination === 'ELONAC' || !!c.transfer) && c.deposit_days > LATE_DAYS;
     if (slow) lateDays = c.deposit_days;
     age = slow ? <LateMark days={c.deposit_days} text={'تحصيل متأخر ' + daysCount(c.deposit_days)} />
       : <span className="whitespace-nowrap text-sm text-muted">في البنك {daysText(c.deposit_days)}</span>;
@@ -88,7 +88,7 @@ export function ChequeCard({ c, o }: { c: Cheque; o: CardOpts }) {
       ref={ref}
       role={selectable ? 'checkbox' : o.link ? 'link' : undefined}
       aria-checked={selectable ? !!o.selected : undefined}
-      aria-label={!selectable && o.link ? `تفاصيل شيك ${c.customer}` : undefined}
+      aria-label={!selectable && o.link ? `تفاصيل ${c.transfer ? 'تحويل' : 'شيك'} ${c.customer}` : undefined}
       tabIndex={act ? 0 : undefined}
       onClick={act}
       onKeyDown={(e) => { if (act && e.target === e.currentTarget && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); act(); } }}
@@ -114,9 +114,9 @@ export function ChequeCard({ c, o }: { c: Cheque; o: CardOpts }) {
         </div>
         <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
           <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-sm text-muted">
-            {c.cheque_number ? <span>شيك <Num>{c.cheque_number}</Num></span> : <span>رقم غير مسجّل</span>}
+            {c.transfer ? <span>تحويل إلى {c.transfer}</span> : c.cheque_number ? <span>شيك <Num>{c.cheque_number}</Num></span> : <span>رقم غير مسجّل</span>}
             <Dot />
-            {c.deposit_date && c.status !== 'في الحوزة'
+            {c.deposit_date && c.status !== 'في الحوزة' && !c.transfer
               ? <span>إيداع <Num>{shortDate(c.deposit_date)}</Num></span>
               : <Num>{shortDate(c.date)}</Num>}
             {c.location ? <><Dot /><span>{c.location}</span></> : null}
@@ -135,7 +135,7 @@ export function ChequeCard({ c, o }: { c: Cheque; o: CardOpts }) {
         ) : null}
       </div>
       {o.selectable ? (
-        <a href={detailHash(c.id)} onClick={(e) => { e.stopPropagation(); markShared(c.id, ref.current); }} aria-label={`تفاصيل شيك ${c.customer}`}
+        <a href={detailHash(c.id)} onClick={(e) => { e.stopPropagation(); markShared(c.id, ref.current); }} aria-label={`تفاصيل ${c.transfer ? 'تحويل' : 'شيك'} ${c.customer}`}
           className="-my-2 flex w-11 flex-none items-center justify-center self-stretch border-s border-line text-muted active:bg-surface-alt">
           <ChevronLeft aria-hidden className="size-4.5" />
         </a>

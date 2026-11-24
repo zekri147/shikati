@@ -34,7 +34,7 @@ const ENDORSE_TEXT: Record<string, string> = {
 };
 const ACTION_TEXT: Record<string, string> = {
   deposit: 'إيداع', 'deposit.release': 'تحرير القفل', 'deposit.reverted': 'إلغاء الإيداع في زوهو', register: 'تسجيل الشيك',
-  endorse: 'التظهير لمورد', collect: 'تحصيل يدوي', 'undo.collect': 'تراجع عن التحصيل', 'undo.deposit': 'تراجع عن الإيداع', 'undo.endorse': 'تراجع عن التظهير', 'undo.register': 'حذف التسجيل',
+  endorse: 'التظهير لمورد', transfer: 'تسجيل تحويل بنكي', collect: 'تحصيل يدوي', 'undo.collect': 'تراجع عن التحصيل', 'undo.deposit': 'تراجع عن الإيداع', 'undo.endorse': 'تراجع عن التظهير', 'undo.register': 'حذف التسجيل',
   edit: 'تعديل الشيك', 'register.read': 'قراءة الصورة',
 };
 
@@ -79,7 +79,7 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, collecta
       <>
         {preview ? (
           <Slab>
-            {backRow(preview.cheque_number ? <>شيك <Num>{preview.cheque_number}</Num></> : null)}
+            {backRow(preview.transfer ? <>تحويل إلى {preview.transfer}</> : preview.cheque_number ? <>شيك <Num>{preview.cheque_number}</Num></> : null)}
             <h1 className="m-0 text-lg font-bold leading-snug [overflow-wrap:anywhere]" style={sharedStyle(true, 'cust')}>{preview.customer}</h1>
             <Amount value={preview.amount} style={sharedStyle(true, 'amt')} className="mt-1 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
             <div className="mt-2 flex flex-wrap gap-2"><Badge tone={preview.status === 'في الحوزة' || preview.status === 'مرفوض' ? 'dark' : 'inverse'}>{preview.status || 'بلا حالة'}</Badge></div>
@@ -93,16 +93,19 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, collecta
   const en = d.app.endorsement;
   const lock = d.app.lock;
   const u = d.undo;
+  // التحويل البنكي من عميل (منذ 24/11/2026 يُحصَّل يدوياً مثل الشيك): في حساب البنك مباشرة، دون رقم شيك ولا إيداع
+  const tr: string | null = d.transfer || null;
 
   return (
     <>
       <Slab>
-        {backRow(d.cheque_number ? <>شيك <Num>{d.cheque_number}</Num></> : null)}
+        {backRow(tr ? <>تحويل إلى {tr}</> : d.cheque_number ? <>شيك <Num>{d.cheque_number}</Num></> : null)}
         <h1 className="m-0 text-lg font-bold leading-snug [overflow-wrap:anywhere]" style={sharedStyle(true, 'cust')}>{d.customer}</h1>
         <Amount value={d.amount} style={sharedStyle(true, 'amt')} className="mt-1 block font-display text-3xl font-semibold leading-tight max-[360px]:text-2xl" />
         <div className="mt-2 flex flex-wrap gap-2">
           <Badge tone={d.status === 'في الحوزة' || d.status === 'مرفوض' ? 'dark' : 'inverse'}>{d.status || 'بلا حالة'}</Badge>
-          {d.destination ? <Badge tone="inverse">{DEST_LABELS[d.destination] || d.destination}{d.location ? ' · ' + d.location : ''}</Badge> : <Badge tone="dark">الوجهة غير محددة</Badge>}
+          {tr ? <Badge tone="inverse">تحويل بنكي{d.location ? ' · ' + d.location : ''}</Badge>
+            : d.destination ? <Badge tone="inverse">{DEST_LABELS[d.destination] || d.destination}{d.location ? ' · ' + d.location : ''}</Badge> : <Badge tone="dark">الوجهة غير محددة</Badge>}
         </div>
       </Slab>
       <div className="mt-4 flex flex-col gap-3" aria-live="polite">
@@ -120,7 +123,7 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, collecta
             <figcaption className="mt-1 text-sm text-muted">اضغط الصورة لتكبيرها{d.captured_at ? <> · صُوّرت <Num>{d.captured_at}</Num></> : null}</figcaption>
           </figure>
         ) : d.drive_url ? <a className="flex min-h-11 items-center justify-center bg-surface-alt p-2 text-center text-sm font-semibold text-danger no-underline" href={d.drive_url} target="_blank" rel="noopener noreferrer">الصورة في غوغل درايف</a>
-          : <div className="flex min-h-11 items-center justify-center bg-surface-alt p-2 text-center text-sm text-soft">لا توجد صورة لهذا الشيك</div>}
+          : <div className="flex min-h-11 items-center justify-center bg-surface-alt p-2 text-center text-sm text-soft">{tr ? 'لا توجد صورة لهذا التحويل' : 'لا توجد صورة لهذا الشيك'}</div>}
 
         <ChequePath d={d} />
 
@@ -129,12 +132,12 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, collecta
           cheque={{ id: d.id, customer: d.customer, cheque_number: d.cheque_number, amount: d.amount, has_image: !!d.has_image, v: d.edit ? d.edit.version : '' }} onChanged={() => { reload(); onDeposited?.(); }} /> : null}
 
         {/* بيانات الشيك: سطور «عنوان وقيمة» في مجموعة واحدة، لا مربع لكل معلومة */}
-        <Block title="بيانات الشيك">
+        <Block title={tr ? 'بيانات التحويل' : 'بيانات الشيك'}>
           <dl className="m-0 flex flex-col">
-            <KV label="رقم الشيك">{d.cheque_number ? <Num>{d.cheque_number}</Num> : ''}</KV>
-            <KV label="تاريخ الاستلام"><Num>{fmtDate(d.date)}</Num></KV>
-            {d.deposit_date ? <KV label="تاريخ الإيداع"><Num>{fmtDate(d.deposit_date)}</Num></KV> : null}
-            <KV label="الوجهة">{d.destination ? DEST_LABELS[d.destination] || d.destination : 'غير محددة'}</KV>
+            {tr ? <KV label="البنك">{tr}</KV> : <KV label="رقم الشيك">{d.cheque_number ? <Num>{d.cheque_number}</Num> : ''}</KV>}
+            <KV label={tr ? 'تاريخ التحويل' : 'تاريخ الاستلام'}><Num>{fmtDate(d.date)}</Num></KV>
+            {d.deposit_date && !tr ? <KV label="تاريخ الإيداع"><Num>{fmtDate(d.deposit_date)}</Num></KV> : null}
+            {tr ? null : <KV label="الوجهة">{d.destination ? DEST_LABELS[d.destination] || d.destination : 'غير محددة'}</KV>}
             <KV label="الموقع">{d.location}</KV>
             <KV label="مندوب العميل">{d.rep || 'غير محدد في زوهو'}</KV>
             <KV label="سجّله">{d.created_by}</KV>
@@ -155,7 +158,7 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, collecta
           </Block>
         ) : null}
 
-        <Block title="الفواتير المسدّدة بهذا الشيك">
+        <Block title={tr ? 'الفواتير المسدّدة بهذا التحويل' : 'الفواتير المسدّدة بهذا الشيك'}>
           {d.invoices.length ? (
             <ul className="m-0 list-none p-0">
               {d.invoices.map((i: any) => (
@@ -171,7 +174,7 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, collecta
           ) : <p className="text-sm text-muted">الدفعة غير موزّعة على أي فاتورة.</p>}
         </Block>
 
-        <Block title="الإيداع في البنك">
+        {tr ? null : <Block title="الإيداع في البنك">
           {d.deposits.length ? (
             <ul className="m-0 list-none p-0">
               {d.deposits.map((x: any, i: number) => (
@@ -181,7 +184,7 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, collecta
               ))}
             </ul>
           ) : <p className="text-sm text-muted">لم يُودَع هذا الشيك بعد.</p>}
-        </Block>
+        </Block>}
 
         <Block title="سجل العمليات">
           {d.log.length ? <ul className="m-0 list-none p-0">{[...d.log].reverse().map((l: string, i: number) => <LogLine key={i} line={l} />)}</ul>
@@ -254,7 +257,7 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, collecta
       {collectingOne && collectOne ? <CollectDialog items={[collectOne]} onClosed={(r) => {
         setCollectingOne(false);
         if (!r.attempted) return;
-        if (r.done.length) { haptic('success'); toast('حُصّل الشيك، وصارت حالته «محصّل».'); }
+        if (r.done.length) { haptic('success'); toast(tr ? 'حُصّل التحويل، وصارت حالته «محصّل».' : 'حُصّل الشيك، وصارت حالته «محصّل».'); }
         onDeposited?.(); reload();
       }} /> : null}
       {undoOpen && u ? <UndoDialog d={d} onClose={(after) => { setUndoOpen(false); if (after === 'gone') navigate('#cheques'); else if (after === 'reload') { reload(); onDeposited?.(); } }} /> : null}
@@ -279,6 +282,16 @@ function ChequePath({ d }: { d: Detail }) {
   const days = d.date ? Math.max(0, Math.round((Date.parse(todayIso()) - Date.parse(String(d.date).slice(0, 10))) / 86_400_000)) : 0;
   const short = (iso?: string) => (iso ? fmtDate(iso).slice(0, 5) : '—');
   const deposited = !!d.deposit_date || st === 'مودع في البنك' || st === 'محصّل' || st === 'مرفوض';
+  // التحويل: سُجّل، ثم في البنك من يوم وصوله، ثم حُصّل
+  if (d.transfer) {
+    const inBank = st === 'مودع في البنك';
+    const tSteps: Step[] = [
+      { label: 'سُجّل' + (d.created_by ? ' · ' + d.created_by : ''), when: '', state: 'done' },
+      { label: `في ${d.transfer}` + (inBank ? ' · ' + daysText(days) : ''), when: short(d.date), state: inBank ? 'now' : 'done' },
+      { label: 'حُصّل', when: '', state: st === 'محصّل' ? 'now' : 'todo' },
+    ];
+    return <PathList title="مسار التحويل" steps={tSteps} />;
+  }
   const steps: Step[] = [
     { label: 'سُجّل' + (d.created_by ? ' · ' + d.created_by : ''), when: short(d.date), state: 'done' },
     st === 'في الحوزة'
@@ -292,8 +305,13 @@ function ChequePath({ d }: { d: Detail }) {
     steps.push({ label: 'أُودع في البنك', when: short(d.deposit_date), state: st === 'مودع في البنك' ? 'now' : deposited ? 'done' : 'todo' });
     steps.push({ label: 'حُصّل', when: '', state: st === 'محصّل' ? 'now' : 'todo' });
   }
+  return <PathList title="مسار الشيك" steps={steps} />;
+}
+
+type PathStep = { label: string; when: string; state: 'done' | 'now' | 'todo'; alert?: boolean };
+function PathList({ title, steps }: { title: string; steps: PathStep[] }) {
   return (
-    <Block title="مسار الشيك">
+    <Block title={title}>
       <ol className="m-0 list-none p-0">
         {steps.map((s, i) => (
           <li key={i} className="flex items-stretch gap-3" aria-current={s.state === 'now' ? 'step' : undefined}>

@@ -11,7 +11,7 @@ import { ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, CACHE_KEY, DEST, STATUS, tod
 import { handleBillsPreview, handleEndorse, searchVendors } from './endorse';
 import { handleOutCheque } from './outcheque';
 import { handleUndo } from './undo';
-import { handleTransfer, handleTransferUndo, listTransfers } from './transfer';
+import { handleTransfer, handleTransferUndo, listTransfers, TRANSFER_BANKS } from './transfer';
 import { handleEdit, handleEditPreview } from './edit';
 import { custodyMap, custodyPeople, handleCustody, handleCustodyBatch, type CustodyInfo } from './custody';
 import { chequeNumber, wrongAccountText } from './fields';
@@ -36,6 +36,7 @@ interface ZohoPayment {
   date: string;
   account_id: string;
   account_name?: string;
+  payment_mode?: string;
   location_name?: string;
   reference_number?: string;
   invoice_numbers?: string;
@@ -85,6 +86,8 @@ export interface Cheque {
   deposit_date?: string;
   // أيام منذ الإيداع دون تحصيل
   deposit_days?: number;
+  // تحويل بنكي من عميل بانتظار التحصيل: اسم البنك. ليس شيكاً، فلا يظهر إلا في «بانتظار التحصيل» وتنبيه تأخره
+  transfer?: string;
 }
 
 interface Section {
@@ -142,6 +145,23 @@ export async function fetchAllChequePayments(env: Env): Promise<ZohoPayment[]> {
   throw new HttpError(502, 'عدد الشيكات أكبر من المتوقع. راجع المطوّر.');
 }
 
+// التحويلات البنكية المودعة التي ينتظر تحصيلها (منذ 24/11/2026، بطلب ZEKRI): من تاريخ أقدم تحويل سجّله التطبيق،
+// لأن التحويلات القديمة في زوهو كلها «محصّل» من قبل. دون تحويلات من التطبيق لا طلب.
+export async function fetchTransferPayments(env: Env): Promise<ZohoPayment[]> {
+  const first = await env.DB.prepare("SELECT MIN(date) AS d FROM transfers WHERE state IN ('done', 'unknown') AND payment_id IS NOT NULL")
+    .first<{ d: string | null }>();
+  if (!first?.d || !/^\d{4}-\d{2}-\d{2}$/.test(first.d)) return [];
+  const all: ZohoPayment[] = [];
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const data = await zohoGet<ListResponse>(env, '/customerpayments', {
+      filter_by: 'PaymentMode.BankTransfer', date_start: first.d, per_page: 200, page,
+    });
+    all.push(...(data.customerpayments || []));
+    if (!data.page_context?.has_more_page) return all;
+  }
+  throw new HttpError(502, 'عدد التحويلات أكبر من المتوقع. راجع المطوّر.');
+}
+
 function section(items: Cheque[]): Section {
   const total = Math.round(items.reduce((s, c) => s + c.amount, 0) * 100) / 100;
   return { items, count: items.length, total };
@@ -149,7 +169,9 @@ function section(items: Cheque[]): Section {
 
 const oldestFirst = (a: Cheque, b: Cheque) => b.days - a.days || b.amount - a.amount;
 
-export function buildView(payments: ZohoPayment[], today: string): ChequesView {
+const TRANSFER_BANK_BY_ACCOUNT = new Map(Object.values(TRANSFER_BANKS).map((b) => [b.account, b.label]));
+
+export function buildView(payments: ZohoPayment[], today: string, transfers: ZohoPayment[] = []): ChequesView {
   const toCheque = (p: ZohoPayment): Cheque => ({
     id: p.payment_id,
     number: p.payment_number || '',
@@ -212,6 +234,19 @@ export function buildView(payments: ZohoPayment[], today: string): ChequesView {
     if (fiscal.startsWith('✖')) alerts.push({ kind: 'fiscal', id: c.id, text: fiscal.replace(/^✖\s*/, '') });
   }
 
+  // التحويل المودع في البنك ينتظر تحصيله مع الشيكات. تاريخه يوم وصوله إلى البنك، فهو تاريخ «إيداعه»
+  for (const p of transfers) {
+    const bank = TRANSFER_BANK_BY_ACCOUNT.get(p.account_id);
+    if (!bank || (p.payment_mode && p.payment_mode !== 'Bank Transfer')) continue;
+    const c = toCheque(p);
+    if (c.status !== STATUS.DEPOSITED) continue;
+    c.transfer = bank;
+    c.cheque_number = '';
+    c.deposit_date = c.date;
+    agbPending.push(c);
+    all.push({ c, t: p.date + (p.last_modified_time || '') });
+  }
+
   [rejected, agbInHand, rostomiaInHand, noDest, agbPending].forEach((l) => l.sort(oldestFirst));
   // لا يوجد تاريخ إيداع في القائمة، فنرتّب بآخر تعديل للدفعة كأقرب مؤشر
   agbRecent.sort((a, b) => (a.t < b.t ? 1 : a.t > b.t ? -1 : 0));
@@ -243,7 +278,7 @@ export async function getView(env: Env, refresh: boolean): Promise<ChequesView> 
     if (cached) return JSON.parse(cached) as ChequesView;
   }
   const today = todayAlgiers();
-  const view = buildView(await fetchAllChequePayments(env), today);
+  const view = buildView(await fetchAllChequePayments(env), today, await fetchTransferPayments(env));
   // تحصيل متأخر: مودع منذ أكثر من 7 أيام ولم يُحصَّل. لبنك AGB وحده بطلب ZEKRI،
   // لأن تحصيله يُسجَّل آلياً من رسائل البنك، أما الرستمية فلا تتحوّل إلى «محصّل».
   const deposited = view.all.filter((c) => c.status === STATUS.DEPOSITED);
@@ -251,7 +286,7 @@ export async function getView(env: Env, refresh: boolean): Promise<ChequesView> 
   for (const c of deposited) {
     if (!c.deposit_date) continue;
     c.deposit_days = Math.max(0, daysBetween(c.deposit_date, today));
-    if (c.destination === DEST.AGB && c.deposit_days > COLLECT_LATE_DAYS) view.alerts.push({ kind: 'collect_late', id: c.id });
+    if ((c.destination === DEST.AGB || c.transfer) && c.deposit_days > COLLECT_LATE_DAYS) view.alerts.push({ kind: 'collect_late', id: c.id });
   }
   // الأقسام نسخ من all بعد التخزين، فنكمّل تاريخ الإيداع فيها أيضاً
   const byId = new Map(view.all.map((c) => [c.id, c]));
@@ -317,7 +352,7 @@ export const chequesModule: AppModule = {
       if (action === 'take' || action === 'give') await requireAckDone(env, user);
     }
     if (req.method === 'POST' && subpath === '/deposit') return handleDeposit(req, env, user);
-    // التحصيل اليدوي لشيك ELONAC المودع في AGB، للمدير وحده
+    // التحصيل اليدوي لشيك ELONAC المودع في AGB وللتحويل البنكي المودع، للمدير وحده
     if (req.method === 'POST' && subpath === '/collect') return handleCollect(req, env, user);
     // العهدة: من يحمل الشيك. قاعدة التطبيق وحدها، لا زوهو
     if (req.method === 'GET' && subpath === '/custody/people') return custodyPeople(env, user);
