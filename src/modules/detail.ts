@@ -116,6 +116,8 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
   const registeredBy = await env.DB.prepare(
     "SELECT display_name, username FROM registrations WHERE payment_id = ? AND state IN ('done', 'unknown') ORDER BY started_at DESC LIMIT 1",
   ).bind(pid).first<{ display_name: string | null; username: string | null }>();
+  // ثم وصف الدفعة الذي يكتبه التسجيل في زوهو: «شيك … — سجّله أمين من تطبيق ميداني» (أو «شيكاتي» قبل تغيير الاسم)
+  const appRegistrant = (d: string) => (d.match(/سجّله\s+(.+?)\s+من تطبيق (?:ميداني|شيكاتي)/)?.[1] || '').trim();
   return json({
     id: p.payment_id,
     number: str(p.payment_number),
@@ -132,7 +134,7 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
     location: LOCATIONS[str(p.location_name).toUpperCase()] || str(p.location_name),
     deposit_date: depositDate,
     location_key: str(p.location_name).toUpperCase(),
-    created_by: str(registeredBy?.display_name || registeredBy?.username) || str(p.created_by_name || p.created_by),
+    created_by: str(registeredBy?.display_name || registeredBy?.username) || appRegistrant(str(p.description)) || str(p.created_by_name || p.created_by),
     captured_at: str(cf.cf_3e4e94_unformatted || cf.cf_3e4e94),
     description: str(p.description),
     has_image: (p.documents || []).some((d) => IMAGE_TYPES.includes(str(d.file_type).toLowerCase())),
