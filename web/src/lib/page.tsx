@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { createRoot } from 'react-dom/client';
 import { DirectionProvider } from '@radix-ui/react-direction';
-import { Toaster } from '@/components/toast';
+import { Toaster, toast } from '@/components/toast';
+import { playChime, unlockChimeOnFirstTouch } from './chime';
 import { applyTheme, storedTheme } from './theme';
 import '@/index.css';
 
@@ -23,6 +24,16 @@ export function mountPage(node: React.ReactNode) {
     // لمس إشعار والتطبيق مفتوح: عامل الخدمة يطلب فتح الشيك أو الشاشة المقصودة
     navigator.serviceWorker.addEventListener('message', (e) => {
       if (e.data?.type === 'open' && typeof e.data.hash === 'string') location.hash = e.data.hash;
+      // إشعار تسليم والتطبيق مفتوح: رنّة، والرسالة في التطبيق، وتحديث الشيكات (ChequesModule يستمع لـ mydani:push)
+      if (e.data?.type === 'chime') {
+        const port = e.ports[0];
+        playChime().then((rang) => {
+          port?.postMessage(rang);
+          toast(String(e.data.body || e.data.title || ''), 'warn');
+          window.dispatchEvent(new CustomEvent('mydani:push', { detail: { tag: e.data.tag } }));
+        });
+      }
     });
+    unlockChimeOnFirstTouch();
   }
 }

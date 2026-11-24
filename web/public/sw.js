@@ -1,7 +1,7 @@
 // عامل الخدمة: يحفظ ملفات الواجهة الثابتة فقط لتسريع الفتح.
 // لا يحفظ أبداً بيانات الشيكات ولا الصفحات المحمية ولا أي طلب إلى /api.
 // آخر البيانات للعرض الفوري تحفظها الواجهة نفسها (web/src/lib/cache.ts)، وتُحدَّث من الخادم عند كل فتح.
-const VERSION = 'shikati-v66';
+const VERSION = 'shikati-v67';
 const STATIC = /^\/(assets|fonts|img|icons)\//;
 
 self.addEventListener('install', () => self.skipWaiting());
@@ -44,20 +44,48 @@ self.addEventListener('fetch', (event) => {
 });
 
 // إشعارات الهاتف (src/push.ts): الخادم يرسل النص مشفّراً لهذا الهاتف وحده، والمتصفح يفك تشفيره قبل هذا الحدث.
+// إشعار التسليم (chime): إن كان التطبيق مفتوحاً أمام المستخدم، يرن التطبيق نفسه ويعرض الرسالة ويحدّث الشيكات،
+// فيظهر الإشعار دون صوت الهاتف حتى لا يرن مرتين. وإن لم يرن التطبيق (مغلق، أو لم يُلمس بعد فتحه) فبصوت الهاتف.
 self.addEventListener('push', (event) => {
   let d = {};
   try { d = event.data ? event.data.json() : {}; } catch { d = { body: event.data ? event.data.text() : '' }; }
-  event.waitUntil(self.registration.showNotification(d.title || 'ميداني', {
-    body: d.body || '',
-    tag: d.tag || undefined,
-    renotify: !!d.tag,
-    icon: '/icons/icon-192.png',
-    badge: '/icons/badge-96.png',
-    lang: 'ar',
-    dir: 'rtl',
-    data: { url: d.url || '/' },
-  }));
+  event.waitUntil((async () => {
+    const rang = d.chime ? await chimeInApp(d) : false;
+    await self.registration.showNotification(d.title || 'ميداني', {
+      body: d.body || '',
+      tag: d.tag || undefined,
+      renotify: !!d.tag && !rang,
+      silent: rang,
+      icon: '/icons/icon-192.png',
+      badge: '/icons/badge-96.png',
+      lang: 'ar',
+      dir: 'rtl',
+      data: { url: d.url || '/' },
+    });
+  })());
 });
+
+// يطلب الرنّة من نوافذ التطبيق الظاهرة، وينتظر جواب إحداها ثانية ونصفاً على الأكثر
+async function chimeInApp(d) {
+  try {
+    const wins = (await self.clients.matchAll({ type: 'window' })).filter((w) => w.visibilityState === 'visible');
+    if (!wins.length) return false;
+    return await new Promise((resolve) => {
+      let waiting = wins.length;
+      const timer = setTimeout(() => resolve(false), 1500);
+      for (const w of wins) {
+        const ch = new MessageChannel();
+        ch.port1.onmessage = (e) => {
+          if (e.data === true) { clearTimeout(timer); resolve(true); }
+          else if (--waiting === 0) { clearTimeout(timer); resolve(false); }
+        };
+        w.postMessage({ type: 'chime', title: d.title || '', body: d.body || '', tag: d.tag || '' }, [ch.port2]);
+      }
+    });
+  } catch {
+    return false;
+  }
+}
 
 // لمس الإشعار: يفتح التطبيق على الشيك أو الشاشة المقصودة، في النافذة المفتوحة إن وُجدت
 self.addEventListener('notificationclick', (event) => {

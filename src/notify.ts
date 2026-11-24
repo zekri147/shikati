@@ -10,6 +10,7 @@ import { hasSubscribers, notifySafe, notifyUsers, type PushMessage } from './pus
 
 // ما يُرسل من إشعارات (8/11/2026، بطلب ZEKRI). النص يذكر اسم العميل والمبلغ (اختيار ZEKRI).
 // - فوراً، من الخادم عند العملية: شيك سُلّم إليك (وحين يؤكد المستلم أو يرفض، يصل من سلّمه). التسليم لعدة شيكات بإشعار واحد.
+//   هذه الثلاثة برنّة (chime): بصوت الهاتف، أو برنّة داخل التطبيق إن كان مفتوحاً أمامه (24/11/2026، بطلب ZEKRI).
 // - صباحاً مع التأخر: تذكير المستلم بما سُلّم إليه ولم يؤكد استلامه، مرة في اليوم.
 // - كل ساعة من 7:00 إلى 20:00 بتوقيت الجزائر (المهمة المجدولة في wrangler.toml):
 //   · شيك صار «مرفوضاً»: للمدير، ولمندوب العميل (cf_owner)، ولمن سجّله، ولمن كان في عهدته.
@@ -83,7 +84,7 @@ export async function notifyCustody(env: Env, actor: User, action: string, items
       await notifySafe(env, [to], {
         title: one ? 'شيك سُلّم إليك' : 'شيكات سُلّمت إليك',
         body: `سلّمك ${actor.display_name} ${brief}. أكّد استلام${one ? 'ه' : 'ها'} في التطبيق إن كان${one ? '' : 'ت'} في يدك، ولا ${one ? 'يُودَع' : 'تُودَع'} قبل ذلك.`,
-        url: '/#cheques/alerts', tag: 'custody-in',
+        url: '/#cheques/alerts', tag: 'custody-in', chime: true,
       });
       return;
     }
@@ -95,8 +96,8 @@ export async function notifyCustody(env: Env, actor: User, action: string, items
       const brief = await chequesBrief(env, pids);
       const one = pids.length === 1;
       await notifySafe(env, [giver], action === 'accept'
-        ? { title: 'أُكّد الاستلام', body: `أكّد ${actor.display_name} استلام ${brief}، فصار${one ? '' : 'ت'} في عهدته.`, url: one ? chequeUrl(pids[0]) : '/#cheques', tag: 'custody-out' }
-        : { title: 'رُفض الاستلام', body: `رفض ${actor.display_name} استلام ${brief}، فبقي${one ? '' : 'ت'} في عهدتك.`, url: one ? chequeUrl(pids[0]) : '/#cheques', tag: 'custody-out' });
+        ? { title: 'أُكّد الاستلام', body: `أكّد ${actor.display_name} استلام ${brief}، فصار${one ? '' : 'ت'} في عهدته.`, url: one ? chequeUrl(pids[0]) : '/#cheques', tag: 'custody-out', chime: true }
+        : { title: 'رُفض الاستلام', body: `رفض ${actor.display_name} استلام ${brief}، فبقي${one ? '' : 'ت'} في عهدتك.`, url: one ? chequeUrl(pids[0]) : '/#cheques', tag: 'custody-out', chime: true });
     }
   } catch (e) {
     console.error('notify custody', e instanceof Error ? e.message : e);
