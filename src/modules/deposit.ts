@@ -9,13 +9,15 @@ import { handoverBlock } from './custody';
 
 // تسجيل إيداع شيك في بنك AGB، بنفس طريقة دالة deposer_agb في زوهو.
 // كل خطوة بعد إرسال طلب الإيداع لا تُعاد تلقائياً أبداً.
-// وشيك الرستمية (بطلب ZEKRI وموافقته يوم 23/11/2026): إيداعه تسليمه إلى عمار أو سمير، فيُسجَّل
+// وشيك الرستمية (بطلب ZEKRI وموافقته يوم 23/11/2026): إيداعه تسليمه في الجزائر أو قسنطينة (منذ 24/11/2026،
+// وقبلها إلى عمار أو سمير)، فيُسجَّل
 // كما كان يُسجَّل يدوياً: إيداع من الشيكات في الحوزة إلى حساب «Bank Ammar Rostomia»، بحالة «مودع في البنك».
 
 export const ACCOUNT_AGB = '7418406000000261404';
 export const ACCOUNT_ROSTOMIA = '7418406000000903878';
 // من يستلم شيكات الرستمية. المفتاح ما ترسله الواجهة، والاسم ما يُكتب في زوهو
-export const ROSTOMIA_RECIPIENTS: Record<string, string> = { ammar: 'عمار', samir: 'سمير' };
+// مكان تسليم شيك الرستمية (بطلب ZEKRI يوم 24/11/2026، بدل المستلمَين عمار وسمير)
+export const ROSTOMIA_RECIPIENTS: Record<string, string> = { alger: 'الجزائر', constantine: 'قسنطينة' };
 const STALE_PENDING_SEC = 300;
 const PAYMENT_ID_RE = /^\d{10,25}$/;
 
@@ -106,7 +108,7 @@ export async function handleDeposit(req: Request, env: Env, user: User): Promise
   // المستلم يعني شيكاً للرستمية: يُفحص مع وجهته في زوهو قبل أي كتابة
   const toKey = String(body.to || '').trim();
   const recipient = toKey ? ROSTOMIA_RECIPIENTS[toKey] : '';
-  if (toKey && !recipient) throw new HttpError(400, 'اختر من استلم الشيك: عمار أو سمير.');
+  if (toKey && !recipient) throw new HttpError(400, 'اختر أين سلّمت الشيك: في الجزائر أو قسنطينة. إن لم يظهر الخياران فحدّث الصفحة.');
   // تاريخ الإيداع: اليوم افتراضياً، ويختاره الموظف إن أودع في يوم سابق
   const today = todayAlgiers();
   const depositDate = String(body.date || today).trim();
@@ -199,10 +201,10 @@ export async function handleDeposit(req: Request, env: Env, user: User): Promise
     return fail(409, 'الشيك ليس في الحوزة نحو بنك AGB أو الرستمية.');
   }
   const rost = dest === DEST.ROSTOMIA;
-  if (rost && !recipient) return fail(409, 'هذا الشيك للرستمية: إيداعه تسليمه إلى عمار أو سمير. حدّث الصفحة واختر من استلمه.');
+  if (rost && !recipient) return fail(409, 'هذا الشيك للرستمية: إيداعه تسليمه في الجزائر أو قسنطينة. حدّث الصفحة واختر أين سلّمته.');
   if (!rost && recipient) return fail(409, 'هذا الشيك لبنك AGB لا للرستمية. حدّث الصفحة ثم أودِعه في AGB.');
-  // ما يُكتب في زوهو: «في AGB»، أو «للرستمية: سُلّم إلى عمار»
-  const where = rost ? `للرستمية: سُلّم إلى ${recipient}` : 'في AGB';
+  // ما يُكتب في زوهو: «في AGB»، أو «للرستمية: سُلّم في الجزائر»
+  const where = rost ? `للرستمية: سُلّم في ${recipient}` : 'في AGB';
   // ما رآه المستخدم في بطاقة التأكيد يجب أن يطابق زوهو الآن
   const shownAmount = Number(body.amount);
   const shownCheque = String(body.cheque_number ?? '').trim();
@@ -309,15 +311,15 @@ export async function handleDeposit(req: Request, env: Env, user: User): Promise
   } catch { /* نعالجه أدناه */ }
 
   if (!updated) {
-    const warning = `${rost ? `سُجّل إيداع التسليم إلى ${recipient}` : 'تم الإيداع'} وربطه بالدفعة، لكن تعذّر تحديث حالة الشيك في زوهو. حدّثها يدوياً إلى «${newStatus}».`;
+    const warning = `${rost ? `سُجّل إيداع التسليم في ${recipient}` : 'تم الإيداع'} وربطه بالدفعة، لكن تعذّر تحديث حالة الشيك في زوهو. حدّثها يدوياً إلى «${newStatus}».`;
     await finish('done', warning, tid);
     return json({ ok: true, warning });
   }
 
-  await finish('done', rost ? `سُلّم إلى ${recipient} للرستمية، وحُدّثت الحالة` : 'تم الإيداع وتحديث الحالة', tid);
+  await finish('done', rost ? `سُلّم للرستمية في ${recipient}، وحُدّثت الحالة` : 'تم الإيداع وتحديث الحالة', tid);
   return json({
     ok: true,
-    message: rost ? `سُجّل تسليم الشيك إلى ${recipient} للرستمية.` : collected ? `تم تسجيل الإيداع في بنك AGB. البنك أكّد تحصيله برسالة يوم ${showDate(collected)}، فحالته «${STATUS.COLLECTED}».` : 'تم تسجيل الإيداع في بنك AGB.',
+    message: rost ? `سُجّل تسليم الشيك للرستمية في ${recipient}.` : collected ? `تم تسجيل الإيداع في بنك AGB. البنك أكّد تحصيله برسالة يوم ${showDate(collected)}، فحالته «${STATUS.COLLECTED}».` : 'تم تسجيل الإيداع في بنك AGB.',
   });
 }
 

@@ -380,9 +380,9 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
             open={openFold('rejected', rejected.length > 0)} onOpenChange={setFold('rejected')} /> : null}
           {noDest.length ? <ChequeSection title="في الحوزة والوجهة غير محددة" items={noDest} opts={opts} collapsible noteTone="warn"
             note="لا تأخذها إلى البنك قبل أن يحدد المدير وجهتها." open={openFold('nodest', noDest.length > 0)} onOpenChange={setFold('nodest')} /> : null}
-          {/* الرستمية: إيداعها تسليمها إلى عمار أو سمير، يسجّله حامل الشيك وحده، المدير أيضاً */}
+          {/* الرستمية: إيداعها تسليمها في الجزائر أو قسنطينة، يسجّله حامل الشيك وحده، المدير أيضاً */}
           <ChequeSection title="للرستمية" items={rost} opts={opts} collapsible
-            note={data.can_deposit ? 'إيداعها تسليمها إلى عمار أو سمير. المس ما سلّمته منها، ثم «سلّمت المحدد».' : 'إيداعها تسليمها إلى عمار أو سمير.'}
+            note={data.can_deposit ? 'إيداعها تسليمها في الجزائر أو قسنطينة. المس ما سلّمته منها، ثم «سلّمت للرستمية».' : 'إيداعها تسليمها في الجزائر أو قسنطينة.'}
             optsFor={(c) => {
               // تسليم الرستمية لحامل الشيك وحده، والتسليم إلى زميل للمدير أيضاً: المدير يحدد أي شيك، والخادم يرفض الرستمية لغير الحامل
               const may = canPick(c, isAdmin);
@@ -568,7 +568,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
                 <Button variant="primary" className="px-3 py-2" blocked={!fresh} onClick={() => {
                   // البيانات المعروضة من آخر فتح: لا إيداع قبل وصول الجديدة، فقد يكون الشيك تغيّر
                   if (!fresh) { toast(busy ? 'انتظر لحظة حتى يكتمل التحديث، ثم أودع.' : 'البيانات قديمة. حدّث الشاشة أولاً، ثم أودع.', 'warn'); return; }
-                  // AGB يُودَع في البنك، والرستمية تُسلَّم إلى عمار أو سمير: لا يجتمعان في تأكيد واحد
+                  // AGB يُودَع في البنك، والرستمية تُسلَّم في الجزائر أو قسنطينة: لا يجتمعان في تأكيد واحد
                   if (selMixed) { toast('للإيداع حدّد شيكات AGB وحدها أو شيكات الرستمية وحدها. التسليم إلى زميل يقبلها معاً.', 'warn'); return; }
                   if (selRost && selItems.some((c) => !heldByMe(c))) { toast('شيكات الرستمية يسلّمها حاملها وحده. خذها في عهدتك أولاً من صفحتها.', 'warn'); return; }
                   dialogRef.current = true; setDepositing(selItems);

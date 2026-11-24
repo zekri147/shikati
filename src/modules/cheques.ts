@@ -116,7 +116,7 @@ export interface ChequesView {
   no_destination: Section;
   agb_pending_collection: Section;
   agb_recent: Section;
-  // آخر ما سُلّم للرستمية (إلى عمار أو سمير): إيداع في حساب الرستمية، يُتراجع عنه من صفحة الشيك
+  // آخر ما سُلّم للرستمية (في الجزائر أو قسنطينة): إيداع في حساب الرستمية، يُتراجع عنه من صفحة الشيك
   rostomia_recent: Section;
   // كل الشيكات بكل حالاتها، الأحدث أولاً، للبحث وصفحة التنبيهات
   all: Cheque[];
