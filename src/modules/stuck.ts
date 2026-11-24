@@ -12,7 +12,7 @@ import { CACHE_KEY } from './constants';
 const STALE_PENDING_SEC = 300;
 const STALE = `-${STALE_PENDING_SEC} seconds`;
 
-type Kind = 'deposit' | 'register' | 'endorse' | 'outcheque' | 'transfer';
+type Kind = 'deposit' | 'collect' | 'register' | 'endorse' | 'outcheque' | 'transfer';
 
 interface KindDef {
   table: string;
@@ -30,6 +30,12 @@ const KINDS: Record<Kind, KindDef> = {
   deposit: {
     table: 'deposits', key: 'payment_id', label: 'إيداع', canDone: false,
     check: 'افتح الدفعة في زوهو: هل لها إيداع في البنك؟ حرّر القفل فقط إن لم يُنشأ، أو بعد تصحيحه يدوياً.',
+    select: "payment_id AS key, display_name, customer AS party, cheque_number AS ref, amount, message, state, started_at, payment_id",
+  },
+  // التحصيل اليدوي أو التراجع عنه: الحالة في زوهو تقول ما حدث
+  collect: {
+    table: 'collections', key: 'payment_id', label: 'تحصيل يدوي', canDone: true,
+    check: 'افتح الشيك في زوهو: إن كانت حالته «محصّل» فاختر «وُجد في زوهو»، وإن كانت «مودع في البنك» فحرّر القفل.',
     select: "payment_id AS key, display_name, customer AS party, cheque_number AS ref, amount, message, state, started_at, payment_id",
   },
   register: {

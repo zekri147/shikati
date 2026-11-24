@@ -26,6 +26,7 @@ import { ChequeImage } from './media';
 import { DetailPage } from './detail';
 import { RegisterPage } from './register';
 import { DepositDialog } from './deposit';
+import { CollectDialog } from './collect';
 import { HandoverDialog, IncomingSection } from './custody';
 import { byCustody, CUSTODY_FILTERS } from './custody';
 import type { AlertKind, Cheque, ChequesData } from './types';
@@ -107,6 +108,8 @@ const learned = () => loadKey(HINT_KEY) === '1';
 // المندوب يودع ما في عهدته وحده (بطلب ZEKRI يوم 9/11/2026)، والخادم يرفض غيره. المدير يودع أي شيك
 const heldByMe = (c: Cheque) => !!c.custody?.mine && !c.custody.outgoing;
 const isRost = (c: Cheque | undefined) => c?.destination === 'ROSTOMIA';
+// مودع في AGB ينتظر التحصيل: يحصّله المدير يدوياً (بطلب ZEKRI يوم 24/11/2026)، فلا يجتمع مع الإيداع في تحديد واحد
+const inBank = (c: Cheque | undefined) => c?.status === 'مودع في البنك';
 // تسليم لم يُؤكَّد: الشيك مقفل على الجميع، المدير أيضاً (بطلب ZEKRI يوم 23/11/2026)
 const inTransit = (c: Cheque) => !!c.custody?.to;
 // يُحدَّد للإيداع وللتسليم إلى زميل: ما في عهدتي، وللمدير أي شيك، دون تسليم معلّق
@@ -146,6 +149,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   const [scopeSheet, setScopeSheet] = useState(false);
   const [custodySheet, setCustodySheet] = useState(false);
   const [depositing, setDepositing] = useState<Cheque[] | null>(null);
+  const [collecting, setCollecting] = useState<Cheque[] | null>(null);
   const [handing, setHanding] = useState<Cheque[] | null>(null);
   // بعد الإيداع: الشيكات المودَعة تنطوي (leaving) ثم تُخفى (gone) حتى تصل البيانات الجديدة
   const [leaving, setLeaving] = useState<Set<string>>(new Set());
@@ -232,6 +236,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   useEffect(() => {
     if (!data) return;
     const available = new Set([...data.agb_in_hand.items, ...data.rostomia_in_hand.items].filter((c) => !c.lock && canPick(c, isAdmin)).map((c) => c.id));
+    if (isAdmin) for (const c of data.agb_pending_collection.items) if (!c.clock) available.add(c.id);
     setSelected((s) => {
       const n = new Map([...s].filter(([id]) => available.has(id)));
       return n.size === s.size ? s : n;
@@ -243,6 +248,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     setSelected((s) => {
       const n = new Map(s);
       if (n.has(c.id)) n.delete(c.id);
+      else if (n.size && inBank(c) !== inBank(n.values().next().value)) { toast(inBank(c) ? 'التحصيل لا يجتمع مع الإيداع. ألغِ التحديد أولاً، ثم حدّد ما حُصّل.' : 'الإيداع لا يجتمع مع التحصيل. ألغِ التحديد أولاً، ثم حدّد ما تودعه.', 'warn'); return s; }
       else if (n.size >= MAX_BATCH) { toast(`يمكن تحديد ${MAX_BATCH} شيكاً على الأكثر في المرة الواحدة.`, 'warn'); return s; }
       else n.set(c.id, c);
       return n;
@@ -258,6 +264,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   const barShown = selItems.length > 0 || hint;
   const selRost = selItems.length > 0 && selItems.every(isRost);
   const selMixed = selItems.some(isRost) && !selRost;
+  const selCollect = selItems.length > 0 && selItems.every(inBank);
   // شريط التحديد صفّان: المحدد وإلغاؤه، ثم «أودعت» و«سلّمت إلى زميل»
   useFixedBottom(selItems.length ? 116 : 44, barShown);
 
@@ -285,6 +292,24 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     if (r.done.length && !r.failed.length) toast(isRost(r.done[0]) ? `سُجّل تسليم ${chequeWord(r.done.length, true)} للرستمية · ${fmtAmount(sum(r.done))}` : `تم إيداع ${chequeWord(r.done.length, true)} · ${fmtAmount(sum(r.done))}`);
     else if (r.done.length) toast(`أُودع ${chequeWord(r.done.length)}، وبقي ${chequeWord(r.failed.length)} دون إيداع`, 'warn');
     else toast('لم يُسجَّل أي إيداع. راجع الرسائل.', 'err');
+    await load(true);
+    setGone(new Set());
+  }
+
+  async function afterCollect(r: { done: Cheque[]; failed: Cheque[]; attempted: boolean }) {
+    dialogRef.current = false;
+    setCollecting(null);
+    if (!r.attempted) return;
+    setSelected(new Map());
+    if (r.done.length) {
+      haptic('success');
+      const ids = new Set(r.done.map((c) => c.id));
+      setLeaving(ids);
+      setTimeout(() => { setGone(ids); setLeaving(new Set()); }, 320);
+    }
+    if (r.done.length && !r.failed.length) toast(`حُصّل ${chequeWord(r.done.length, true)} · ${fmtAmount(sum(r.done))}`);
+    else if (r.done.length) toast(`حُصّل ${chequeWord(r.done.length)}، وبقي ${chequeWord(r.failed.length)} دون تحصيل`, 'warn');
+    else toast('لم يُسجَّل أي تحصيل. راجع الرسائل.', 'err');
     await load(true);
     setGone(new Set());
   }
@@ -330,7 +355,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     );
     const opts = { selected: false, onToggle: toggle, link: true };
     const rejected = pick(data.rejected.items);
-    const inBank = pick(data.agb_pending_collection.items);
+    const bankItems = pick(data.agb_pending_collection.items).filter((c) => !gone.has(c.id));
     body = (
       <>
         <section className="mt-4">
@@ -364,8 +389,14 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
               return { selectable: may, link: !may, selected: selected.has(c.id), leaving: leaving.has(c.id), note: !may ? whyNotHeld(c) : undefined };
             }}
             open={q ? rost.length > 0 : open.rost ?? rost.some(heldByMe)} onOpenChange={setFold('rost')} />
-          <ChequeSection title="في بنك AGB بانتظار التحصيل" items={inBank} opts={opts} collapsible
-            open={openFold('pending', inBank.length > 0)} onOpenChange={setFold('pending')} />
+          {/* التحصيل اليدوي للمدير: رسائل البنك لا تحصّل الشيكات آلياً الآن (بطلب ZEKRI يوم 24/11/2026) */}
+          <ChequeSection title="في بنك AGB بانتظار التحصيل" items={bankItems} opts={opts} collapsible
+            note={isAdmin && bankItems.length ? 'المس ما تأكدت من تحصيله في كشف البنك، ثم «حصّلت المحدد».' : undefined}
+            optsFor={isAdmin ? (c) => ({
+              selectable: !c.clock, link: !!c.clock, selected: selected.has(c.id), leaving: leaving.has(c.id),
+              note: c.clock === 'unknown' ? 'تحصيل لم تُعرف نتيجته: تحقق في زوهو، ثم احسمه في الإدارة من تبويب «التحقق».' : c.clock ? 'تحصيله قيد التنفيذ.' : undefined,
+            }) : undefined}
+            open={openFold('pending', bankItems.length > 0)} onOpenChange={setFold('pending')} />
           <ChequeSection title="آخر 5 شيكات أُودعت في بنك AGB" items={pick(data.agb_recent.items)} opts={{ ...opts, showStatus: true, noAge: true }} collapsible hideTotal
             emptyText="لا توجد إيداعات بعد." open={openFold('recent', pick(data.agb_recent.items).length > 0)} onOpenChange={setFold('recent')} />
           {/* آخر تسليمات الرستمية: التراجع عن التسليم من صفحة الشيك، كالإيداع في AGB */}
@@ -395,11 +426,11 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   } else if (data && route.view === 'alerts') {
     const byId = new Map(data.all.map((c) => [c.id, c]));
     // ما في بنك AGB بانتظار التحصيل: متابعة للمدير، لا عمل يومي للمودِع
-    const inBank = pick(data.agb_pending_collection.items);
+    const bankItems = pick(data.agb_pending_collection.items);
     summary = (
       <div className="cut-sm flex items-center justify-between gap-3 bg-tile px-4 py-2 text-white">
-        <div className="text-sm font-semibold">في بنك AGB بانتظار التحصيل<span className="block font-normal">{chequeWord(inBank.length)}</span></div>
-        <Amount value={sum(inBank)} className="whitespace-nowrap font-display text-lg font-semibold" />
+        <div className="text-sm font-semibold">في بنك AGB بانتظار التحصيل<span className="block font-normal">{chequeWord(bankItems.length)}</span></div>
+        <Amount value={sum(bankItems)} className="whitespace-nowrap font-display text-lg font-semibold" />
       </div>
     );
     statusText = alertCount ? <>تحتاج متابعة: <span className="font-semibold text-foreground">{chequeWord(alertCount)}</span></> : 'لا شيك يحتاج متابعة.';
@@ -505,6 +536,8 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
           // «أودِع هذا الشيك» في صفحته: لشيك في الحوزة لبنك AGB، دون قفل، وبعد وصول البيانات الجديدة
           depositable={fresh && data?.can_deposit ? data.agb_in_hand.items.find((c) => c.id === route.id && !c.lock && canPick(c, isAdmin))
             || data.rostomia_in_hand.items.find((c) => c.id === route.id && !c.lock && !inTransit(c) && heldByMe(c)) || null : null}
+          // «حصّلته» للمدير: شيك مودع في AGB بانتظار التحصيل، دون قفل تحصيل
+          collectable={fresh && isAdmin ? data?.agb_pending_collection.items.find((c) => c.id === route.id && !c.clock) || null : null}
           onDeposited={() => load(true)} onBack={() => { if (fromList.current || cameFrom()) history.back(); else location.hash = '#cheques'; }} />
       ) : route.view === 'new' ? (
         <RegisterPage onDone={(pid) => { load(true); location.hash = '#cheques/c/' + pid; }} />
@@ -521,6 +554,14 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
               </div>
               <Button className="border-line-on-dark bg-transparent px-3 py-1 text-white hover:bg-press-on-dark active:bg-press-on-dark" onClick={() => setSelected(new Map())}>إلغاء التحديد</Button>
             </div>
+            {selCollect ? (
+              <div className="flex gap-2 [&>*]:flex-1">
+                <Button variant="primary" className="px-3 py-2" blocked={!fresh} onClick={() => {
+                  if (!fresh) { toast(busy ? 'انتظر لحظة حتى يكتمل التحديث، ثم حصّل.' : 'البيانات قديمة. حدّث الشاشة أولاً، ثم حصّل.', 'warn'); return; }
+                  dialogRef.current = true; setCollecting(selItems);
+                }}>حصّلت المحدد</Button>
+              </div>
+            ) : (
             <div className="flex gap-2 [&>*]:flex-1">
               {data?.can_deposit ? (
                 <Button variant="primary" className="px-3 py-2" blocked={!fresh} onClick={() => {
@@ -538,6 +579,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
                 dialogRef.current = true; setHanding(selItems);
               }}>سلّمت إلى زميل…</Button>
             </div>
+            )}
           </div>
         ) : (
           <div className="actionbar fixed inset-x-0 z-[21] flex min-h-11 items-center border-t border-line-strong bg-surface px-4 py-2 text-sm text-muted bottom-[calc(var(--nav-h,60px)+env(safe-area-inset-bottom))]">
@@ -584,6 +626,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
       </Sheet>
 
       {depositing ? <DepositDialog items={depositing} onClosed={afterDeposit} /> : null}
+      {collecting ? <CollectDialog items={collecting} onClosed={afterCollect} /> : null}
       {handing ? <HandoverDialog items={handing} onClosed={afterHandover} /> : null}
     </>
   );
