@@ -24,7 +24,7 @@ const ACTION: Record<string, string> = {
   login: 'دخول', 'user.create': 'إنشاء مستخدم', 'user.disable': 'إيقاف مستخدم', 'user.enable': 'تفعيل مستخدم',
   'user.password': 'تغيير رمز سري', 'user.rep': 'تغيير رمز المندوب', 'user.name': 'تغيير الاسم الظاهر', 'coll.review': 'مراجعة عميل', 'coll.review.cancel': 'إلغاء مراجعة',
   'coll.comment': 'تعليق مراجعة في زوهو', 'passkey.add': 'تفعيل البصمة', 'passkey.clear': 'حذف البصمة', 'coll.comment.resolve': 'حسم تعليق مراجعة', setup: 'الإعداد الأولي',
-  deposit: 'إيداع شيك', 'deposit.release': 'تحرير إيداع', 'deposit.reverted': 'إيداع أُلغي في زوهو',
+  deposit: 'إيداع شيك', 'deposit.release': 'تحرير إيداع', 'stuck.resolve': 'حسم عملية منقطعة', 'deposit.reverted': 'إيداع أُلغي في زوهو',
   'coll.ack.undo': 'تراجع عن إقرار دين', 'coll.dispute': 'اعتراض على دين', 'coll.dispute.comment': 'تعليق اعتراض في زوهو', 'coll.dispute.resolve': 'حسم تعليق اعتراض', 'coll.dispute.close': 'إغلاق اعتراض',
   'push.subscribe': 'تفعيل الإشعارات', 'push.unsubscribe': 'إيقاف الإشعارات', 'push.clear': 'حذف الإشعارات', 'notify.settings': 'إعدادات الإشعارات', 'notify.send': 'إشعار يدوي',
 };
@@ -135,6 +135,7 @@ export function AdminPage() {
   const [me, setMe] = useState<Me | null>(null);
   const [users, setUsers] = useState<any[] | null>(null);
   const [deposits, setDeposits] = useState<any[] | null>(null);
+  const [stuck, setStuck] = useState<any[] | null>(null);
   const [audit, setAudit] = useState<any[] | null>(null);
   const [ask, setAsk] = useState<Ask | null>(null);
   const [tab, setTab] = useState(() => load(TAB_KEY) || 'users');
@@ -152,8 +153,8 @@ export function AdminPage() {
 
   const refresh = useCallback(async () => {
     try {
-      const [u, d, a] = await Promise.all([api('/api/admin/users'), api('/api/admin/deposits'), api('/api/admin/audit')]);
-      setUsers(u.users); setDeposits(d.deposits); setAudit(a.entries);
+      const [u, d, a, k] = await Promise.all([api('/api/admin/users'), api('/api/admin/deposits'), api('/api/admin/audit'), api('/api/admin/stuck')]);
+      setUsers(u.users); setDeposits(d.deposits); setAudit(a.entries); setStuck(k.items);
     } catch (e) { toast(errText(e), 'err'); }
   }, []);
   useEffect(() => { api<Me>('/api/me').then(setMe).catch(() => {}); refresh(); }, [refresh]);
@@ -193,7 +194,21 @@ export function AdminPage() {
     return Number.isNaN(t.getTime()) ? '—' : fmtDateTime(t.toISOString().slice(0, 19).replace('T', ' '));
   };
 
-  const attention = (deposits || []).some((d) => (d.stale ? 'unknown' : d.state) === 'unknown');
+  // كل العمليات المنقطعة أو العالقة من كل الأنواع (الإيداع والتسجيل والتظهير وشيك المورد والتحويل)
+  const attention = (stuck || []).length > 0;
+  const resolve = (k: any, outcome: 'failed' | 'done') => setAsk({
+    title: outcome === 'done' ? `${k.label}: وُجد في زوهو` : `${k.label}: لم يُنشأ في زوهو`,
+    danger: outcome === 'failed',
+    okText: outcome === 'done' ? 'أغلقه كعملية تمت' : 'حرّر القفل',
+    text: outcome === 'done'
+      ? 'تأكدت أن العملية موجودة في زوهو؟ تُغلق في التطبيق كأنها تمت، ويبقى الشيك محمياً من التكرار. لا يُكتب شيء في زوهو.'
+      : 'تأكدت أن العملية غير موجودة في زوهو، أو صحّحتها يدوياً؟ تحرير القفل يسمح بمحاولة جديدة من التطبيق. لا يُكتب شيء في زوهو.',
+    run: async () => {
+      await api('/api/admin/stuck/resolve', { method: 'POST', body: { kind: k.kind, key: k.key, outcome } });
+      toast(outcome === 'done' ? 'أُغلقت العملية' : 'حُرّر القفل');
+      await refresh();
+    },
+  });
 
   return (
     <>
@@ -202,7 +217,7 @@ export function AdminPage() {
         <h1 className="m-0 text-2xl font-bold">الإدارة</h1>
         {/* تبويبات بدل صفحة طويلة: يفتح المدير ما يريده مباشرة، وتنبيه الإيداعات المعلّقة على تبويبها. ثلاثة في كل صف حتى لا تتجاوز عرض الهاتف */}
         <Segmented label="أقسام الإدارة" className="mt-3 grid grid-cols-3" value={tab} onChange={(v) => { setTab(v); save(TAB_KEY, v); }}
-          options={[{ value: 'users', label: 'المستخدمون' }, { value: 'deposits', label: attention ? '⚠ الإيداعات' : 'الإيداعات' }, { value: 'audit', label: 'السجل' }, { value: 'reconcile', label: 'المطابقة' }, { value: 'notify', label: 'الإشعارات' }, { value: 'ack', label: 'الإقرار' }]} />
+          options={[{ value: 'users', label: 'المستخدمون' }, { value: 'deposits', label: attention ? `⚠ التحقق ${stuck!.length}` : 'التحقق' }, { value: 'audit', label: 'السجل' }, { value: 'reconcile', label: 'المطابقة' }, { value: 'notify', label: 'الإشعارات' }, { value: 'ack', label: 'الإقرار' }]} />
 
         {tab === 'ack' ? <Section title="إقرار الدين" meta="تقرير لكل دورة" className="border-0 bg-transparent px-0"><AckTab /></Section> : null}
 
@@ -273,27 +288,51 @@ export function AdminPage() {
           ) : null}
         </Section> : null}
 
-        {tab === 'deposits' ? <Section title="الإيداعات" meta="آخر 100 محاولة">
-          {attention ? <Note tone="warn" className="mb-3">إيداعات «بانتظار التحقق»: افتح الدفعة في زوهو وتأكد هل أُنشئ إيداعها، ثم اضغط «تحرير» فقط إن لم يُنشأ أو بعد تصحيحه يدوياً.</Note> : null}
-          <Table cols={8} head={['الوقت', 'الموظف', 'العميل', 'الشيك', 'المبلغ', 'الحالة', 'الرسالة', '']} empty={!deposits ? 'جارٍ التحميل…' : deposits.length ? null : 'لا محاولات إيداع بعد.'}>
-            {(deposits || []).map((d, i) => {
-              const state = d.stale ? 'unknown' : d.state;
-              return (
-                <tr key={i}>
-                  <td className="whitespace-nowrap"><Num>{fmtDateTime(d.started_at)}</Num></td><td>{d.display_name || '—'}</td><td>{d.customer || '—'}</td>
-                  <td>{d.cheque_number ? <Num>{d.cheque_number}</Num> : '—'}</td>
-                  <td className="whitespace-nowrap">{d.amount != null ? <Amount value={d.amount} /> : '—'}</td>
-                  <td className="whitespace-nowrap">{DEP_STATE[state] || state}</td><td>{d.message || ''}</td>
-                  <td>{state === 'unknown' ? (
-                    <Button variant="danger" size="sm" onClick={() => setAsk({ title: 'تحرير قفل الإيداع', danger: true, okText: 'تحرير القفل',
-                      text: 'هل تحققت في زوهو أن الإيداع لم يُنشأ، أو صحّحته يدوياً؟ التحرير يسمح بمحاولة إيداع جديدة لهذا الشيك.',
-                      run: async () => { await api(`/api/admin/deposits/${d.payment_id}/release`, { method: 'POST', body: {} }); toast('حُرّر القفل'); await refresh(); } })}>تحرير</Button>
-                  ) : null}</td>
-                </tr>
-              );
-            })}
-          </Table>
-        </Section> : null}
+        {tab === 'deposits' ? <>
+          <Section title="بانتظار التحقق" meta="كل العمليات المنقطعة">
+            <p className="mt-0 text-sm text-muted">عملية انقطع ردّها بعد الإرسال إلى زوهو، أو توقفت في منتصفها. تبقى مقفلة حتى تتحقق منها في زوهو وتحسمها هنا. الحسم في التطبيق وحده، ولا يُكتب شيء في زوهو.</p>
+            {!stuck ? <p className="text-muted">جارٍ التحميل…</p> : !stuck.length ? <p className="mb-0 text-muted">لا شيء بانتظار التحقق.</p> : (
+              <ul className={LIST_BOX}>
+                {stuck.map((k) => (
+                  <li key={k.kind + k.key} className="stuck-row bg-surface px-3 py-3">
+                    <span className="flex items-start justify-between gap-3">
+                      <span className="min-w-0">
+                        <span className="block font-semibold">{k.label}: {k.party || '—'}</span>
+                        <span className="flex flex-wrap gap-x-1 text-sm text-muted">
+                          {k.ref ? <><span>{k.kind === 'transfer' ? 'المرجع' : 'شيك'} <Num>{k.ref}</Num></span><span aria-hidden>·</span></> : null}
+                          <span>{k.display_name || '—'}</span>
+                        </span>
+                        <span className="block text-sm text-muted"><Num>{fmtDateTime(k.started_at)}</Num></span>
+                      </span>
+                      {k.amount != null ? <Amount className="shrink-0 font-semibold" value={k.amount} /> : null}
+                    </span>
+                    <span className="mt-1 block text-sm"><Badge tone="warn">{k.state === 'pending' ? 'توقفت في منتصفها' : 'انقطع الرد'}</Badge></span>
+                    <span className="mt-2 block text-sm">{k.check}</span>
+                    <span className={cn('mt-3 grid gap-2', k.can_done ? 'grid-cols-2' : 'grid-cols-1')}>
+                      {k.can_done ? <Button size="sm" onClick={() => resolve(k, 'done')}>وُجد في زوهو</Button> : null}
+                      <Button size="sm" variant="danger" onClick={() => resolve(k, 'failed')}>لم يُنشأ: حرّر القفل</Button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Section>
+          <Section title="الإيداعات" meta="آخر 100 محاولة">
+            <Table cols={7} head={['الوقت', 'الموظف', 'العميل', 'الشيك', 'المبلغ', 'الحالة', 'الرسالة']} empty={!deposits ? 'جارٍ التحميل…' : deposits.length ? null : 'لا محاولات إيداع بعد.'}>
+              {(deposits || []).map((d, i) => {
+                const state = d.stale ? 'unknown' : d.state;
+                return (
+                  <tr key={i}>
+                    <td className="whitespace-nowrap"><Num>{fmtDateTime(d.started_at)}</Num></td><td>{d.display_name || '—'}</td><td>{d.customer || '—'}</td>
+                    <td>{d.cheque_number ? <Num>{d.cheque_number}</Num> : '—'}</td>
+                    <td className="whitespace-nowrap">{d.amount != null ? <Amount value={d.amount} /> : '—'}</td>
+                    <td className="whitespace-nowrap">{DEP_STATE[state] || state}</td><td>{d.message || ''}</td>
+                  </tr>
+                );
+              })}
+            </Table>
+          </Section>
+        </> : null}
 
         {tab === 'audit' ? <Section title="سجل العمليات" meta="آخر 200 عملية">
           <Table cols={5} head={['الوقت', 'المستخدم', 'العملية', 'الهدف', 'النتيجة']} empty={!audit ? 'جارٍ التحميل…' : audit.length ? null : 'لا عمليات مسجّلة بعد.'}>

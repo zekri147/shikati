@@ -26,7 +26,7 @@ import { haptic, isShared, markShared, sharedStyle } from '@/lib/motion';
 import { ChequeCard, LIST_BOX, LateMark } from '@/features/cheques/ui';
 import type { ChequesData } from '@/features/cheques/types';
 import { Block, KV } from '@/features/cheques/pickers';
-import { loadAckStatus, peekAfterAck, setAckCounts, takeAfterAck } from '@/lib/ack';
+import { loadAckStatus, peekAfterAck, setAckCounts, takeAfterAck, useAckStatus } from '@/lib/ack';
 import { registerFor } from '@/features/cheques/register';
 import { AdminUndoAck } from './undo-ack';
 
@@ -64,7 +64,7 @@ type Ack = {
   // تحصيل الدورة لكل مندوب: رصيد الصورة، وما سُدّد منه
   collected?: Record<string, { snap: number; collected: number }>;
 };
-type CollData = { at: number; is_admin: boolean; rep: string; own_rep: string; customers: Cust[]; reps?: { rep: string; count: number; total: number; old: number }[]; ack?: Ack };
+type CollData = { at: number; is_admin: boolean; rep: string; own_rep: string; customers: Cust[]; reps?: { rep: string; count: number; total: number; old: number }[]; rep_names?: Record<string, string>; ack?: Ack };
 
 // أسباب الاعتراض على صورة الدين (نفسها في الخادم، collcomment.ts)
 const REASONS: [string, string][] = [['paid', 'دفع ولم يُسجَّل'], ['not_mine', 'ليس عميلي'], ['amount', 'المبلغ خطأ'], ['other', 'سبب آخر']];
@@ -73,6 +73,13 @@ const reasonText = (r: string | null) => REASONS.find(([k]) => k === r)?.[1] || 
 const catOf = (c: Cust) => (c.late === null ? 'open' : c.late > 90 ? 'old' : c.late > 30 ? 'd90' : c.late > 0 ? 'd30' : 'due');
 const isOld = (c: Cust) => c.late === null || c.late > 90;
 // من يقرّ بدين العميل: صاحب رمز المندوب نفسه، مندوباً كان أو المدير
+// حد الإقرار: العميل الذي دينه أقل منه لا يدخل صورة الدين (MIN_BALANCE في debtack.ts)
+const ACK_MIN = 1000;
+
+// الاسم الظاهر لرمز المندوب (من حسابه في التطبيق)، وإلا الرمز نفسه. يُحدَّث مع كل بيانات تصل للمدير
+let REP_NAMES: Record<string, string> = {};
+const repText = (code: string): React.ReactNode => (REP_NAMES[code] ? REP_NAMES[code] : <Ltr>{code}</Ltr>);
+
 const isMine = (d: CollData, c: Cust) => !!d.ack?.can_ack && !!d.own_rep && c.owner === d.own_rep;
 const total = (list: Cust[]) => round2(list.reduce((t, c) => t + c.balance, 0));
 const lateText = (c: Cust) => (c.late === null ? 'رصيد افتتاحي' : c.late > 0 ? `متأخر ${daysWord(c.late)}` : 'لم يحن موعدها');
@@ -99,6 +106,7 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
   // آخر أرصدة على الهاتف تُعرض فوراً، ثم تُحدَّث. لكل اختيار مندوب نسخته
   const keyOf = (code: string) => 'coll:' + me.user.username + ':' + code;
   const [data, setData] = useState<CollData | null>(() => readCache<CollData>(keyOf(rep))?.data || null);
+  if (data?.rep_names) REP_NAMES = data.rep_names;
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [loadedAt, setLoadedAt] = useState(() => readCache<CollData>(keyOf(rep))?.at || 0);
@@ -181,7 +189,7 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
   const catList = CATS.map(([v, t]) => ({ v, t, of: list.filter((c) => inCatV(c, v)) }))
     .filter((x) => !x.v || x.of.length || x.v === cat);
   const catLabel = cat ? CATS.find(([v]) => v === cat)![1] : 'كل الفئات';
-  const repLabel = rep ? (rep === '-' ? 'بلا مندوب' : <Ltr>{rep}</Ltr>) : 'كل المندوبين';
+  const repLabel = rep ? (rep === '-' ? 'بلا مندوب' : repText(rep)) : 'كل المندوبين';
   const reps = data.reps || [];
 
   return (
@@ -227,7 +235,7 @@ export function CollModule({ me, hash }: { me: Me; hash: string }) {
 
       <Sheet open={sheet === 'rep'} onClose={() => setSheet('')} title="المندوب" action={<Button onClick={() => setSheet('')}>إغلاق</Button>}>
         {[{ code: '', label: 'كل المندوبين' as React.ReactNode, count: reps.reduce((t, r) => t + r.count, 0), sum: round2(reps.reduce((t, r) => t + r.total, 0)), old: 0 },
-          ...reps.map((r) => ({ code: r.rep || '-', label: r.rep ? <Ltr>{r.rep}</Ltr> : 'بلا مندوب' as React.ReactNode, count: r.count, sum: r.total, old: r.old }))].map((o) => (
+          ...reps.map((r) => ({ code: r.rep || '-', label: r.rep ? repText(r.rep) : 'بلا مندوب' as React.ReactNode, count: r.count, sum: r.total, old: r.old }))].map((o) => (
           <SheetOption key={o.code || 'all'} selected={o.code === rep} label={o.label}
             meta={<><span>{customersWord(o.count)}{o.old ? <> · قديم <Amount value={o.old} /></> : null}</span><Amount value={o.sum} /></>}
             onClick={() => { setSheet(''); pickRep(o.code); window.scrollTo(0, 0); }} />
@@ -278,7 +286,9 @@ function CustomerItem({ c, d, rep }: { c: Cust; d: CollData; rep: string }) {
               : a?.answer === 'dispute' ? <span className="font-semibold text-warning">{said}</span> : <span>{lateText(c)}</span>}
             {a?.answer === 'dispute' && a.zoho !== 'done' ? <><Dot /><span className="font-semibold text-warning">{ZOHO_WORD[a.zoho]}</span></> : null}
             {c.invoices.length > 1 ? <><Dot /><span>{invoicesWord(c.invoices.length)}</span></> : null}
-            {d.is_admin && !rep ? <><Dot />{c.owner ? <Ltr>{c.owner}</Ltr> : <span>بلا مندوب</span>}</> : null}
+            {/* ليس في صورة الدورة: دينه دون حد الإقرار، أو صار مديناً بعد الصورة. حتى لا يظن المندوب أنه نسيه */}
+            {!a && c.owner && d.ack?.state === 'ready' ? <><Dot /><span>{c.balance < ACK_MIN ? 'دون حد الإقرار' : 'إقراره في الصورة التالية'}</span></> : null}
+            {d.is_admin && !rep ? <><Dot />{c.owner ? repText(c.owner) : <span>بلا مندوب</span>}</> : null}
           </div>
           {!said && isOld(c) ? <span className="ms-auto"><LateMark days={99} text={c.late === null ? 'افتتاحي' : <><Ltr>+90</Ltr> يوماً</>} /></span> : null}
         </div>
@@ -421,7 +431,7 @@ function AckDetails({ ack, reload }: { ack: Ack; reload: () => void }) {
           {prog.map((p) => (
             <li key={p.rep} className="flex min-h-[52px] items-center justify-between gap-3 px-3 py-2">
               <span className="min-w-0">
-                <Ltr className="block font-semibold">{p.rep}</Ltr>
+                <span className="block font-semibold">{repText(p.rep)}</span>
                 <span className="block text-sm text-muted">{p.last ? 'آخر جواب ' + timeOf(p.last) : 'لم يبدأ بعد'}</span>
                 {ack.collected?.[p.rep]?.snap ? <span className="block text-sm text-muted">حصّل <Num>{Math.min(100, Math.round((ack.collected[p.rep].collected / ack.collected[p.rep].snap) * 100)) + '%'}</Num> من دين الصورة</span> : null}
               </span>
@@ -443,7 +453,7 @@ function AckDetails({ ack, reload }: { ack: Ack; reload: () => void }) {
               <li key={x.cycle + x.id} className="px-3 py-2">
                 <div className="flex justify-between gap-3"><Ltr className="font-semibold">{x.name}</Ltr><Amount value={x.balance} className="text-sm" /></div>
                 <p className="my-1 text-base [overflow-wrap:anywhere]">{reasonText(x.reason)}{x.note ? ': ' + x.note : '.'}</p>
-                <div className="flex justify-between gap-3 text-sm text-muted"><Ltr>{x.rep}</Ltr><span>{x.cycle !== ack.cycle ? `دورة السبت ${dm(x.cycle)}` : x.at ? timeOf(x.at) : ''}</span></div>
+                <div className="flex justify-between gap-3 text-sm text-muted"><span>{repText(x.rep)}</span><span>{x.cycle !== ack.cycle ? `دورة السبت ${dm(x.cycle)}` : x.at ? timeOf(x.at) : ''}</span></div>
                 <Button className="mt-2 w-full" disabled={closing === x.cycle + x.id} onClick={() => close(x)}>{closing === x.cycle + x.id ? 'جارٍ الإغلاق…' : 'عولج'}</Button>
               </li>
             ))}
@@ -461,7 +471,7 @@ function AckDetails({ ack, reload }: { ack: Ack; reload: () => void }) {
                 <div className="mb-1 text-sm font-semibold text-muted">دورة السبت <Num>{dm(w.cycle)}</Num></div>
                 {w.reps.map((p) => (
                   <div key={p.rep} className="flex min-h-11 items-center justify-between gap-3">
-                    <Ltr className="font-semibold">{p.rep}</Ltr>
+                    <span className="font-semibold">{repText(p.rep)}</span>
                     <span className="flex flex-none flex-col items-end">
                       <Num className="font-display font-semibold">{`${p.done}/${p.total}`}</Num>
                       <span className={cn('text-sm', p.done < p.total ? 'font-semibold text-danger' : 'text-muted')}>
@@ -504,7 +514,7 @@ function UnsentList({ list, reload }: { list: Unsent[]; reload: () => void }) {
           const waiting = u.state === 'unknown' || u.state === 'pending';
           return (
             <li key={u.key} className="bg-raised px-3 py-2">
-              <div className="flex justify-between gap-3"><Ltr className="font-semibold">{u.name}</Ltr><Ltr className="text-sm text-muted">{u.rep}</Ltr></div>
+              <div className="flex justify-between gap-3"><Ltr className="font-semibold">{u.name}</Ltr><span className="text-sm text-muted">{repText(u.rep)}</span></div>
               <div className="text-sm font-semibold text-warning">{(waiting ? 'بانتظار التحقق: افتح العميل في زوهو وابحث عن التعليق أدناه.' : ZOHO_WORD[u.state]) + (u.error ? ` (${u.error})` : '')}</div>
               <p className="my-1 text-sm text-muted [overflow-wrap:anywhere]">{u.text}</p>
               <div className="mt-2 flex flex-wrap gap-2 [&>button]:flex-1">
@@ -652,6 +662,15 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
 
   const back = () => { location.hash = '#coll'; };
   const toRegister = () => { location.hash = '#cheques/new'; };
+  // شيكات سُلّمت إليه وتنتظر تأكيده: تأكيدها لا ينتظر إنهاء الإقرار (24/11/2026)
+  const ackSt = useAckStatus();
+  const incomingN = ackSt?.incoming || 0;
+  const incomingLine = incomingN ? (
+    <a href="#cheques/alerts" className="ack-incoming flex min-h-11 items-center justify-between gap-3 border-s-4 border-s-brand bg-brand-tint px-3 py-2 text-base font-semibold text-foreground no-underline">
+      <span>{incomingN === 1 ? 'شيك سُلّم إليك ينتظر تأكيدك' : `${incomingN} شيكات سُلّمت إليك تنتظر تأكيدك`}</span>
+      <span className="flex items-center gap-1 text-sm underline underline-offset-4">أكّد الاستلام<ChevronLeft aria-hidden className="size-4 flex-none" /></span>
+    </a>
+  ) : null;
   const head = (
     <>
       <div className="flex min-h-11 items-center justify-between gap-3">
@@ -706,7 +725,7 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
       <>
         <Slab>{head}<h1 className="m-0 text-lg font-bold">{rows.length ? 'أنهيت إقرار دين عملائك ✓' : 'لا ديون على عملائك في هذه الصورة'}</h1></Slab>
         <div className="mt-4 flex flex-col gap-3">
-          {undoLine}
+          {incomingLine}
           {rows.length ? (
             <Block title="الخلاصة">
               <dl className="m-0 flex flex-col">
@@ -752,6 +771,7 @@ function AckFlow({ me, onChanged }: { me: Me; onChanged: () => void }) {
         </div>
       </Slab>
 
+      {incomingLine ? <div className="mt-2">{incomingLine}</div> : null}
       {undoLine ? <div className="mt-2">{undoLine}</div> : done ? (
         // أجوبة سابقة (من هذه الجلسة أو قبلها): تُفتح في لوحة فيها التراجع، دون انتظار نهاية الإقرار
         <button type="button" className="ack-answers mt-2 flex min-h-11 w-full items-center justify-between gap-3 border-b border-line text-start text-sm" onClick={() => setAnswers(true)}>
@@ -928,7 +948,7 @@ function CustomerPage({ data, id, me, onBack, onChanged }: { data: CollData | nu
         <div className="mt-2 flex flex-wrap gap-2">
           <Badge tone={isOld(c) ? 'dark' : 'inverse'}>{lateText(c)}</Badge>
           {c.invoices.length ? <Badge tone="inverse">{invoicesWord(c.invoices.length)}</Badge> : null}
-          {data.is_admin ? <Badge tone="inverse">{c.owner ? <Ltr>{c.owner}</Ltr> : 'بلا مندوب'}</Badge> : null}
+          {data.is_admin ? <Badge tone="inverse">{c.owner ? repText(c.owner) : 'بلا مندوب'}</Badge> : null}
         </div>
       </Slab>
       <div className="mt-4 flex flex-col gap-3">

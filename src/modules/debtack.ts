@@ -87,11 +87,35 @@ async function counts(env: Env, cycle: string, rep: string) {
   return { total: r?.total || 0, done: r?.done || 0, disputes: r?.disputes || 0 };
 }
 
+// قفل الإقرار في الخادم (24/11/2026، بعد المراجعة الشاملة): كان في الواجهة وحدها، فهاتف بنسخة قديمة أو طلب مباشر يتجاوزه.
+// المندوب الذي لم ينهِ إقرار صورة جاهزة لا يودع ولا يأخذ أو يسلّم شيكاً ولا يعدّل ولا يتراجع، كما في الواجهة.
+// التسجيل والتحويل وتأكيد الاستلام مفتوحة. يقرأ القاعدة وحدها: لا يأخذ الصورة، وإن لم تكن جاهزة فلا قفل.
+export async function ackLocked(env: Env, user: User): Promise<boolean> {
+  if (user.role !== 'rep') return false;
+  const own = normRep(user.rep_code);
+  if (!own) return false;
+  const cycle = cycleOf(todayAlgiers());
+  const row = await env.DB.prepare('SELECT ready FROM debt_cycles WHERE cycle = ?').bind(cycle).first<{ ready: number }>();
+  if (!row?.ready) return false;
+  const c = await counts(env, cycle, own);
+  return c.total > c.done;
+}
+
+export async function requireAckDone(env: Env, user: User): Promise<void> {
+  if (await ackLocked(env, user)) {
+    await audit(env, user, 'coll.ack.lock', 'denied', null, 'write before finishing debt acknowledgement');
+    throw new HttpError(403, 'أكمل إقرار الدين أولاً، ثم أعد المحاولة. تسجيل الشيك وتأكيد الاستلام مفتوحان قبل ذلك.');
+  }
+}
+
 export async function ackStatus(env: Env, user: User): Promise<Response> {
   const own = normRep(user.rep_code);
   const cs = await ensureSnapshot(env);
-  if (!own || cs.state !== 'ready') return json({ ...cs, total: 0, done: 0, disputes: 0 });
-  return json({ ...cs, ...(await counts(env, cs.cycle, own)) });
+  // شيكات سُلّمت إليه وتنتظر تأكيده: تأكيدها مفتوح حتى قبل إنهاء الإقرار، لأن الشيك مقفل على الجميع حتى يؤكد
+  const inc = await env.DB.prepare('SELECT COUNT(*) AS n FROM custody WHERE to_id = ?').bind(user.id).first<{ n: number }>();
+  const incoming = inc?.n || 0;
+  if (!own || cs.state !== 'ready') return json({ ...cs, total: 0, done: 0, disputes: 0, incoming });
+  return json({ ...cs, ...(await counts(env, cs.cycle, own)), incoming });
 }
 
 // قائمة المندوب في الصورة، الأكبر ديناً أولاً، مع رصيد كل عميل في الصورة السابقة
