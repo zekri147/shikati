@@ -254,6 +254,8 @@ async function step(name: string, fn: () => Promise<void>) {
 export async function runScheduled(env: Env, now = new Date()): Promise<void> {
   // صورة الدين: في أول مهمة من الدورة، فتكون الصورة نفسها لكل المندوبين
   await step('snapshot', async () => { await ensureSnapshot(env, todayAlgiers(now)); });
+  // سجل العمليات: يُحفظ سنة واحدة (24/11/2026)، حتى لا يكبر دون حد
+  await step('audit', async () => { await env.DB.prepare("DELETE FROM audit_log WHERE at < datetime('now', '-365 days')").run(); });
   // لا طلبات أخرى إلى زوهو ما دام لم يفعّل أحد الإشعارات
   if (!(await hasSubscribers(env))) return;
   const { hour, dow } = algiersClock(now);

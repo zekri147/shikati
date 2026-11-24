@@ -251,6 +251,14 @@ async function adminResolve(req: Request, env: Env, user: User): Promise<Respons
   return json({ ok: true });
 }
 
+async function repNames(env: Env): Promise<Record<string, string>> {
+  const { results } = await env.DB.prepare("SELECT rep_code, display_name FROM users WHERE rep_code IS NOT NULL AND rep_code != '' ORDER BY active DESC, id")
+    .all<{ rep_code: string; display_name: string }>();
+  const out: Record<string, string> = {};
+  for (const r of results || []) { const k = normRep(r.rep_code); if (k && !out[k]) out[k] = r.display_name; }
+  return out;
+}
+
 function summarize(customers: CollCustomer[]) {
   const reps = new Map<string, { rep: string; total: number; old: number; count: number }>();
   for (const c of customers) {
@@ -290,6 +298,8 @@ export async function handleCollect(req: Request, env: Env, user: User): Promise
     is_admin: isAdmin,
     customers,
     reps: isAdmin ? summarize(snap.customers) : undefined,
+    // الاسم الظاهر لكل رمز مندوب له حساب، فيرى المدير «إسماعيل» بدل SMAIL (24/11/2026)
+    rep_names: isAdmin ? await repNames(env) : undefined,
     ack: {
       ...cs,
       // كل من له رمز مندوب يقرّ بدين عملاء رمزه، والمدير منهم (دون قفل)

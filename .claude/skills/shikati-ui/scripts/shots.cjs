@@ -22,14 +22,11 @@ fs.mkdirSync(OUT, { recursive: true });
 // معرّفات الشيكات من الخادم الوهمي scripts/dev/mock-zoho.mjs
 const SCREENS = [
   { name: 'deposit', path: '/#cheques' },
-  { name: 'deposit-selected', path: '/#cheques', act: async (p) => {
-    await p.locator('[data-selectable]').nth(0).click();
-    await p.locator('[data-selectable]').nth(1).click();
-  }, full: false },
+  // التحديد بلمس اسم العميل (يمين البطاقة): لمس وسطها قد يقع على زر السهم إلى التفاصيل
+  { name: 'deposit-selected', path: '/#cheques', act: async (p) => { await pick(p, 0); await pick(p, 1); }, full: false },
   { name: 'deposit-confirm', path: '/#cheques', act: async (p) => {
-    await p.locator('[data-selectable]').nth(0).click();
-    await p.locator('[data-selectable]').nth(1).click();
-    await p.locator('.actionbar button').first().click();
+    await pick(p, 0); await pick(p, 1);
+    await p.getByRole('button', { name: 'أودعت المحدد' }).click();
   }, full: false },
   { name: 'all', path: '/#cheques/all' },
   { name: 'all-sheet', path: '/#cheques/all', act: async (p) => { await p.locator('.status-btn').click(); }, full: false },
@@ -48,25 +45,31 @@ const SCREENS = [
     await p.locator('.sheet-opt', { hasText: 'أكثر من 90' }).click();
   } },
   { name: 'coll-cat-sheet', path: '/#coll', act: async (p) => { await p.locator('.cat-btn').click(); }, full: false },
-  // للمدير: سطر «مراجعة الأسبوع» يفتح تقدّم المندوبين في لوحة سفلية
-  { name: 'coll-review-sheet', path: '/#coll', act: async (p) => { const b = p.locator('.review-btn'); if (await b.count()) await b.click(); }, full: false },
   { name: 'coll-customer', path: '/#coll/c/7418400000200001', full: false },
-  // المراجعة الأسبوعية: لمسة «راجعت» على أول عميل لم يُراجَع (للمندوب فقط)، وبطاقة عميل لم يُراجَع
-  { name: 'coll-review', path: '/#coll', act: async (p) => { const b = p.locator('.rev-btn:not(.on)').first(); if (await b.count()) await b.click(); }, full: false },
   { name: 'coll-customer-new', path: '/#coll/c/7418400000200006', full: false },
+  // إقرار الدين (حلّ محل المراجعة الأسبوعية يوم 8/11/2026): للمندوب يفتح التطبيق عليه حتى ينهيه (SHOTS_USER=amine)،
+  // والمدير صاحب رمز المندوب يصل إليه من التحصيل
+  { name: 'ack', path: '/#coll/ack', full: false },
+  { name: 'admin-verify', path: '/admin', act: async (p) => { await p.getByRole('radio', { name: /التحقق/ }).click(); } },
   { name: 'menu', path: '/#coll', act: async (p) => { await p.locator('#menu-btn').click(); }, full: false },
   { name: 'admin', path: '/admin' },
   { name: 'admin-user-sheet', path: '/admin', act: async (p) => { await p.locator('.user-row').first().click(); }, full: false },
-  { name: 'admin-deposits', path: '/admin', act: async (p) => { await p.getByRole('radio', { name: /الإيداعات/ }).click(); } },
   { name: 'help', path: '/help' },
 ];
+
+// لمس اسم العميل في البطاقة رقم i في شاشة الإيداع
+async function pick(p, i) {
+  const card = p.locator('[data-selectable]').nth(i);
+  const box = await card.boundingBox();
+  await card.click({ position: { x: box.width - 80, y: 20 } });
+}
 
 (async () => {
   const browser = await chromium.launch();
   for (const theme of ['dark', 'light']) {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
     // بطاقة الترحيب تظهر مرة واحدة عند أول دخول، فتُعلَّم كأنها شوهدت حتى لا تغطي الشاشات
-    await ctx.addInitScript((t) => { try { localStorage.setItem('shikati-theme', t); localStorage.setItem('shikati-welcome-seen', '1'); } catch {} }, theme);
+    await ctx.addInitScript((t) => { try { localStorage.setItem('shikati-theme', t); localStorage.setItem('shikati-welcome-seen', '1'); localStorage.setItem('shikati-passkey-asked', '1'); localStorage.setItem('shikati-notify-asked', '1'); } catch {} }, theme);
     const p = await ctx.newPage();
     await p.goto(BASE + '/login');
     if (!ONLY.length || ONLY.includes('login')) await p.screenshot({ path: `${OUT}/login-${theme}.png` });
