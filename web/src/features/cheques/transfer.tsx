@@ -53,13 +53,14 @@ export function TransferForm({ opts, customer, setCustomer, location, setLocatio
   const locked = useRef(false);
   const errRef = useRef<HTMLDivElement>(null);
 
+  // الترتيب نفسه في تسجيل الشيك: الصورة، ثم العميل، ثم المبلغ والتاريخ، ثم البنك والموقع (بطلب ZEKRI يوم 24/11/2026)
   const missing: string[] = [];
+  if (!image) missing.push('صورة الإشعار');
   if (!customer) missing.push('العميل');
   if (!parseAmount(amount)) missing.push('المبلغ');
   if (!date) missing.push('التاريخ');
   if (!bank) missing.push('البنك');
   if (!location) missing.push('الموقع');
-  if (!image) missing.push('صورة الإشعار');
 
   async function onFile(f: File) {
     try { setImage(await shrink(f)); } catch (e) { toast(errText(e), 'err'); }
@@ -95,12 +96,17 @@ export function TransferForm({ opts, customer, setCustomer, location, setLocatio
 
   return (
     <>
-      <StepsProgress done={[!!customer, !!parseAmount(amount) && !!date, !!bank && !!location, !!image]} />
-      <Step n={1} title="العميل" done={!!customer}>
+      <StepsProgress done={[!!image, !!customer, !!parseAmount(amount) && !!date, !!bank && !!location]} />
+      <Step n={1} title="صورة إشعار التحويل" done={!!image}>
+        {image ? <img src={image} alt="صورة إشعار التحويل" className="mt-1 block max-h-[260px] w-full border border-line bg-surface-alt object-contain" /> : null}
+        <PhotoButtons first={!image} onFile={onFile} shootLabel={image ? 'إعادة التصوير' : 'تصوير الإشعار'} />
+      </Step>
+
+      <Step n={2} title="العميل" done={!!customer}>
         <div className="py-2"><PartyPicker kind="customer" value={customer} onChange={setCustomer} /></div>
       </Step>
 
-      <Step n={2} title="المبلغ والتاريخ" done={!!parseAmount(amount) && !!date}>
+      <Step n={3} title="المبلغ والتاريخ" done={!!parseAmount(amount) && !!date}>
         <Field label="المبلغ (دج)"><Input inputMode="decimal" dir="ltr" placeholder="0.00" autoComplete="off" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
         <DateField label="تاريخ التحويل" value={date} max={today} onChange={setDate} hint="يوم وصول المبلغ إلى البنك، وهو تاريخ الدفعة في زوهو." />
         <Field label="رقم المرجع (اختياري)">
@@ -108,18 +114,13 @@ export function TransferForm({ opts, customer, setCustomer, location, setLocatio
         </Field>
       </Step>
 
-      <Step n={3} title="البنك والموقع" done={!!bank && !!location}>
+      <Step n={4} title="البنك والموقع" done={!!bank && !!location}>
         <GroupField label="البنك الذي استلم التحويل">
           <Segmented label="البنك الذي استلم التحويل" value={bank} onChange={setBank} options={banks.map((b) => ({ value: b.key, label: b.label }))} />
         </GroupField>
         <GroupField label="الموقع">
           <Segmented label="الموقع" value={location} onChange={setLocation} options={opts.locations.map((l) => ({ value: l.key, label: l.label }))} />
         </GroupField>
-      </Step>
-
-      <Step n={4} title="صورة إشعار التحويل" done={!!image}>
-        {image ? <img src={image} alt="صورة إشعار التحويل" className="mt-1 block max-h-[260px] w-full border border-line bg-surface-alt object-contain" /> : null}
-        <PhotoButtons onFile={onFile} shootLabel={image ? 'إعادة التصوير' : 'تصوير الإشعار'} />
       </Step>
 
       <div ref={errRef}>{error ? <FormError>{error}</FormError> : null}</div>
