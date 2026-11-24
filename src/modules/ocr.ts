@@ -5,6 +5,8 @@ import { HttpError } from '../http';
 // قراءة صورة الشيك بواجهة كلود، كما كان يفعل بوت تيليجرام: المبلغ والرقم والاسمان.
 // منذ 8/11/2026 (بطلب ZEKRI) يُقرأ اسم صاحب الحساب والمستفيد أيضاً، اقتراحاً للبحث فقط:
 // الموظف يختار العميل أو المورد بنفسه من النتائج، ولا يُختار آلياً.
+// ومنذ 24/11/2026 (بطلب ZEKRI) الوجهة من اسم المستفيد: ELONAC لبنك AGB، وأي مستفيد آخر أو سطر فارغ للرستمية،
+// تُختار في النموذج ويغيّرها الموظف. وإشعار التحويل البنكي: المبلغ والتاريخ والمرجع (readTransfer).
 // النتيجة كلها اقتراح: الموظف يراجعها ويصححها قبل أي كتابة في زوهو.
 
 const MODEL = 'claude-opus-5-5';
@@ -18,6 +20,8 @@ export interface ChequeReading {
   // صاحب الحساب الساحب (العميل في شيك العميل)، والمستفيد (المورد في شيك الشركة الصادر)
   drawer: string | null;
   payee: string | null;
+  // الوجهة من المستفيد (اختيار ZEKRI): ELONAC لبنك AGB، وغيره أو الفارغ للرستمية، وnull إن لم يُقرأ
+  destination: 'ELONAC' | 'ROSTOMIA' | null;
   // ملاحظة قصيرة من القارئ إن كانت الصورة غير واضحة أو فيها تعارض
   note: string | null;
   // كم درجة تُدار الصورة باتجاه عقارب الساعة ليظهر الشيك معتدلاً
@@ -32,12 +36,13 @@ const toRotation = (v: unknown): Rotation => (['90', '180', '270'].includes(Stri
 const SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['amount', 'cheque_number', 'drawer', 'payee', 'note', 'rotation'],
+  required: ['amount', 'cheque_number', 'drawer', 'payee', 'payee_blank', 'note', 'rotation'],
   properties: {
     amount: { type: 'number', description: 'المبلغ بالدينار الجزائري، مثل 366600.39. صفر إن لم يُقرأ' },
     cheque_number: { type: 'string', description: 'رقم الشيك أرقاماً فقط، أو نص فارغ' },
     drawer: { type: 'string', description: 'اسم صاحب الحساب الساحب كما هو مكتوب، أو نص فارغ' },
     payee: { type: 'string', description: 'اسم المستفيد كما هو مكتوب، أو نص فارغ' },
+    payee_blank: { type: 'boolean', description: 'true إن كان سطر المستفيد ظاهراً في الصورة وفارغاً لم يُكتب فيه شيء' },
     note: { type: 'string', description: 'ملاحظة قصيرة بالعربية إن كان شيء غير واضح، أو نص فارغ' },
     rotation: ROTATION,
   },
@@ -49,10 +54,18 @@ const PROMPT = `هذه صورة شيك بنكي جزائري: إما شيك اس
 - cheque_number: رقم الشيك المطبوع (عادة 7 أرقام). أرقام فقط، دون مسافات.
 - drawer: اسم صاحب الحساب الذي سُحب منه الشيك، وهو عادة مطبوع على الشيك قرب التوقيع أو تحت اسم البنك. اكتبه كما هو، بالحروف اللاتينية إن كُتب بها، دون العنوان.
 - payee: اسم المستفيد المكتوب بعد «Payez à l'ordre de» أو «ادفعوا لأمر»، كما هو.
+- payee_blank: true فقط إن كان سطر المستفيد ظاهراً بوضوح وفارغاً لم يُكتب فيه أي اسم، وإلا false (ومنها حين لا تستطيع قراءته).
 - note: اكتب ملاحظة قصيرة فقط إن كان جزء غير مقروء أو مشكوك فيه، وإلا نصاً فارغاً.
 - rotation: كم درجة يجب تدوير الصورة باتجاه عقارب الساعة (0 أو 90 أو 180 أو 270) ليظهر الشيك أفقياً ونصه معتدلاً.
 الصورة قد تكون مقلوبة أو مائلة، فاقرأها في أي اتجاه.
 أي حقل لا تستطيع قراءته بثقة: اكتب 0 للمبلغ ونصاً فارغاً لغيره، بدل التخمين.`;
+
+// الوجهة من اسم المستفيد. «ELONAC» بأي كتابة (مسافات أو نقاط بين الحروف، أو «إيلوناك»)
+const ELONAC_RE = /E[\s.]*L[\s.]*O[\s.]*N[\s.]*A[\s.]*C|[إا]يلوناك/i;
+export function destinationFromPayee(payee: string | null, blank: boolean): 'ELONAC' | 'ROSTOMIA' | null {
+  if (payee) return ELONAC_RE.test(payee) ? 'ELONAC' : 'ROSTOMIA';
+  return blank ? 'ROSTOMIA' : null;
+}
 
 export function readerConfigured(env: Env): boolean {
   return !!env.ANTHROPIC_API_KEY;
@@ -69,8 +82,9 @@ export function parseImage(dataUrl: unknown): { type: ImageType; data: string } 
 
 const clean = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 200) : null);
 
+// طلب قراءة واحد بمخرجات منظمة، مشترك بين الشيك وإشعار التحويل.
 // verbose: يضيف للمدير رمز الخطأ ورسالة الواجهة، لتشخيص أي مشكلة دون فتح سجلات كلاود فلير
-export async function readCheque(env: Env, image: { type: ImageType; data: string }, verbose = false): Promise<ChequeReading> {
+async function askClaude(env: Env, image: { type: ImageType; data: string }, schema: Record<string, unknown>, prompt: string, verbose: boolean): Promise<Record<string, unknown>> {
   if (!env.ANTHROPIC_API_KEY) throw new HttpError(503, 'القراءة الآلية غير مُعدّة بعد. اكتب البيانات بيدك.');
   const client = new Anthropic({
     apiKey: env.ANTHROPIC_API_KEY,
@@ -86,12 +100,12 @@ export async function readCheque(env: Env, image: { type: ImageType; data: strin
       max_tokens: 4000,
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
-      output_config: { effort: 'low', format: { type: 'json_schema', schema: SCHEMA } },
+      output_config: { effort: 'low', format: { type: 'json_schema', schema } },
       messages: [{
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: image.type, data: image.data } },
-          { type: 'text', text: PROMPT },
+          { type: 'text', text: prompt },
         ],
       }],
     });
@@ -118,11 +132,56 @@ export async function readCheque(env: Env, image: { type: ImageType; data: strin
   } catch {
     throw new HttpError(502, 'جاءت القراءة بصيغة غير متوقعة. اكتب البيانات بيدك.');
   }
-  const amount = typeof out.amount === 'number' && Number.isFinite(out.amount) && out.amount > 0
-    ? Math.round(out.amount * 100) / 100 : null;
+  return out;
+}
+
+const readAmount = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : null);
+
+export async function readCheque(env: Env, image: { type: ImageType; data: string }, verbose = false): Promise<ChequeReading> {
+  const out = await askClaude(env, image, SCHEMA, PROMPT, verbose);
+  const amount = readAmount(out.amount);
   const num = clean(out.cheque_number)?.replace(/\D/g, '') || null;
   const name = (v: unknown) => clean(v)?.replace(/\s+/g, ' ').slice(0, 120) || null;
-  return { amount, cheque_number: num, drawer: name(out.drawer), payee: name(out.payee), note: clean(out.note), rotation: toRotation(out.rotation) };
+  const payee = name(out.payee);
+  return {
+    amount, cheque_number: num, drawer: name(out.drawer), payee,
+    destination: destinationFromPayee(payee, out.payee_blank === true),
+    note: clean(out.note), rotation: toRotation(out.rotation),
+  };
+}
+
+// ——— إشعار التحويل البنكي (24/11/2026، بطلب ZEKRI): المبلغ والتاريخ والمرجع، اقتراحاً يراجعه الموظف ———
+
+export interface TransferReading { amount: number | null; date: string | null; reference: string | null; note: string | null }
+
+const TRANSFER_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['amount', 'date', 'reference', 'note'],
+  properties: {
+    amount: { type: 'number', description: 'مبلغ التحويل بالدينار الجزائري، مثل 185000.50. صفر إن لم يُقرأ' },
+    date: { type: 'string', description: 'تاريخ التحويل بصيغة YYYY-MM-DD، أو نص فارغ' },
+    reference: { type: 'string', description: 'رقم مرجع التحويل كما هو، أو نص فارغ' },
+    note: { type: 'string', description: 'ملاحظة قصيرة بالعربية إن كان شيء غير واضح، أو نص فارغ' },
+  },
+};
+
+const TRANSFER_PROMPT = `هذه صورة إشعار تحويل بنكي جزائري (avis de virement أو avis de crédit أو لقطة شاشة من تطبيق بنك)، وصل به مبلغ من عميل إلى شركة إيلوناك.
+استخرج منها:
+- amount: مبلغ التحويل بالأرقام بالدينار الجزائري. إن اختلف المبلغ بالأرقام عن المبلغ بالحروف، خذ المبلغ بالحروف واذكر ذلك في note.
+- date: تاريخ التحويل أو تاريخ القيمة (date de valeur) بصيغة YYYY-MM-DD. التواريخ الجزائرية تُكتب يوم/شهر/سنة.
+- reference: رقم مرجع التحويل (référence أو N° d'opération أو رقم العملية) كما هو، دون عبارات قبله.
+- note: ملاحظة قصيرة فقط إن كان جزء غير مقروء أو مشكوك فيه، وإلا نصاً فارغاً.
+الصورة قد تكون مقلوبة أو مائلة، فاقرأها في أي اتجاه.
+أي حقل لا تستطيع قراءته بثقة: اكتب 0 للمبلغ ونصاً فارغاً لغيره، بدل التخمين.`;
+
+export async function readTransfer(env: Env, image: { type: ImageType; data: string }, today: string, verbose = false): Promise<TransferReading> {
+  const out = await askClaude(env, image, TRANSFER_SCHEMA, TRANSFER_PROMPT, verbose);
+  // تاريخ صالح لا يكون بعد اليوم، كما يشترط النموذج والخادم
+  const d = clean(out.date);
+  const date = d && /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(d)) && d <= today ? d : null;
+  const reference = clean(out.reference)?.replace(/\s+/g, ' ').slice(0, 50) || null;
+  return { amount: readAmount(out.amount), date, reference, note: clean(out.note) };
 }
 
 const ORIENT_SCHEMA = { type: 'object', additionalProperties: false, required: ['rotation'], properties: { rotation: ROTATION } };

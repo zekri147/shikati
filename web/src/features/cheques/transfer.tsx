@@ -62,8 +62,32 @@ export function TransferForm({ opts, customer, setCustomer, location, setLocatio
   if (!bank) missing.push('الوجهة');
   if (!location) missing.push('الموقع');
 
+  // قراءة الإشعار بكلود (24/11/2026، بطلب ZEKRI): المبلغ والتاريخ والمرجع، اقتراحاً يراجعه الموظف كما في الشيك
+  const [reading, setReading] = useState(false);
+  const [readNote, setReadNote] = useState<{ tone?: 'warn' | 'ok'; text: string } | null>(null);
   async function onFile(f: File) {
-    try { setImage(await shrink(f)); } catch (e) { toast(errText(e), 'err'); }
+    let shot: string;
+    try { shot = await shrink(f); } catch (e) { toast(errText(e), 'err'); return; }
+    setImage(shot);
+    if (!opts.reader) { setReadNote({ text: 'القراءة الآلية غير مُعدّة بعد. اكتب البيانات بيدك.' }); return; }
+    setReadNote({ text: 'جارٍ قراءة الإشعار…' });
+    setReading(true);
+    try {
+      const { reading: r } = await api<{ reading: { amount: number | null; date: string | null; reference: string | null; note: string | null } }>(
+        '/api/m/cheques/register/read', { method: 'POST', body: { image: shot, kind: 'transfer' } });
+      const filled: string[] = [];
+      if (r.amount) { setAmount(String(r.amount)); filled.push('المبلغ'); }
+      if (r.date && r.date <= today) { setDate(r.date); filled.push('التاريخ'); }
+      if (r.reference) { setReference(r.reference); filled.push('المرجع'); }
+      setReadNote({
+        tone: r.note ? 'warn' : 'ok',
+        text: (filled.length ? 'قُرئ: ' + filled.join('، ') + '. راجعها مع الصورة.' : 'لم تُقرأ أي بيانات بثقة. اكتبها بيدك.') + (r.note ? ' ملاحظة: ' + r.note : ''),
+      });
+    } catch (e) {
+      setReadNote({ tone: 'warn', text: errText(e) });
+    } finally {
+      setReading(false);
+    }
   }
 
   async function submit() {
@@ -89,7 +113,7 @@ export function TransferForm({ opts, customer, setCustomer, location, setLocatio
   } : null;
 
   function reset() {
-    setAmount(''); setDate(today); setReference(''); setBank(''); setImage(''); setLoud(false);
+    setAmount(''); setDate(today); setReference(''); setBank(''); setImage(''); setReadNote(null); setLoud(false);
     setCustomer(null);
     requestId.current = newRequestId();
   }
@@ -99,7 +123,8 @@ export function TransferForm({ opts, customer, setCustomer, location, setLocatio
       <StepsProgress done={[!!image, !!customer, !!parseAmount(amount) && !!date, !!bank && !!location]} />
       <Step n={1} title="صورة إشعار التحويل" done={!!image}>
         {image ? <img src={image} alt="صورة إشعار التحويل" className="mt-1 block max-h-[260px] w-full border border-line bg-surface-alt object-contain" /> : null}
-        <PhotoButtons first={!image} onFile={onFile} shootLabel={image ? 'إعادة التصوير' : 'تصوير الإشعار'} />
+        <PhotoButtons first={!image} disabled={reading} onFile={onFile} shootLabel={image ? 'إعادة التصوير' : 'تصوير الإشعار'} />
+        {readNote ? <Note tone={readNote.tone} className="mt-2">{readNote.text}</Note> : null}
       </Step>
 
       <Step n={2} title="العميل" done={!!customer}>

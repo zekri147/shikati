@@ -41,6 +41,8 @@
 // (PUSH_ALLOW_LOCAL=1 في .dev.vars يسمح بهذا العنوان المحلي).
 // ويقلّد أيضاً واجهة كلود (POST /v1/messages) فيعيد قراءة ثابتة لصورة الشيك،
 // واتجاهها 180 درجة (MOCK_ROTATION) فتظهر الصورة السليمة مقلوبة، دليلاً على أن التدوير يُطبَّق.
+// والمستفيد MOCK_PAYEE (افتراضياً «SARL ELONAC» فالوجهة بنك AGB، وأي اسم آخر للرستمية). وإشعار التحويل:
+// المبلغ 185000 وتاريخ قبل يومين والمرجع VIR-2611-0042.
 
 import http from 'node:http';
 import fs from 'node:fs';
@@ -239,8 +241,12 @@ http.createServer((req, res) => {
       const key = req.headers['x-api-key'] || String(req.headers.authorization || '').replace(/^Bearer /, '');
       if (key !== 'mock-key') return send({ type: 'error', error: { type: 'authentication_error', message: 'bad key' } }, 401);
       // الاتجاه: 180 لتجربة تدوير الصورة المقلوبة (يمكن تغييره بالمتغير MOCK_ROTATION)
-      const reading = { amount: 250000, cheque_number: '6309259', drawer: 'EURL HOUSE FIX', payee: 'SARL ACIER FOURNISSEUR', note: '', rotation: process.env.MOCK_ROTATION || '180' };
-      log.push('CLAUDE read');
+      // إشعار التحويل البنكي: مخطط المخرجات فيه «reference». والمستفيد MOCK_PAYEE (افتراضياً ELONAC: الوجهة بنك AGB)
+      const transfer = body.includes('"reference"');
+      const reading = transfer
+        ? { amount: 185000, date: day(-2), reference: 'VIR-2611-0042', note: '' }
+        : { amount: 250000, cheque_number: '6309259', drawer: 'EURL HOUSE FIX', payee: process.env.MOCK_PAYEE ?? 'SARL ELONAC', payee_blank: false, note: '', rotation: process.env.MOCK_ROTATION || '180' };
+      log.push(transfer ? 'CLAUDE read transfer' : 'CLAUDE read');
       return setTimeout(() => send({
         id: 'msg_mock', type: 'message', role: 'assistant', model: 'claude-opus-5-5',
         content: [{ type: 'text', text: JSON.stringify(reading) }],

@@ -5,7 +5,7 @@ import { audit } from '../audit';
 import {
   ACCOUNT_CHEQUES_IN_HAND, ACCOUNT_ENDORSED, CACHE_KEY, DESTINATIONS, LOCATIONS, parseRoles, STATUS, todayAlgiers,
 } from './constants';
-import { parseImage, readCheque, readerConfigured, readOrientation } from './ocr';
+import { parseImage, readCheque, readerConfigured, readOrientation, readTransfer } from './ocr';
 import { allocateBills, canEndorse, endorseCheque } from './endorse';
 import { custodyOnRegister } from './custody';
 import { outBankOptions } from './outcheque';
@@ -86,7 +86,15 @@ export async function suggestContacts(env: Env, type: 'customer' | 'vendor', nam
 export async function handleRead(req: Request, env: Env, user: User): Promise<Response> {
   requireRegister(env, user);
   const body = await readJson<{ image?: string; kind?: string }>(req);
-  const reading = await readCheque(env, parseImage(body.image), user.role === 'admin');
+  // إشعار التحويل البنكي: المبلغ والتاريخ والمرجع (بطلب ZEKRI يوم 24/11/2026)
+  if (body.kind === 'transfer') {
+    const t = await readTransfer(env, parseImage(body.image), todayAlgiers(), user.role === 'admin');
+    await audit(env, user, 'register.read', 'ok', t.reference, `transfer ${t.amount ?? '—'}${t.note ? ': ' + t.note : ''}`);
+    return json({ reading: t });
+  }
+  const read = await readCheque(env, parseImage(body.image), user.role === 'admin');
+  // الوجهة لشيك العميل وحده، لا لشيك الشركة الصادر
+  const reading = body.kind === 'out' ? { ...read, destination: null } : read;
   await audit(env, user, 'register.read', 'ok', reading.cheque_number, reading.note);
   // شيك العميل: اسم صاحب الحساب يقترح العميل. شيك الشركة الصادر (للمدير): اسم المستفيد يقترح المورد.
   const out = body.kind === 'out' && canEndorse(user);

@@ -65,7 +65,9 @@ export function StepsProgress({ done }: { done: boolean[] }) {
 // صورة الشيك وقراءتها بكلود: مشتركة بين شيك العميل وشيك الشركة الصادر.
 // القراءة تملأ المبلغ والرقم اقتراحاً فقط، وتقترح العميل (أو المورد في الشيك الصادر) من الاسم المكتوب على الشيك
 // دون أن تختاره. والصورة تُدار قبل رفعها فتظهر معتدلة في التطبيق وفي زوهو.
-export function useChequePhoto(reader: boolean, kind: 'in' | 'out', fill: (amount: string | null, number: string | null, suggest: Suggest | null) => void) {
+// الوجهة من اسم المستفيد في شيك العميل (24/11/2026، بطلب ZEKRI): ELONAC لبنك AGB، وغيره للرستمية. تُختار ويغيّرها الموظف
+export function useChequePhoto(reader: boolean, kind: 'in' | 'out',
+  fill: (amount: string | null, number: string | null, suggest: Suggest | null, destination: string | null) => void) {
   const [image, setImage] = useState('');
   const [reading, setReading] = useState(false);
   const [readNote, setReadNote] = useState<{ tone?: 'warn' | 'ok'; text: string } | null>(null);
@@ -83,7 +85,8 @@ export function useChequePhoto(reader: boolean, kind: 'in' | 'out', fill: (amoun
       if (r.amount) filled.push('المبلغ');
       if (r.cheque_number) filled.push('الرقم');
       if (suggest) filled.push(kind === 'out' ? 'اسم المستفيد' : 'اسم صاحب الحساب');
-      fill(r.amount ? String(r.amount) : null, r.cheque_number || null, suggest || null);
+      if (r.destination) filled.push(`الوجهة (${DEST_LABELS[r.destination] || r.destination}، من اسم المستفيد)`);
+      fill(r.amount ? String(r.amount) : null, r.cheque_number || null, suggest || null, r.destination || null);
       setReadNote({
         tone: r.note ? 'warn' : 'ok',
         text: (filled.length ? 'قُرئ: ' + filled.join('، ') + '. راجعها مع الصورة.' : 'لم تُقرأ أي بيانات بثقة. اكتبها بيدك.') + (r.note ? ' ملاحظة: ' + r.note : ''),
@@ -129,7 +132,11 @@ export function RegisterPage({ onDone }: { onDone: (pid: string) => void }) {
   }, []);
 
   useFixedBottom(92, !!opts && opts.can_register);
-  const { image, reading, readNote, onFile } = useChequePhoto(!!opts?.reader, 'in', (a, n, s) => { if (a) setAmount(a); if (n) setNumber(n); setSuggest(s); });
+  const { image, reading, readNote, onFile } = useChequePhoto(!!opts?.reader, 'in', (a, n, s, d) => {
+    if (a) setAmount(a); if (n) setNumber(n); setSuggest(s);
+    // «مورد آخر» اختيار الموظف نفسه (التظهير)، فلا تغيّره القراءة
+    if (d) setDestination((cur) => (cur === 'Autre Fournisseur' ? cur : d));
+  });
 
   if (loadError) return <ErrorBox>{loadError}</ErrorBox>;
   if (!opts) return <SkeletonList className="mt-0" rows={4} />;
