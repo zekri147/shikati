@@ -35,7 +35,7 @@ type Form = {
 // العميل والموقع من الشاشة الأم، فيبقيان عند التبديل بين الشيك والتحويل
 export function TransferForm({ opts, customer, setCustomer, location, setLocation, onDone }: {
   opts: Options; customer: Party | null; setCustomer: (p: Party | null) => void;
-  location: string; setLocation: (v: string) => void; onDone: () => void;
+  location: string; setLocation: (v: string) => void; onDone: (pid: string) => void;
 }) {
   const banks = opts.transfer_banks || [];
   const [amount, setAmount] = useState('');
@@ -59,7 +59,7 @@ export function TransferForm({ opts, customer, setCustomer, location, setLocatio
   if (!customer) missing.push('العميل');
   if (!parseAmount(amount)) missing.push('المبلغ');
   if (!date) missing.push('التاريخ');
-  if (!bank) missing.push('البنك');
+  if (!bank) missing.push('الوجهة');
   if (!location) missing.push('الموقع');
 
   async function onFile(f: File) {
@@ -106,17 +106,21 @@ export function TransferForm({ opts, customer, setCustomer, location, setLocatio
         <div className="py-2"><PartyPicker kind="customer" value={customer} onChange={setCustomer} /></div>
       </Step>
 
-      <Step n={3} title="المبلغ والتاريخ" done={!!parseAmount(amount) && !!date}>
-        <Field label="المبلغ (دج)"><Input inputMode="decimal" dir="ltr" placeholder="0.00" autoComplete="off" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+      {/* كالشيك: المبلغ والرقم (هنا المرجع) متجاوران، ثم التاريخ */}
+      <Step n={3} title="المبلغ والمرجع والتاريخ" done={!!parseAmount(amount) && !!date}>
+        <div className="grid grid-cols-2 gap-x-3">
+          <Field label="المبلغ (دج)"><Input inputMode="decimal" dir="ltr" placeholder="0.00" autoComplete="off" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+          <Field label="رقم المرجع (اختياري)">
+            <Input dir="ltr" maxLength={50} placeholder="من الإشعار" autoComplete="off" value={reference} onChange={(e) => setReference(e.target.value)} />
+          </Field>
+        </div>
         <DateField label="تاريخ التحويل" value={date} max={today} onChange={setDate} hint="يوم وصول المبلغ إلى البنك، وهو تاريخ الدفعة في زوهو." />
-        <Field label="رقم المرجع (اختياري)">
-          <Input dir="ltr" maxLength={50} placeholder="مرجع التحويل في الإشعار" autoComplete="off" value={reference} onChange={(e) => setReference(e.target.value)} />
-        </Field>
       </Step>
 
-      <Step n={4} title="البنك والموقع" done={!!bank && !!location}>
-        <GroupField label="البنك الذي استلم التحويل">
-          <Segmented label="البنك الذي استلم التحويل" value={bank} onChange={setBank} options={banks.map((b) => ({ value: b.key, label: b.label }))} />
+      {/* كالشيك: الوجهة ثم الموقع. وجهة التحويل هي البنك الذي استلمه */}
+      <Step n={4} title="الوجهة والموقع" done={!!bank && !!location}>
+        <GroupField label="الوجهة: البنك الذي استلم التحويل">
+          <Segmented label="الوجهة: البنك الذي استلم التحويل" value={bank} onChange={setBank} options={banks.map((b) => ({ value: b.key, label: b.label }))} />
         </GroupField>
         <GroupField label="الموقع">
           <Segmented label="الموقع" value={location} onChange={setLocation} options={opts.locations.map((l) => ({ value: l.key, label: l.label }))} />
@@ -144,7 +148,8 @@ export function TransferForm({ opts, customer, setCustomer, location, setLocatio
             toast(res.warning || `سُجّل تحويل ${form.customer.name} إلى ${form.bankLabel}`, res.warning ? 'warn' : 'ok');
             reset();
             setListKey((k) => k + 1);
-            setTimeout(onDone, 0);
+            // كالشيك: بعد التسجيل تُفتح صفحة التحويل
+            setTimeout(() => onDone(res.payment_id), 0);
           }
         }} />
       ) : null}

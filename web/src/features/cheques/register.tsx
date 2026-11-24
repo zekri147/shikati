@@ -146,7 +146,7 @@ export function RegisterPage({ onDone }: { onDone: (pid: string) => void }) {
       <div className="flex flex-col gap-4">
         {kindSwitch}
         <TransferForm opts={opts} customer={customer} setCustomer={setCustomer} location={location} setLocation={setLocation}
-          onDone={() => scrollTo({ top: 0 })} />
+          onDone={onDone} />
       </div>
     );
   }
