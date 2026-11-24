@@ -106,7 +106,7 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, onDeposi
         {d.can_endorse ? <EndorsePanel d={d} reload={reload} innerRef={endorseRef} /> : null}
         {d.wrong_account ? <Note tone="warn">{isAdmin ? d.wrong_account + '.' : 'سُجّل هذا الشيك في حساب خطأ في زوهو. أبلغ المدير ليصحّحه قبل إيداعه.'}</Note> : null}
         {d.box_alert ? <Note tone="alert">صندوق غير مطابق: {d.box_alert}</Note> : null}
-        {lock && lock.state === 'unknown' ? <Note tone="alert">بانتظار التحقق: انقطع الرد أثناء إيداع هذا الشيك أو التراجع عن إيداعه. تحقق في صفحة الإدارة قبل أي محاولة جديدة.</Note> : null}
+        {lock && lock.state === 'unknown' ? <Note tone="alert">بانتظار التحقق: انقطع الرد أثناء إيداع هذا الشيك أو التراجع عن إيداعه. تحقق في زوهو، ثم احسمه في الإدارة من تبويب «التحقق».</Note> : null}
 
         {/* الصورة أولاً وكبيرة: هي الدليل الذي يطابقه الموظف مع الشيك في يده. تُكبَّر باللمس */}
         {d.has_image ? (

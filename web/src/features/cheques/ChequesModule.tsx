@@ -16,6 +16,7 @@ import { api, errText, isCutOff, type Me } from '@/lib/api';
 import { useFixedBottom } from '@/lib/layout';
 import { cameFrom, savedScroll } from '@/lib/hash';
 import { readCache, writeCache } from '@/lib/cache';
+import { ackLeft, loadAckStatus, useAckStatus } from '@/lib/ack';
 import { load as loadKey, save as saveKey } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 import { chequeWord, fmtAmount, isoAddDays, norm, sum, todayIso } from '@/lib/format';
@@ -52,7 +53,7 @@ type Tier = 'urgent' | 'follow' | 'info';
 // admin: المدير يرى التفصيل كما في زوهو، والموظف يرى جملة تقول ما يفعل
 const REASONS: Record<AlertKind, { rank: number; tier: Tier; text: (t: string | undefined, admin: boolean) => string | null; quiet?: boolean }> = {
   unknown_lock: { rank: 0, tier: 'urgent', text: (_t, admin) => admin
-    ? 'بانتظار التحقق: انقطع الرد أثناء إيداعه أو التراجع عن إيداعه. تحقق في زوهو (السبب في صفحة الإدارة)، ثم حرّر القفل.'
+    ? 'بانتظار التحقق: انقطع الرد أثناء إيداعه أو التراجع عن إيداعه. تحقق في زوهو، ثم احسمه في الإدارة من تبويب «التحقق».'
     : 'انقطع الرد أثناء إيداعه أو التراجع عنه، فلا نعرف النتيجة. لا تعد المحاولة، وأبلغ المدير.' },
   rejected: { rank: 1, tier: 'urgent', text: () => 'تابعه مع العميل.' },
   endorse_incomplete: { rank: 2, tier: 'urgent', text: () => 'تظهير غير مكتمل: لم تُنشأ دفعة المورد. افتح الشيك وأتمّ التظهير.' },
@@ -200,6 +201,15 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
   useEffect(() => { setQ(''); }, [route.view]);
 
   const isList = route.view === 'deposit' || route.view === 'all' || route.view === 'alerts';
+  // المندوب الذي لم ينهِ إقرار الدين يفتح التنبيهات لتأكيد الاستلام وحده (24/11/2026)، وباقيها بعد الإقرار
+  const ack = useAckStatus();
+  const ackLock = !isAdmin && hasRep && ackLeft(ack) > 0;
+  // للمدير: عدد العمليات المنقطعة من كل الأنواع (تسجيل وتظهير وتحويل…) في أعلى التنبيهات، وحسمها في الإدارة
+  const [stuck, setStuck] = useState(0);
+  useEffect(() => {
+    if (!isAdmin || route.view !== 'alerts') return;
+    api<{ items: unknown[] }>('/api/admin/stuck').then((r) => setStuck(r.items.length)).catch(() => {});
+  }, [isAdmin, route.view, loadedAt]);
 
   const matches = (c: Cheque) =>
     (!loc || c.location === loc) &&
@@ -329,7 +339,10 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
                   note: !may ? whyNotHeld(c) : undefined }} />;
               })}
             </CardList>
-          ) : <Empty>{q || loc || custody ? 'لا شيك يطابق البحث أو التصفية.' : 'لا شيكات تنتظر الإيداع في بنك AGB.'}</Empty>}
+          ) : <Empty>{q || loc ? 'لا شيك يطابق البحث أو الموقع.'
+            : custody === 'mine' ? 'لا شيكات في عهدتك لبنك AGB. الشيك الذي تسجّله يدخل عهدتك، وكذلك ما يسلّمه إليك زميل بعد أن تؤكد استلامه. لرؤية شيكات غيرك اختر «كل العهد».'
+              : custody ? 'لا شيكات لبنك AGB بهذه العهدة. لرؤية كل الشيكات اختر «كل العهد».'
+                : 'لا شيكات تنتظر الإيداع في بنك AGB.'}</Empty>}
         </section>
         <div className="mt-6 flex flex-col gap-2">
           {rejected.length ? <ChequeSection title="شيكات مرفوضة" items={rejected} opts={opts} collapsible note="تحتاج متابعة مع العميل." noteTone="alert"
@@ -430,10 +443,10 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
         </section>
       );
     }).filter(Boolean);
-    const inc = <IncomingSection items={incoming} onChanged={() => load(true)} />;
+    const inc = <><StuckNote count={stuck} /><IncomingSection items={incoming} onChanged={() => { load(true); if (hasRep) loadAckStatus().catch(() => {}); }} /></>;
     body = parts.length ? <div>{inc}{parts}</div>
       : incoming.length ? inc
-      : <div className="mt-4"><Empty>{q || loc ? 'لا تنبيه يطابق البحث أو الموقع.' : scope ? 'لا تنبيهات لعملائك ولا لشيكات عهدتك. لرؤية تنبيهات الشركة كلها اختر «كل الشركة».' : 'لا توجد تنبيهات. كل الشيكات في وضع سليم.'}</Empty></div>;
+      : <div><StuckNote count={stuck} /><div className="mt-4"><Empty>{q || loc ? 'لا تنبيه يطابق البحث أو الموقع.' : scope ? 'لا تنبيهات لعملائك ولا لشيكات عهدتك. لرؤية تنبيهات الشركة كلها اختر «كل الشركة».' : 'لا توجد تنبيهات. كل الشيكات في وضع سليم.'}</Empty></div></div>;
   }
 
   const statusDef = STATUS_FILTERS.find(([v]) => v === status) || STATUS_FILTERS[0];
@@ -442,7 +455,19 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
 
   return (
     <>
-      {isList ? (
+      {route.view === 'alerts' && ackLock ? (
+        <>
+          <Slab>
+            <div className="pt-2 text-lg font-bold">استلام ينتظر تأكيدك</div>
+            <p className="m-0 mt-1 text-sm">أكّد ما وصلك من زملائك، ثم أكمل إقرار الدين. باقي التنبيهات تُفتح بعد الإقرار.</p>
+          </Slab>
+          {error && !data ? <ErrorBox>{error}</ErrorBox> : !data ? <SkeletonList rows={2} />
+            : data.all.some((c) => c.custody?.incoming)
+              ? <IncomingSection items={data.all.filter((c) => c.custody?.incoming)} onChanged={() => { load(true); loadAckStatus().catch(() => {}); }} />
+              : <div className="mt-4"><Empty>لا شيكات تنتظر تأكيدك الآن.</Empty></div>}
+          <Button asChild size="lg" className="mt-6 w-full"><a href="#coll/ack">عُد إلى إقرار الدين</a></Button>
+        </>
+      ) : isList ? (
         <>
           <PullToRefresh busy={busy} onRefresh={() => load(true)} disabled={selected.size > 0} />
           {onDeposit && !data ? <Slab><div className="pt-2 text-sm font-semibold">للإيداع في بنك AGB</div></Slab> : summary}
@@ -555,5 +580,15 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
       {depositing ? <DepositDialog items={depositing} onClosed={afterDeposit} /> : null}
       {handing ? <HandoverDialog items={handing} onClosed={afterHandover} /> : null}
     </>
+  );
+}
+
+// سطر للمدير في أعلى التنبيهات: عمليات انقطع ردّها أو توقفت، تنتظر حسمه في الإدارة
+function StuckNote({ count }: { count: number }) {
+  if (!count) return null;
+  return (
+    <a href="/admin" className="stuck-note mt-4 flex min-h-11 items-center border-s-4 border-s-brand bg-brand-tint px-3 py-2 text-base font-semibold text-foreground no-underline">
+      {count === 1 ? 'عملية واحدة بانتظار التحقق' : `${count} عمليات بانتظار التحقق`}: احسمها في الإدارة من تبويب «التحقق»
+    </a>
   );
 }

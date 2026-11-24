@@ -321,7 +321,7 @@ export async function handleDeposit(req: Request, env: Env, user: User): Promise
   });
 }
 
-// للمدير: قائمة الإيداعات، وتحرير قفل نتيجته غير معروفة بعد التحقق في زوهو
+// للمدير: قائمة الإيداعات. وتحرير القفل صار في stuck.ts مع باقي العمليات المنقطعة (releaseDeposit باقٍ للعنوان القديم)
 export async function listDeposits(env: Env): Promise<Response> {
   const { results } = await env.DB.prepare(
     "SELECT payment_id, state, display_name, customer, cheque_number, amount, bank_txn_id, message, started_at, finished_at, " +

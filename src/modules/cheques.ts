@@ -16,6 +16,7 @@ import { custodyMap, custodyPeople, handleCustody, handleCustodyBatch, type Cust
 import { chequeNumber, wrongAccountText } from './fields';
 import { COLLECT_LATE_DAYS, fieldDate, fillDepositDates } from './depositdate';
 import { customerOwners, normRep } from './collect';
+import { requireAckDone } from './debtack';
 
 export { ACCOUNT_CHEQUES_IN_HAND, DEST, STATUS, todayAlgiers };
 
@@ -300,6 +301,12 @@ export const chequesModule: AppModule = {
       }
       const alerts = user.role === 'admin' ? view.alerts : view.alerts.filter((a) => !ADMIN_ONLY.includes(a.kind));
       return json({ ...view, alerts, role: user.role, can_deposit: canDeposit(env, user), can_register: canRegister(env, user) });
+    }
+    // قفل الإقرار في الخادم: الإيداع والعهدة (عدا الاستلام والرفض والإلغاء) والتعديل والتراجع، كما في الواجهة
+    if (req.method === 'POST' && ['/deposit', '/edit', '/undo'].includes(subpath)) await requireAckDone(env, user);
+    if (req.method === 'POST' && (subpath === '/custody' || subpath === '/custody/batch')) {
+      const action = String((await req.clone().json().catch(() => ({})) as { action?: unknown }).action || '');
+      if (action === 'take' || action === 'give') await requireAckDone(env, user);
     }
     if (req.method === 'POST' && subpath === '/deposit') return handleDeposit(req, env, user);
     // العهدة: من يحمل الشيك. قاعدة التطبيق وحدها، لا زوهو

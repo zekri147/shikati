@@ -5,6 +5,7 @@ import { audit } from './audit';
 import { handleDiag } from './diag';
 import { listDeposits, releaseDeposit } from './modules/deposit';
 import { handleReconcile } from './modules/reconcile';
+import { listStuck, resolveStuck } from './modules/stuck';
 import { ackReport, ackReportXlsx } from './modules/ackreport';
 import { probeImage } from './modules/image';
 import { handleNotifyAdmin } from './notifysettings';
@@ -23,6 +24,15 @@ function validateRepCode(v: unknown, role: Role): string | null {
   }
   if (!REP_CODE_RE.test(code)) throw new HttpError(400, 'رمز المندوب: أحرف لاتينية كما في حقل «Owner» في زوهو، مثل AMINE.');
   return code;
+}
+
+// رمز المندوب لحساب واحد فقط (24/11/2026): حسابان بالرمز نفسه يخلطان العملاء وإقرار الدين بينهما.
+// فحص في الخادم لا فهرس فريد في القاعدة، حتى لا يفشل النشر إن كان في القاعدة تكرار قديم.
+async function assertRepCodeFree(env: Env, code: string | null, exceptId = 0): Promise<void> {
+  if (!code) return;
+  const other = await env.DB.prepare('SELECT display_name FROM users WHERE UPPER(TRIM(rep_code)) = ? AND id != ?')
+    .bind(code, exceptId).first<{ display_name: string }>();
+  if (other) throw new HttpError(409, `الرمز ${code} لحساب «${other.display_name}» من قبل. لكل مندوب رمز واحد، ولكل رمز حساب واحد.`);
 }
 
 function validatePassword(pw: unknown): string {
@@ -52,6 +62,7 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
     if (!display || display.length > 60) throw new HttpError(400, 'أدخل الاسم الظاهر.');
     if (!ROLES.includes(role)) throw new HttpError(400, 'الدور غير صالح.');
     const repCode = validateRepCode(b.rep_code, role);
+    await assertRepCodeFree(env, repCode);
     const pw = await hashPassword(validatePassword(b.password));
     try {
       await env.DB.prepare(
@@ -77,6 +88,7 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
     if (action === 'rep') {
       const b = await readJson<{ rep_code?: string }>(req);
       const code = validateRepCode(b.rep_code, target.role);
+      await assertRepCodeFree(env, code, id);
       await env.DB.prepare('UPDATE users SET rep_code = ? WHERE id = ?').bind(code, id).run();
       await audit(env, admin, 'user.rep', 'ok', target.username, code || '—');
       return json({ ok: true });
@@ -145,6 +157,10 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
   // POST /api/admin/deposits/:id/release
   const rel = path.match(/^\/deposits\/(\d+)\/release$/);
   if (req.method === 'POST' && rel) return releaseDeposit(env, admin, rel[1]);
+
+  // العمليات بانتظار التحقق من كل الأنواع، وحسمها بعد التحقق في زوهو (في قاعدة التطبيق وحدها)
+  if (req.method === 'GET' && path === '/stuck') return listStuck(env);
+  if (req.method === 'POST' && path === '/stuck/resolve') return resolveStuck(req, env, admin);
 
   // GET /api/admin/reconcile
   if (req.method === 'GET' && path === '/reconcile') return handleReconcile(env);

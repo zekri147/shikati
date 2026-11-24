@@ -99,8 +99,9 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
   const canEndorse = endorseAllowed(user) && !endorseBlocker(p)
     && !(endorsement && ['pending', 'done', 'unknown'].includes(endorsement.state));
   const { results: history } = await env.DB.prepare(
-    "SELECT at, username, action, result, details FROM audit_log WHERE target = ? OR target LIKE ? ORDER BY id DESC LIMIT 20",
-  ).bind(pid, `${pid} /%`).all<{ at: string; username: string | null; action: string; result: string; details: string | null }>();
+    // «target LIKE 'pid /%'» كمدى بين «pid /» و«pid 0» (الحرف بعد «/»)، فيستعمل فهرس audit_target
+    "SELECT at, username, action, result, details FROM audit_log WHERE target = ? OR (target >= ? AND target < ?) ORDER BY id DESC LIMIT 20",
+  ).bind(pid, `${pid} /`, `${pid} 0`).all<{ at: string; username: string | null; action: string; result: string; details: string | null }>();
 
   const isAdmin = user.role === 'admin';
   const deposits = p.deposit_details || [];
