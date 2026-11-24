@@ -24,9 +24,11 @@ import { hasSubscribers, notifySafe, notifyUsers, type PushMessage } from './pus
 
 // ——— النصوص ———
 
+// فاصل الآلاف مسافة لا تنكسر (U+00A0): في اتجاه النص الثنائي هي فاصل أرقام لا مسافة عادية،
+// فيبقى «521 900» رقماً واحداً في الإشعار العربي ولا ينقلب إلى «900 521» (بطلب ZEKRI يوم 24/11/2026)
 export function money(n: number): string {
   const [i, d] = (Math.round(n * 100) / 100).toFixed(2).split('.');
-  return i.replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + (d === '00' ? '' : ',' + d) + ' دج';
+  return i.replace(/\B(?=(\d{3})+(?!\d))/g, '\u00a0') + (d === '00' ? '' : ',' + d) + ' دج';
 }
 // العدد مع المعدود بالعربية: شيك واحد، شيكان، 3 شيكات، 11 شيكاً
 function count(n: number, one: string, two: string, few: string, many: string): string {
