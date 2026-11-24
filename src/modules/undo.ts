@@ -109,7 +109,7 @@ export async function undoPlan(env: Env, p: Payment): Promise<UndoPlan | null> {
     return plan;
   }
 
-  // 1. الإيداع. وللرستمية الإيداع هو تسليمه إلى عمار أو سمير، فيُسمّى «التسليم» (طلب ZEKRI يوم 23/11/2026)
+  // 1. الإيداع. وللرستمية الإيداع هو تسليمه في الجزائر أو قسنطينة، فيُسمّى «التسليم» (طلب ZEKRI يوم 23/11/2026)
   if (deposits.length > 0) {
     const plan: UndoPlan = isRostomia(p) ? {
       kind: 'deposit', title: 'التراجع عن التسليم',
