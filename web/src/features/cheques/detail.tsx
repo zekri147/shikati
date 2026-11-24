@@ -179,7 +179,7 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, onDeposi
         </Block>
 
         <Block title="سجل العمليات">
-          {d.log.length ? <ul className="m-0 list-none p-0">{d.log.map((l: string, i: number) => <LogLine key={i} line={l} />)}</ul>
+          {d.log.length ? <ul className="m-0 list-none p-0">{[...d.log].reverse().map((l: string, i: number) => <LogLine key={i} line={l} />)}</ul>
             : <p className="text-sm text-muted">لا توجد عمليات مسجّلة بعد.</p>}
         </Block>
 
