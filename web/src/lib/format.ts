@@ -52,6 +52,15 @@ const word = (n: number, one: string, two: string, few: string, many: string) =>
 
 // عدد الشيكات: رفعاً (شيكان) أو جرّاً بعد «إيداع» (شيكين)
 export const chequeWord = (n: number, gen = false) => word(n, 'شيك واحد', gen ? 'شيكين' : 'شيكان', 'شيكات', 'شيكاً');
+// التحويلات البنكية (منذ 24/11/2026 تنتظر تحصيلها مع الشيكات)، وعدد مختلط منهما
+export const transferWord = (n: number, gen = false) => word(n, 'تحويل واحد', gen ? 'تحويلين' : 'تحويلان', 'تحويلات', 'تحويلاً');
+export function itemsWord(items: { transfer?: string }[], gen = false): string {
+  const t = items.filter((x) => x.transfer).length;
+  const c = items.length - t;
+  if (!t) return chequeWord(c, gen);
+  if (!c) return transferWord(t, gen);
+  return `${chequeWord(c, gen)} و${transferWord(t, gen)}`;
+}
 export const customersWord = (n: number) => word(n, 'عميل واحد', 'عميلان', 'عملاء', 'عميلاً');
 export const invoicesWord = (n: number) => word(n, 'فاتورة واحدة', 'فاتورتان', 'فواتير', 'فاتورة');
 export const daysWord = (n: number) => word(n, 'يوماً واحداً', 'يومين', 'أيام', 'يوماً');

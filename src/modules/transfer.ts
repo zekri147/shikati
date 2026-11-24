@@ -2,12 +2,15 @@ import type { Env, User } from '../env';
 import { HttpError, json, readJson } from '../http';
 import { zohoGet, zohoRequest, zohoUpload, ZohoTimeout } from '../zoho';
 import { audit } from '../audit';
-import { DEST, LOCATIONS, STATUS, todayAlgiers } from './constants';
+import { CACHE_KEY, DEST, LOCATIONS, STATUS, todayAlgiers } from './constants';
+import { collectUnsettled } from './cashin';
 import { parseImage } from './ocr';
 import { allocate, decodeBase64, requireRegister, type Allocation } from './register';
 
 // التحويل البنكي من عميل: دفعة عميل بطريقة «تحويل بنكي» في حساب البنك مباشرة، موزّعة على أقدم فواتيره.
 // لا يدخل حساب الشيكات في الحوزة، فلا عهدة ولا إيداع، ولا يظهر في قوائم الشيكات.
+// منذ 24/11/2026 (بطلب ZEKRI): يُنشأ بحالة «مودع في البنك»، ويحصّله المدير يدوياً كالشيك (cashin.ts)
+// من قسم «بانتظار التحصيل»، والحذف ممنوع بعد التحصيل حتى يُتراجع عنه. وصورة الإشعار إجبارية.
 // بموافقة ZEKRI يوم 21/11/2026: كل مندوب يسجّل التحويل، ويتراجع عن تحويله هو (حذف الدفعة في زوهو)، والمدير عن أي تحويل.
 // القواعد نفسها: قفل في القاعدة قبل أي طلب، ولا إعادة تلقائية بعد إرسال طلب الإنشاء أو الحذف.
 
@@ -25,6 +28,13 @@ export const TRANSFER_BANKS: Record<string, { account: string; dest: string; lab
   CPA: { account: '7418406000000261410', dest: DEST.AGB, label: 'بنك CPA' },
 };
 const BANK_ACCOUNTS = new Set(Object.values(TRANSFER_BANKS).map((b) => b.account));
+
+// دفعة تحويل بنكي في أحد بنوك التحويل؟ يعيد اسم البنك، وإلا فارغاً
+export function transferBankLabel(p: { payment_mode?: string; account_id?: string }): string {
+  if (str(p.payment_mode) !== MODE) return '';
+  const acc = str(p.account_id);
+  return Object.values(TRANSFER_BANKS).find((b) => b.account === acc)?.label || '';
+}
 
 export const transferBankOptions = () => Object.entries(TRANSFER_BANKS).map(([key, b]) => ({ key, label: b.label }));
 
@@ -49,7 +59,10 @@ const LOCK_MESSAGES: Record<string, string> = {
   unknown: 'محاولة سابقة لتسجيل هذا التحويل لم تُعرف نتيجتها. لا تعد المحاولة، وأخبر المدير ليتحقق.',
 };
 
-interface ZPayment { payment_id: string; amount?: number; date?: string; account_id?: string; reference_number?: string; payment_mode?: string }
+interface ZPayment {
+  payment_id: string; amount?: number; date?: string; account_id?: string; reference_number?: string; payment_mode?: string;
+  custom_field_hash?: Record<string, string>;
+}
 
 export async function handleTransfer(req: Request, env: Env, user: User): Promise<Response> {
   requireRegister(env, user);
@@ -69,7 +82,8 @@ export async function handleTransfer(req: Request, env: Env, user: User): Promis
   if (!Number.isFinite(amount) || amount <= 0 || amount > 1e9) throw new HttpError(400, 'المبلغ غير صالح.');
   if (!bank) throw new HttpError(400, 'اختر البنك الذي استلم التحويل.');
   if (!loc) throw new HttpError(400, 'اختر الموقع.');
-  const image = b.image ? parseImage(b.image) : null;
+  if (!b.image) throw new HttpError(400, 'صوّر إشعار التحويل: الصورة إجبارية.');
+  const image = parseImage(b.image);
   const today = todayAlgiers();
   const date = str(b.date) || today;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today) throw new HttpError(400, 'تاريخ التحويل غير صالح: لا يكون بعد اليوم.');
@@ -96,6 +110,7 @@ export async function handleTransfer(req: Request, env: Env, user: User): Promis
     await env.DB.prepare(
       "UPDATE transfers SET state = ?, message = ?, payment_id = COALESCE(?, payment_id), finished_at = datetime('now') WHERE request_id = ?",
     ).bind(state, message, pid, requestId).run();
+    if (state !== 'failed') await env.DB.prepare('DELETE FROM cache WHERE key = ?').bind(CACHE_KEY).run();
     const result = state === 'done' ? 'ok' : state === 'failed' ? 'denied' : 'error';
     await audit(env, user, 'transfer', result, `${pid || customerId} / ${bankKey} ${amount}`, `${state}: ${customer}: ${message}`);
   };
@@ -141,7 +156,7 @@ export async function handleTransfer(req: Request, env: Env, user: User): Promis
     custom_fields: [
       { api_name: 'cf_n_cheque', value: NO_CHEQUE },
       { api_name: 'cf_d_pos_vers', value: bank.dest },
-      { api_name: 'cf_5d7197', value: STATUS.COLLECTED },
+      { api_name: 'cf_5d7197', value: STATUS.DEPOSITED },
       { api_name: 'cf_fffaad', value: logLine },
     ],
     invoices: lines.map((l) => ({ invoice_id: l.invoice_id, amount_applied: l.applied })),
@@ -175,7 +190,7 @@ export async function handleTransfer(req: Request, env: Env, user: User): Promis
 
   // 5. صورة إشعار التحويل مرفقاً على الدفعة. فشلها لا يلغي التسجيل.
   let warning: string | null = null;
-  if (image) {
+  {
     try {
       const ext = image.type === 'image/png' ? 'png' : image.type === 'image/webp' ? 'webp' : 'jpg';
       const up = await zohoUpload(env, `/customerpayments/${pid}/attachment`, 'attachment', {
@@ -199,14 +214,17 @@ export async function handleTransfer(req: Request, env: Env, user: User): Promis
 interface Row {
   request_id: string; state: string; user_id: number | null; display_name: string | null; customer: string | null;
   bank: string; reference: string | null; amount: number; date: string; payment_id: string | null; message: string | null;
+  collected: string | null;
 }
 
 export async function listTransfers(env: Env, user: User): Promise<Response> {
   requireRegister(env, user);
   const admin = user.role === 'admin';
-  const sql = 'SELECT request_id, state, user_id, display_name, customer, bank, reference, amount, date, payment_id, message FROM transfers ' +
-    "WHERE state IN ('done', 'unknown') AND started_at >= datetime('now', '-30 days')" + (admin ? '' : ' AND user_id = ?') +
-    ' ORDER BY started_at DESC LIMIT 30';
+  // التحصيل من جدول التحصيل اليدوي: «تم» ما لم يُتراجع عنه. الحالة الأكيدة في زوهو، والحذف يقرؤها قبل التنفيذ
+  const sql = 'SELECT t.request_id, t.state, t.user_id, t.display_name, t.customer, t.bank, t.reference, t.amount, t.date, t.payment_id, t.message, ' +
+    'c.state AS collected FROM transfers t LEFT JOIN collections c ON c.payment_id = t.payment_id ' +
+    "WHERE t.state IN ('done', 'unknown') AND t.started_at >= datetime('now', '-30 days')" + (admin ? '' : ' AND t.user_id = ?') +
+    ' ORDER BY t.started_at DESC LIMIT 30';
   const stmt = admin ? env.DB.prepare(sql) : env.DB.prepare(sql).bind(user.id);
   const rows = (await stmt.all<Row>()).results || [];
   return json({
@@ -214,7 +232,8 @@ export async function listTransfers(env: Env, user: User): Promise<Response> {
       id: r.request_id, payment_id: r.payment_id, state: r.state, customer: r.customer, amount: r.amount, date: r.date,
       bank: TRANSFER_BANKS[r.bank]?.label || r.bank, reference: r.reference,
       by: admin && r.user_id !== user.id ? r.display_name : null,
-      can_undo: r.state === 'done' && !!r.payment_id && (admin || r.user_id === user.id),
+      collected: r.collected === 'done',
+      can_undo: r.state === 'done' && !!r.payment_id && (admin || r.user_id === user.id) && r.collected !== 'done',
     })),
   });
 }
@@ -259,6 +278,13 @@ export async function handleTransferUndo(req: Request, env: Env, user: User): Pr
     return deny(409, 'تغيّرت هذه الدفعة في زوهو ولم تعد تحويلاً إلى أحد البنوك. راجعها في زوهو.');
   }
   if ((p.payment_refunds || []).length > 0) return deny(409, 'للدفعة استرداد مسجّل في زوهو.');
+  // التحويل المحصّل لا يُحذف حتى يُتراجع عن تحصيله من صفحته (اختيار ZEKRI يوم 24/11/2026)
+  if (str(p.custom_field_hash?.cf_5d7197) === STATUS.COLLECTED) {
+    return deny(409, user.role === 'admin'
+      ? 'هذا التحويل محصّل. تراجع عن تحصيله أولاً من صفحته، ثم احذفه.'
+      : 'هذا التحويل محصّل، فلا يُحذف. أخبر المدير.');
+  }
+  if (await collectUnsettled(env, pid)) return deny(409, 'تحصيل هذا التحويل لم تُعرف نتيجته. يحسمه المدير من تبويب «التحقق» أولاً.');
 
   // 2. الحذف. لا إعادة تلقائية بعد الطلب
   let d;
@@ -274,6 +300,7 @@ export async function handleTransferUndo(req: Request, env: Env, user: User): Pr
   }
   if (d.data.code !== 0) return deny(502, `زوهو رفض الحذف: ${str(d.data.message || d.data.code).slice(0, 200)}`);
   await markDeleted(`حُذف التحويل (${user.display_name})`);
+  await env.DB.prepare('DELETE FROM cache WHERE key = ?').bind(CACHE_KEY).run();
   await audit(env, user, 'undo.transfer', 'ok', target, `${row.customer || ''}: ${Number(p.amount) || 0}`);
   return json({ ok: true, message: `حُذف تحويل ${row.customer || ''} من زوهو، فعادت فواتيره غير مدفوعة.` });
 }

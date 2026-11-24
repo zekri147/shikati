@@ -199,7 +199,7 @@ const ADMIN_LINES: [string, string][] = [
   ['unknown_lock', 'إيداع بانتظار التحقق'],
   ['rejected', 'شيكات مرفوضة'],
   ['endorse_incomplete', 'تظهير لم يكتمل'],
-  ['collect_late', 'مودعة في AGB ولم تُحصَّل'],
+  ['collect_late', 'مودعة في البنك ولم تُحصَّل'],
   ['late', 'في الحوزة منذ أكثر من 7 أيام'],
   ['wrong_account', 'في حساب خطأ في زوهو'],
   ['box', 'صندوق غير مطابق'],

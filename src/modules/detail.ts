@@ -8,6 +8,7 @@ import { editForDetail } from './edit';
 import { depositDateFor } from './depositdate';
 import { custodyForDetail } from './custody';
 import { STATUS } from './constants';
+import { transferBankLabel } from './transfer';
 
 // صفحة تفاصيل الشيك: قراءة فقط. تُقرأ الدفعة من زوهو مباشرة في كل مرة،
 // ثم يُضاف إليها ما سجّله التطبيق نفسه (قفل الإيداع وسجل العمليات).
@@ -55,6 +56,7 @@ interface ZohoDetail {
   date?: string;
   account_id?: string;
   account_name?: string;
+  payment_mode?: string;
   location_name?: string;
   description?: string;
   created_by?: string;
@@ -104,6 +106,8 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
   ).bind(pid, `${pid} /`, `${pid} 0`).all<{ at: string; username: string | null; action: string; result: string; details: string | null }>();
 
   const isAdmin = user.role === 'admin';
+  // التحويل البنكي من عميل: في حساب البنك مباشرة، فلا حساب خطأ ولا إيداع (منذ 24/11/2026)
+  const transfer = transferBankLabel(p);
   const deposits = p.deposit_details || [];
   const depositDate = deposits.length
     ? await depositDateFor(env, pid, cf as Record<string, unknown>, str(deposits[0].deposit_id))
@@ -131,7 +135,8 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
     destination: str(cf.cf_d_pos_vers),
     cheque_number: chequeNumber(cf.cf_n_cheque),
     account: str(p.account_name),
-    wrong_account: wrongAccountText(str(p.account_id), str(p.account_name), str(cf.cf_d_pos_vers)),
+    wrong_account: transfer ? '' : wrongAccountText(str(p.account_id), str(p.account_name), str(cf.cf_d_pos_vers)),
+    transfer: transfer || null,
     location: LOCATIONS[str(p.location_name).toUpperCase()] || str(p.location_name),
     deposit_date: depositDate,
     location_key: str(p.location_name).toUpperCase(),

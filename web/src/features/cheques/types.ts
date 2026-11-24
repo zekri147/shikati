@@ -6,6 +6,8 @@ export type Cheque = {
   // «لي» لصاحب رمز المندوب: في عهدته أو سُلّم إليه، أو عميله
   own?: boolean;
   customer_id?: string;
+  // تحويل بنكي من عميل بانتظار التحصيل: اسم البنك (منذ 24/11/2026)
+  transfer?: string;
 };
 // العهدة: من يحمل الشيك، بالنسبة إلى المستخدم الحالي (src/modules/custody.ts)
 export type Custody = { holder: string | null; mine: boolean; to: string | null; incoming: boolean; outgoing: boolean; from: string | null };

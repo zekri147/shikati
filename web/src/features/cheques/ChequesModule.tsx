@@ -19,7 +19,7 @@ import { readCache, writeCache } from '@/lib/cache';
 import { ackLeft, loadAckStatus, useAckStatus } from '@/lib/ack';
 import { load as loadKey, save as saveKey } from '@/lib/storage';
 import { cn } from '@/lib/utils';
-import { chequeWord, fmtAmount, isoAddDays, norm, sum, todayIso } from '@/lib/format';
+import { chequeWord, fmtAmount, isoAddDays, itemsWord, norm, sum, todayIso } from '@/lib/format';
 import { CardList, ChequeCard, ChequeSection, SectionHead, URGENT_DAYS } from './ui';
 import { Fold } from '@/components/ui/collapsible';
 import { ChequeImage } from './media';
@@ -307,8 +307,8 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
       setLeaving(ids);
       setTimeout(() => { setGone(ids); setLeaving(new Set()); }, 320);
     }
-    if (r.done.length && !r.failed.length) toast(`حُصّل ${chequeWord(r.done.length, true)} · ${fmtAmount(sum(r.done))}`);
-    else if (r.done.length) toast(`حُصّل ${chequeWord(r.done.length)}، وبقي ${chequeWord(r.failed.length)} دون تحصيل`, 'warn');
+    if (r.done.length && !r.failed.length) toast(`حُصّل ${itemsWord(r.done)} · ${fmtAmount(sum(r.done))}`);
+    else if (r.done.length) toast(`حُصّل ${itemsWord(r.done)}، وبقي ${itemsWord(r.failed)} دون تحصيل`, 'warn');
     else toast('لم يُسجَّل أي تحصيل. راجع الرسائل.', 'err');
     await load(true);
     setGone(new Set());
@@ -333,7 +333,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     const waiting = [...agb, ...rost, ...noDest];
     // ما أُودع اليوم: من تاريخ الإيداع في زوهو، فيشمل ما أودعته دالة رسائل البنك أيضاً
     const today = todayIso();
-    const doneToday = pick(data.all.filter((c) => c.deposit_date && c.deposit_date.slice(0, 10) === today));
+    const doneToday = pick(data.all.filter((c) => !c.transfer && c.deposit_date && c.deposit_date.slice(0, 10) === today));
     const lateCount = agb.filter((c) => c.days > 7).length;
     const others = [...rost, ...noDest];
     // اللوح الأحمر ملاصق للشريط العلوي: رقم واحد هو ما يؤخذ إلى بنك AGB، وهو مجموع القائمة تحته نفسها.
@@ -389,8 +389,8 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
               return { selectable: may, link: !may, selected: selected.has(c.id), leaving: leaving.has(c.id), note: !may ? whyNotHeld(c) : undefined };
             }}
             open={q ? rost.length > 0 : open.rost ?? rost.some(heldByMe)} onOpenChange={setFold('rost')} />
-          {/* التحصيل اليدوي للمدير: رسائل البنك لا تحصّل الشيكات آلياً الآن (بطلب ZEKRI يوم 24/11/2026) */}
-          <ChequeSection title="في بنك AGB بانتظار التحصيل" items={bankItems} opts={opts} collapsible
+          {/* التحصيل اليدوي للمدير: رسائل البنك لا تحصّل الشيكات آلياً الآن (بطلب ZEKRI يوم 24/11/2026)، ومعها التحويلات البنكية */}
+          <ChequeSection title="في البنك بانتظار التحصيل" items={bankItems} opts={opts} collapsible
             note={isAdmin && bankItems.length ? 'المس ما تأكدت من تحصيله في كشف البنك، ثم «حصّلت المحدد».' : undefined}
             optsFor={isAdmin ? (c) => ({
               selectable: !c.clock, link: !!c.clock, selected: selected.has(c.id), leaving: leaving.has(c.id),
@@ -406,7 +406,8 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
       </>
     );
   } else if (data && route.view === 'all') {
-    const items = data.all.filter((c) => byStatus(c, status) && matches(c));
+    // التحويلات البنكية ليست شيكات: تظهر في «بانتظار التحصيل» والتنبيهات وحدها
+    const items = data.all.filter((c) => !c.transfer && byStatus(c, status) && matches(c));
     const shown = items.slice(0, limit);
     const more = items.length - shown.length;
     statusText = items.length ? <><span className="font-semibold text-foreground">{chequeWord(items.length)}</span> · <Amount value={sum(items)} /></> : 'لا نتائج';
@@ -425,11 +426,11 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     );
   } else if (data && route.view === 'alerts') {
     const byId = new Map(data.all.map((c) => [c.id, c]));
-    // ما في بنك AGB بانتظار التحصيل: متابعة للمدير، لا عمل يومي للمودِع
+    // ما في البنك بانتظار التحصيل (شيكات AGB والتحويلات): متابعة للمدير، لا عمل يومي للمودِع
     const bankItems = pick(data.agb_pending_collection.items);
     summary = (
       <div className="cut-sm flex items-center justify-between gap-3 bg-tile px-4 py-2 text-white">
-        <div className="text-sm font-semibold">في بنك AGB بانتظار التحصيل<span className="block font-normal">{chequeWord(bankItems.length)}</span></div>
+        <div className="text-sm font-semibold">في البنك بانتظار التحصيل<span className="block font-normal">{bankItems.length ? itemsWord(bankItems) : 'لا شيء'}</span></div>
         <Amount value={sum(bankItems)} className="whitespace-nowrap font-display text-lg font-semibold" />
       </div>
     );
@@ -549,7 +550,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
           <div className="actionbar fixed inset-x-0 z-[21] flex animate-bar-in flex-col gap-2 border-t-3 border-t-brand bg-bar px-4 py-2 text-white bottom-[calc(var(--nav-h,60px)+env(safe-area-inset-bottom))]">
             <div className="flex items-center justify-between gap-2">
               <div className="flex flex-wrap items-baseline gap-x-2 text-sm leading-snug">
-                <span className="font-semibold">المحدد: {chequeWord(selItems.length)}</span>
+                <span className="font-semibold">المحدد: {itemsWord(selItems)}</span>
                 <Amount value={sum(selItems)} className="font-display text-base font-semibold" />
               </div>
               <Button className="border-line-on-dark bg-transparent px-3 py-1 text-white hover:bg-press-on-dark active:bg-press-on-dark" onClick={() => setSelected(new Map())}>إلغاء التحديد</Button>
@@ -591,7 +592,7 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
 
       <Sheet open={sheet} onClose={() => setSheet(false)} title="تصفية بالحالة" action={<Button onClick={() => setSheet(false)}>إغلاق</Button>}>
         {data ? STATUS_FILTERS.map(([value, label]) => {
-          const items = data.all.filter((c) => matches(c) && byStatus(c, value));
+          const items = data.all.filter((c) => !c.transfer && matches(c) && byStatus(c, value));
           const on = value === status;
           return (
             <SheetOption key={value || 'all'} selected={on} empty={!items.length} label={label}

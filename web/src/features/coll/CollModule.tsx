@@ -1030,7 +1030,7 @@ function CustomerCheques({ me, id }: { me: Me; id: string }) {
     api<ChequesData>('/api/m/cheques').then((d) => { setData(d); writeCache(key, d); }).catch(() => { /* تبقى آخر نسخة */ });
   }, []);
   if (!data) return null;
-  const mine = data.all.filter((x) => x.customer_id === id).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const mine = data.all.filter((x) => !x.transfer && x.customer_id === id).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const inHand = mine.filter((x) => x.status === 'في الحوزة');
   const shown = all ? mine : mine.slice(0, CUST_CHEQUES);
   return (

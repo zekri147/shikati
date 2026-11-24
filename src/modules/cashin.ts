@@ -3,6 +3,8 @@
 // يكتب ما تكتبه تلك الدالة للشيك المودع: الحالة «محصّل» وسطر في سجل الدفعة، باسم المدير وبتاريخ التحصيل.
 // لا إيداع ولا معاملة بنكية: الشيك مودع من قبل. والرستمية لا تتحوّل إلى «محصّل».
 // التراجع عنه في undo.ts (النوع collect): الحالة تعود «مودع في البنك»، للتحصيل اليدوي وحده.
+// ومنذ 24/11/2026 (بطلب ZEKRI) التحويل البنكي من عميل أيضاً: يُسجَّل «مودع في البنك» في حساب البنك مباشرة،
+// في AGB أو CPA أو الرستمية، دون إيداع، فيُحصَّل هنا بالكتابة نفسها.
 // لا إعادة تلقائية بعد طلب الكتابة: إن انقطع الرد صار السجل «unknown» حتى يحسمه المدير في «التحقق».
 import type { Env, User } from '../env';
 import { HttpError, json, readJson } from '../http';
@@ -11,6 +13,7 @@ import { audit } from '../audit';
 import { fieldDate } from './depositdate';
 import { isoDate } from './fields';
 import { CACHE_KEY, DEST, NO_RETRY_PREFIX, STATUS, todayAlgiers } from './constants';
+import { transferBankLabel } from './transfer';
 
 const STALE_PENDING_SEC = 300;
 const PAYMENT_ID_RE = /^\d{10,25}$/;
@@ -28,6 +31,9 @@ interface Payment {
   payment_id: string;
   customer_name?: string;
   amount?: number;
+  date?: string;
+  payment_mode?: string;
+  account_id?: string;
   deposit_details?: { date?: string; deposit_date?: string }[];
   custom_field_hash?: Record<string, string>;
 }
@@ -110,13 +116,25 @@ export async function handleCollect(req: Request, env: Env, user: User): Promise
   const chq = str(cf.cf_n_cheque);
   info = { customer: str(p.customer_name), cheque: chq, amount: Number(p.amount) || 0 };
 
-  if (status === STATUS.COLLECTED) return fail(409, 'هذا الشيك محصّل من قبل.');
-  if (status !== STATUS.DEPOSITED) return fail(409, `حالة الشيك «${status || 'فارغة'}» وليست «${STATUS.DEPOSITED}».`);
-  if (str(cf.cf_d_pos_vers) !== DEST.AGB) return fail(409, 'التحصيل اليدوي لشيكات ELONAC في بنك AGB وحدها.');
-  const deposits = p.deposit_details || [];
-  if (!deposits.length) return fail(409, 'لا إيداع لهذا الشيك في زوهو، فلا يُحصَّل قبل إيداعه.');
-  const depositDate = fieldDate(cf) || isoDate(deposits[0].date ?? deposits[0].deposit_date);
-  if (depositDate && date < depositDate) return fail(400, `تاريخ التحصيل قبل تاريخ الإيداع (${depositDate.split('-').reverse().join('/')}). صحّحه.`);
+  // التحويل البنكي: في حساب البنك مباشرة، فلا إيداع له، وتاريخه هو يوم وصوله إلى البنك
+  const transfer = !!transferBankLabel(p);
+  const what = transfer ? 'التحويل' : 'الشيك';
+  if (transfer) info.cheque = '';
+
+  if (status === STATUS.COLLECTED) return fail(409, `هذا ${what} محصّل من قبل.`);
+  if (status !== STATUS.DEPOSITED) return fail(409, `حالة ${what} «${status || 'فارغة'}» وليست «${STATUS.DEPOSITED}».`);
+  let depositDate: string;
+  if (transfer) {
+    depositDate = isoDate(p.date);
+  } else {
+    if (str(cf.cf_d_pos_vers) !== DEST.AGB) return fail(409, 'التحصيل اليدوي لشيكات ELONAC في بنك AGB وحدها.');
+    const deposits = p.deposit_details || [];
+    if (!deposits.length) return fail(409, 'لا إيداع لهذا الشيك في زوهو، فلا يُحصَّل قبل إيداعه.');
+    depositDate = fieldDate(cf) || isoDate(deposits[0].date ?? deposits[0].deposit_date);
+  }
+  if (depositDate && date < depositDate) {
+    return fail(400, `تاريخ التحصيل قبل تاريخ ${transfer ? 'التحويل' : 'الإيداع'} (${depositDate.split('-').reverse().join('/')}). صحّحه.`);
+  }
 
   // 3. الكتابة: الحالة وسطر السجل معاً، مرة واحدة
   const old = str(cf.cf_fffaad);
@@ -134,12 +152,12 @@ export async function handleCollect(req: Request, env: Env, user: User): Promise
     up = null;
   }
   if (!up || !up.data) {
-    const msg = `${NO_RETRY_PREFIX} طلب التحصيل. لا تعد المحاولة: افتح الشيك في زوهو، فإن كانت حالته «${STATUS.COLLECTED}» فقد تم، ثم احسمه في الإدارة من تبويب «التحقق».`;
+    const msg = `${NO_RETRY_PREFIX} طلب التحصيل. لا تعد المحاولة: افتح ${what} في زوهو، فإن كانت حالته «${STATUS.COLLECTED}» فقد تم، ثم احسمه في الإدارة من تبويب «التحقق».`;
     await finish('unknown', msg);
     throw new HttpError(504, msg);
   }
   if (up.data.code !== 0) return fail(502, `زوهو رفض التحصيل: ${str(up.data.message || up.data.code).slice(0, 200)}. لم يتغيّر شيء.`);
 
   await finish('done', 'تم التحصيل');
-  return json({ ok: true, message: `حُصّل شيك ${info.customer}، وصارت حالته «${STATUS.COLLECTED}».` });
+  return json({ ok: true, message: `حُصّل ${transfer ? 'تحويل' : 'شيك'} ${info.customer}، وصارت حالته «${STATUS.COLLECTED}».` });
 }
