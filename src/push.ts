@@ -24,6 +24,7 @@ export interface PushMessage {
   body: string;
   url?: string;   // ما يفتحه لمس الإشعار، مثل ‎/#cheques/c/<معرّف>
   tag?: string;   // إشعار بنفس الوسم يحل محل السابق بدل أن يتكدّس
+  chime?: boolean; // رنّة داخل التطبيق إن كان مفتوحاً أمام المستخدم، بدل صوت الهاتف (التسليم بين المناديب)
 }
 
 const b64u = (b: ArrayBuffer | Uint8Array) => {

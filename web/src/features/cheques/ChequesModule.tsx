@@ -186,6 +186,12 @@ export function ChequesModule({ me, hash }: { me: Me; hash: string }) {
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
   }, [load, loadedAt, selected.size]);
+  // إشعار تسليم وصل والتطبيق مفتوح (lib/page.tsx): تحديث فوري، فيظهر «استلام ينتظر تأكيدك»، إلا أثناء التأكيد أو التحديد
+  useEffect(() => {
+    const onPush = () => { if (!dialogRef.current && !selected.size) load(false); };
+    window.addEventListener('mydani:push', onPush);
+    return () => window.removeEventListener('mydani:push', onPush);
+  }, [load, selected.size]);
 
   // حفظ موضع التمرير لكل شاشة، والرجوع إليه
   useEffect(() => {
