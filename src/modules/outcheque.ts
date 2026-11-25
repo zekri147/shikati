@@ -46,7 +46,7 @@ const LOCK_MESSAGES: Record<string, string> = {
 interface VendorPayment { payment_id: string; paid_through_account_id?: string; cf_n_cheque?: string | number; reference_number?: string }
 
 export async function handleOutCheque(req: Request, env: Env, user: User): Promise<Response> {
-  if (!canEndorse(user)) throw new HttpError(403, 'تسجيل شيكات الشركة للموردين للمدير وحده.');
+  if (!canEndorse(user)) throw new HttpError(403, 'تسجيل شيكات الشركة للموردين يحتاج إذن المدير.');
   const b = await readJson<OutBody>(req);
 
   // 1. التحقق من المدخلات

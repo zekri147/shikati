@@ -22,7 +22,7 @@ import { AckTab } from './admin-ack';
 const ROLE: Record<string, string> = { admin: 'مدير', rep: 'مندوب' };
 const ACTION: Record<string, string> = {
   login: 'دخول', 'user.create': 'إنشاء مستخدم', 'user.disable': 'إيقاف مستخدم', 'user.enable': 'تفعيل مستخدم',
-  'user.password': 'تغيير رمز سري', 'user.rep': 'تغيير رمز المندوب', 'user.name': 'تغيير الاسم الظاهر', 'coll.review': 'مراجعة عميل', 'coll.review.cancel': 'إلغاء مراجعة',
+  'user.password': 'تغيير رمز سري', 'user.rep': 'تغيير رمز المندوب', 'user.vendor': 'إذن دفعة المورد', 'user.name': 'تغيير الاسم الظاهر', 'coll.review': 'مراجعة عميل', 'coll.review.cancel': 'إلغاء مراجعة',
   'coll.comment': 'تعليق مراجعة في زوهو', 'passkey.add': 'تفعيل البصمة', 'passkey.clear': 'حذف البصمة', 'coll.comment.resolve': 'حسم تعليق مراجعة', setup: 'الإعداد الأولي',
   deposit: 'إيداع شيك', 'deposit.release': 'تحرير إيداع', 'stuck.resolve': 'حسم عملية منقطعة', 'deposit.reverted': 'إيداع أُلغي في زوهو',
   'coll.ack.undo': 'تراجع عن إقرار دين', 'coll.dispute': 'اعتراض على دين', 'coll.dispute.comment': 'تعليق اعتراض في زوهو', 'coll.dispute.resolve': 'حسم تعليق اعتراض', 'coll.dispute.close': 'إغلاق اعتراض',
@@ -96,7 +96,7 @@ function UserActions({ u, self, setAsk, refresh }: { u: any; self: boolean; setA
   const post = (path: string, body?: object) => api(`/api/admin/users/${u.id}/${path}`, { method: 'POST', body: body || {} });
   return (
     <div className="flex flex-col gap-2 px-4 pb-2">
-      <p className="m-0 text-sm text-muted"><Ltr>{u.username}</Ltr> · {ROLE[u.role] || u.role} · {u.active ? 'نشط' : 'موقوف'}{u.passkeys ? ' · البصمة مفعّلة' : ''}{u.push ? ' · الإشعارات مفعّلة' : ''}</p>
+      <p className="m-0 text-sm text-muted"><Ltr>{u.username}</Ltr> · {ROLE[u.role] || u.role} · {u.active ? 'نشط' : 'موقوف'}{u.role === 'rep' && u.can_vendor ? ' · دفعة المورد مسموحة' : ''}{u.passkeys ? ' · البصمة مفعّلة' : ''}{u.push ? ' · الإشعارات مفعّلة' : ''}</p>
       <Button onClick={() => setAsk({ title: 'رمز سري جديد لـ ' + u.display_name, text: 'أعطه الرمز الجديد بنفسك، لا في رسالة مكتوبة.', okText: 'حفظ الرمز', password: true,
         run: async (p) => { await post('password', { password: p }); toast('حُفظ الرمز السري الجديد'); await refresh(); } })}>رمز سري جديد</Button>
       {/* الاسم الظاهر: في قائمة المستخدمين والعهدة والسجل وصفحة الشيك. اسم الدخول لا يتغير */}
@@ -109,6 +109,17 @@ function UserActions({ u, self, setAsk, refresh }: { u: any; self: boolean; setA
         text: u.role === 'rep' ? 'اكتبه كما في حقل «Owner» على العميل في زوهو. يرى المندوب في التحصيل عملاء هذا الرمز فقط.' : 'اكتبه كما في حقل «Owner» في زوهو ليرى قسم التحصيل لعملائه. اتركه فارغاً لإزالته.',
         okText: 'حفظ الرمز', field: { label: 'رمز المندوب', value: u.rep_code || '', placeholder: 'AMINE' },
         run: async (code) => { await post('rep', { rep_code: code }); toast('حُفظ رمز المندوب'); await refresh(); } })}>رمز المندوب{u.rep_code ? <> (<Ltr>{u.rep_code}</Ltr>)</> : null}</Button>
+      {/* دفعة المورد (25/11/2026، بطلب ZEKRI): التظهير لمورد وشيك الشركة الصادر لمندوب بعينه. المدير له دائماً */}
+      {u.role === 'rep' ? (
+        <Button onClick={() => setAsk({ title: (u.can_vendor ? 'إيقاف دفعة المورد لـ ' : 'السماح بدفعة المورد لـ ') + u.display_name,
+          text: u.can_vendor
+            ? 'لن يستطيع بعدها التظهير لمورد ولا تسجيل «شيك منّا لمورد». ما سجّله من قبل يبقى كما هو.'
+            : 'سيستطيع التظهير لمورد (وجهة «مورد آخر» و«إتمام التظهير»)، وتسجيل «شيك منّا لمورد» من حساب البنك. كلاهما يُنشئ دفعة مورد في زوهو.',
+          okText: u.can_vendor ? 'أوقفها' : 'اسمح بها', danger: !!u.can_vendor,
+          run: async () => { await post('vendor', { on: !u.can_vendor }); toast(u.can_vendor ? 'أُوقفت دفعة المورد' : 'سُمح بدفعة المورد'); await refresh(); } })}>
+          دفعة المورد: {u.can_vendor ? 'مسموحة' : 'غير مسموحة'}
+        </Button>
+      ) : null}
       {/* حذف أجهزة البصمة: لهاتف ضاع أو تغيّر. يبقى الدخول بالرمز السري */}
       {u.passkeys ? (
         <Button onClick={() => setAsk({ title: 'حذف البصمة لـ ' + u.display_name, okText: 'احذف البصمة', danger: true,
