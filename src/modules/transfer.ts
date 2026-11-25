@@ -358,6 +358,21 @@ export async function listTransfers(env: Env, user: User): Promise<Response> {
   });
 }
 
+// ——— لصفحة التحويل: «احذف التحويل» في «المزيد» (بطلب ZEKRI يوم 25/11/2026، كالحذف والتراجع في صفحة الشيك) ———
+// للتحويل الذي سجّله التطبيق، لصاحبه وللمدير. المنع الظاهر هنا للتحصيل وحده، والخادم يعيد كل الفحوص عند الحذف
+export async function transferDeleteForDetail(env: Env, user: User, pid: string, status: string): Promise<{ allowed: boolean; blocker: string | null; effect: string } | null> {
+  const row = await env.DB.prepare("SELECT user_id FROM transfers WHERE payment_id = ? AND state = 'done'").bind(pid).first<{ user_id: number | null }>();
+  if (!row || (user.role !== 'admin' && row.user_id !== user.id)) return null;
+  const effect = 'يُحذف إيداع التحويل ثم دفعته من زوهو، فتعود فواتير العميل غير مدفوعة.';
+  let blocker: string | null = null;
+  if (status === STATUS.COLLECTED) {
+    blocker = user.role === 'admin' ? 'التحويل محصّل. تراجع عن تحصيله أولاً، ثم احذفه.' : 'التحويل محصّل، فلا يُحذف. أخبر المدير.';
+  } else if (await collectUnsettled(env, pid)) {
+    blocker = 'تحصيل هذا التحويل لم تُعرف نتيجته. يحسمه المدير من تبويب «التحقق» أولاً.';
+  }
+  return { allowed: !blocker, blocker, effect };
+}
+
 // ——— التراجع: حذف دفعة التحويل في زوهو ———
 
 

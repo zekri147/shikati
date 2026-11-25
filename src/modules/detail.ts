@@ -8,7 +8,7 @@ import { editForDetail } from './edit';
 import { depositDateFor } from './depositdate';
 import { custodyForDetail } from './custody';
 import { STATUS } from './constants';
-import { transferBankLabel } from './transfer';
+import { transferBankLabel, transferDeleteForDetail } from './transfer';
 
 // صفحة تفاصيل الشيك: قراءة فقط. تُقرأ الدفعة من زوهو مباشرة في كل مرة،
 // ثم يُضاف إليها ما سجّله التطبيق نفسه (قفل الإيداع وسجل العمليات).
@@ -112,7 +112,10 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
   const depositDate = deposits.length
     ? await depositDateFor(env, pid, cf as Record<string, unknown>, str(deposits[0].deposit_id))
     : '';
-  const undo = await undoForDetail(env, user, p as Parameters<typeof undoForDetail>[2]);
+  const transferDelete = await transferDeleteForDetail(env, user, pid, str(cf.cf_5d7197));
+  // التحويل يُحذف كله من «احذف التحويل»، فلا «حذف تسجيل الشيك» معه (حين يبقى في الحوزة دون إيداع)
+  const undoPlanned = await undoForDetail(env, user, p as Parameters<typeof undoForDetail>[2]);
+  const undo = transferDelete && undoPlanned?.kind === 'register' ? null : undoPlanned;
   const edit = await editForDetail(env, user, p as Parameters<typeof editForDetail>[2]);
   const rep = await customerRep(env, str(p.customer_id));
   const custody = await custodyForDetail(env, user, pid, str(cf.cf_5d7197) === STATUS.IN_HAND);
@@ -171,6 +174,7 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
     can_endorse: canEndorse && !custody?.to,
     custody,
     undo,
+    transfer_delete: transferDelete,
     edit,
   });
 }

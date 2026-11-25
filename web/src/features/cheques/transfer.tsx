@@ -5,13 +5,11 @@
 // لا يُكتب شيء في زوهو قبل «سجّل التحويل» في بطاقة التأكيد، ولا إعادة بعد انقطاع الرد.
 // تحته «تحويلات سجّلتها»: آخر 30 يوماً، ومنها التراجع (حذف الدفعة) لصاحب التحويل وللمدير.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { MoreVertical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Field, Input } from '@/components/ui/input';
 import { DateField } from '@/components/ui/datefield';
 import { CLOSE_MS, Modal, ModalActions } from '@/components/ui/dialog';
-import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/dropdown';
 import { Segmented } from '@/components/ui/segmented';
 import { Amount, Ltr, Num } from '@/components/ltr';
 import { FormError, Note } from '@/components/shell';
@@ -239,11 +237,10 @@ type Transfer = {
   bank: string; reference: string | null; by: string | null; can_undo: boolean; collected: boolean;
 };
 
-// تحويلات سجّلتها: آخر 30 يوماً. الحذف داخل «المزيد» وببطاقة تأكيد، كما في صفحة الشيك
+// تحويلات سجّلتها: آخر 30 يوماً، للاطلاع. كل سطر يفتح صفحة التحويل، ومنها الحذف في «المزيد» كالشيك (بطلب ZEKRI يوم 25/11/2026)
 function TransfersList() {
   const [list, setList] = useState<Transfer[] | null>(null);
   const [error, setError] = useState('');
-  const [undo, setUndo] = useState<Transfer | null>(null);
   const load = useCallback(() => {
     api<{ transfers: Transfer[] }>('/api/m/cheques/transfers').then((r) => { setList(r.transfers); setError(''); }).catch((e) => setError(errText(e)));
   }, []);
@@ -256,8 +253,8 @@ function TransfersList() {
       <h2 className="mb-2 mt-0 text-sm font-semibold text-muted">تحويلات سجّلتها في آخر 30 يوماً</h2>
       <CardList>
         {list.map((t) => (
-          <li key={t.id} className="flex items-center gap-2 py-2 ps-4 pe-1">
-            {/* المس التحويل لتفتح صفحته: منها يحصّله المدير أو يتراجع عن تحصيله */}
+          <li key={t.id} className="flex items-center gap-2 px-4 py-2">
+            {/* المس التحويل لتفتح صفحته: منها يحصّله المدير أو يتراجع عن تحصيله، ومنها الحذف */}
             <a href={t.payment_id ? detailHash(t.payment_id) : undefined} aria-label={`تفاصيل تحويل ${t.customer || ''}`}
               className="min-w-0 flex-1 text-inherit no-underline">
               <div className="flex items-baseline justify-between gap-2">
@@ -274,35 +271,23 @@ function TransfersList() {
                   : t.collected ? <Badge tone="neutral">محصّل</Badge> : <Badge tone="neutral">بانتظار التحصيل</Badge>}
               </div>
             </a>
-            {t.can_undo ? (
-              <Menu dir="rtl">
-                <MenuTrigger asChild>
-                  <Button aria-label={`المزيد: تحويل ${t.customer || ''}`} className="size-11 flex-none border-0 p-0"><MoreVertical aria-hidden className="size-5" /></Button>
-                </MenuTrigger>
-                <MenuContent align="end" className="min-w-[280px]">
-                  <MenuItem danger className="flex-col items-start py-2" onSelect={() => setUndo(t)}>
-                    <span className="block">احذف التحويل</span>
-                    <span className="mt-1 block text-sm font-normal text-muted">يُحذف إيداع التحويل ثم دفعته من زوهو، فتعود فواتير العميل غير مدفوعة.</span>
-                  </MenuItem>
-                </MenuContent>
-              </Menu>
-            ) : t.collected && t.state === 'done' ? (
-              <Button aria-label={`المزيد: تحويل ${t.customer || ''}`} blocked className="size-11 flex-none border-0 p-0"
-                onClick={() => toast('هذا التحويل محصّل، فلا يُحذف. افتحه ليتراجع المدير عن تحصيله أولاً.', 'warn')}><MoreVertical aria-hidden className="size-5" /></Button>
-            ) : <span className="size-11 flex-none" aria-hidden />}
           </li>
         ))}
       </CardList>
-      {undo ? <UndoTransfer t={undo} onClose={(changed) => { setUndo(null); if (changed) load(); }} /> : null}
     </section>
   );
 }
 
-function UndoTransfer({ t, onClose }: { t: Transfer; onClose: (changed: boolean) => void }) {
+// بطاقة حذف التحويل، من «المزيد» في صفحته: الإيداع ثم الدفعة، بطلب واحد دون إعادة
+export function DeleteTransferDialog({ t, onClose }: {
+  t: { payment_id: string; customer: string; amount: number; bank: string; date: string; effect: string };
+  onClose: (deleted: boolean) => void;
+}) {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState('');
+  const [done, setDone] = useState(false);
   const [open, setOpen] = useState(true);
-  const finish = (changed: boolean) => { setOpen(false); setTimeout(() => onClose(changed), CLOSE_MS); };
+  const finish = (deleted: boolean) => { setOpen(false); setTimeout(() => onClose(deleted), CLOSE_MS); };
 
   async function run() {
     setBusy(true);
@@ -310,6 +295,7 @@ function UndoTransfer({ t, onClose }: { t: Transfer; onClose: (changed: boolean)
       const res = await api('/api/m/cheques/transfers/undo', { method: 'POST', body: { payment_id: t.payment_id } });
       toast(res.message);
       setBusy(false);
+      setDone(true);
       finish(true);
     } catch (e) {
       setFailed(errText(e));
@@ -318,19 +304,19 @@ function UndoTransfer({ t, onClose }: { t: Transfer; onClose: (changed: boolean)
   }
 
   return (
-    <Modal open={open} onClose={() => finish(!!failed)} busy={busy} title="حذف التحويل">
+    <Modal open={open} onClose={() => finish(done)} busy={busy} title="حذف التحويل">
       <dl className="m-0 mt-2 flex flex-col">
         <KV label="العميل">{t.customer}</KV>
         <KV label="المبلغ"><Amount value={t.amount} /></KV>
         <KV label="البنك">{t.bank}</KV>
         <KV label="تاريخ التحويل"><Num>{fmtDate(t.date)}</Num></KV>
       </dl>
-      <Note tone="warn" className="mt-3 text-base">تُحذف دفعة التحويل من زوهو، فتعود فواتير العميل غير مدفوعة.</Note>
+      <Note tone="warn" className="mt-3 text-base">{t.effect}</Note>
       <p className="text-sm text-muted">الحذف في زوهو نهائي، ويُسجَّل باسمك في سجل العمليات.</p>
       {failed ? <FormError>{failed}</FormError> : null}
       <ModalActions>
         {!failed ? <Button variant="danger" disabled={busy} onClick={run}>{busy ? 'جارٍ الحذف…' : 'احذف التحويل'}</Button> : null}
-        <Button disabled={busy} onClick={() => finish(!!failed)} autoFocus>{failed ? 'إغلاق' : 'إلغاء'}</Button>
+        <Button disabled={busy} onClick={() => finish(false)} autoFocus>{failed ? 'إغلاق' : 'إلغاء'}</Button>
       </ModalActions>
     </Modal>
   );
