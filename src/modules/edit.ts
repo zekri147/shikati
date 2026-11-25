@@ -29,6 +29,7 @@ interface Payment {
   account_id?: string;
   location_id?: string;
   location_name?: string;
+  payment_mode?: string;
   description?: string;
   updated_time?: string;
   last_modified_time?: string;
@@ -55,6 +56,8 @@ async function readPayment(env: Env, pid: string): Promise<Payment> {
 }
 
 // المدير يعدّل أي شيك، والمندوب ما سجّله هو من التطبيق
+const isTransfer = (p: Payment) => str(p.payment_mode) === 'Bank Transfer';
+
 async function ownsOrAdmin(env: Env, user: User, pid: string): Promise<boolean> {
   if (!canRegister(env, user)) return false;
   if (user.role === 'admin') return true;
@@ -65,6 +68,8 @@ async function ownsOrAdmin(env: Env, user: User, pid: string): Promise<boolean> 
 
 // هل يمكن تعديل الشيك الآن؟ يعيد السبب إن لم يمكن
 async function editBlocker(env: Env, p: Payment): Promise<string | null> {
+  // التحويل البنكي لا يُعدَّل (اختيار ZEKRI يوم 25/11/2026): يُحذف من «تحويلات سجّلتها» ويُسجَّل من جديد
+  if (isTransfer(p)) return 'التحويل البنكي لا يُعدَّل. احذفه من «تحويلات سجّلتها» ثم سجّله من جديد.';
   const status = str(p.custom_field_hash?.cf_5d7197);
   if (status !== STATUS.IN_HAND) return `حالة الشيك «${status || 'فارغة'}». يُعدَّل الشيك «${STATUS.IN_HAND}» فقط.`;
   if ((p.deposit_details || []).length) return 'للشيك إيداع في زوهو. تراجع عن الإيداع أولاً.';
@@ -81,7 +86,7 @@ async function editBlocker(env: Env, p: Payment): Promise<string | null> {
 
 // لصفحة التفاصيل: هل يظهر زر «تعديل» لهذا المستخدم؟
 export async function editForDetail(env: Env, user: User, p: Payment): Promise<{ allowed: boolean; blocker: string | null; version: string; destinations: string[] } | null> {
-  if (!(await ownsOrAdmin(env, user, p.payment_id))) return null;
+  if (isTransfer(p) || !(await ownsOrAdmin(env, user, p.payment_id))) return null;
   const status = str(p.custom_field_hash?.cf_5d7197);
   if (status !== STATUS.IN_HAND) return null;
   let blocker: string | null;
