@@ -282,7 +282,7 @@ function TransfersList() {
                 <MenuContent align="end" className="min-w-[280px]">
                   <MenuItem danger className="flex-col items-start py-2" onSelect={() => setUndo(t)}>
                     <span className="block">احذف التحويل</span>
-                    <span className="mt-1 block text-sm font-normal text-muted">تُحذف دفعة التحويل من زوهو، فتعود فواتير العميل غير مدفوعة.</span>
+                    <span className="mt-1 block text-sm font-normal text-muted">يُحذف إيداع التحويل ثم دفعته من زوهو، فتعود فواتير العميل غير مدفوعة.</span>
                   </MenuItem>
                 </MenuContent>
               </Menu>
