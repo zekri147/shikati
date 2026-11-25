@@ -22,6 +22,7 @@ import { EditPanel } from './edit';
 import { DepositDialog } from './deposit';
 import { CollectDialog } from './collect';
 import { CustodyBlock } from './custody';
+import { DeleteTransferDialog } from './transfer';
 import type { Cheque, Line } from './types';
 
 const LOCK_TEXT: Record<string, string> = {
@@ -51,6 +52,7 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, collecta
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
   const [undoOpen, setUndoOpen] = useState(false);
+  const [deletingTransfer, setDeletingTransfer] = useState(false);
   const endorseRef = useRef<HTMLElement>(null);
 
   const reload = useCallback(async () => {
@@ -68,7 +70,7 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, collecta
 
   // الحالة من التفاصيل نفسها: لا «حصّلته» إن تغيّرت بعد تحميل القائمة
   const collectOne = d && collectable && d.status === 'مودع في البنك' ? collectable : null;
-  const hasBar = !!d && !editing && (d.can_endorse || d.edit || d.undo || !!depositable || !!collectOne);
+  const hasBar = !!d && !editing && (d.can_endorse || d.edit || d.undo || d.transfer_delete || !!depositable || !!collectOne);
   useFixedBottom(68, hasBar);
 
   // رأس الصفحة: لوح أحمر ملاصق للشريط العلوي، فيه الرجوع ثم العميل والمبلغ والحالة والوجهة
@@ -93,6 +95,8 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, collecta
   const en = d.app.endorsement;
   const lock = d.app.lock;
   const u = d.undo;
+  // حذف التحويل كله، لصاحبه وللمدير (منذ 25/11/2026 هنا بدل «تحويلات سجّلتها»)
+  const td = d.transfer_delete || null;
   // التحويل البنكي من عميل (منذ 24/11/2026 يُحصَّل يدوياً مثل الشيك): دون رقم شيك، ويُودَع في البنك عند تسجيله
   const tr: string | null = d.transfer || null;
 
@@ -233,15 +237,25 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, collecta
               window.scrollTo(0, 0);
             }}>تعديل</Button>
           ) : null}
-          {u ? (
+          {u || td ? (
             <Menu dir="rtl">
               <MenuTrigger asChild><Button className="gap-2 py-2"><span>المزيد</span><ChevronUp aria-hidden className="size-4.5" /></Button></MenuTrigger>
               <MenuContent side="top" align="end" className="min-w-[280px]">
-                <MenuItem danger blocked={!u.allowed} className="flex-col items-start py-2"
-                  onSelect={() => { if (!u.allowed) { toast(u.blocker, 'warn'); return; } setUndoOpen(true); }}>
-                  <span className={cn('block', !u.allowed && 'text-muted')}>{u.title}</span>
-                  <span className="mt-1 block text-sm font-normal text-muted">{u.allowed ? u.effect : u.blocker}</span>
-                </MenuItem>
+                {u ? (
+                  <MenuItem danger blocked={!u.allowed} className="flex-col items-start py-2"
+                    onSelect={() => { if (!u.allowed) { toast(u.blocker, 'warn'); return; } setUndoOpen(true); }}>
+                    <span className={cn('block', !u.allowed && 'text-muted')}>{u.title}</span>
+                    <span className="mt-1 block text-sm font-normal text-muted">{u.allowed ? u.effect : u.blocker}</span>
+                  </MenuItem>
+                ) : null}
+                {/* التحويل يُحذف كله (إيداعه ثم دفعته)، وبعد التراجع عن التحصيل إن كان محصّلاً */}
+                {td ? (
+                  <MenuItem danger blocked={!td.allowed} className="flex-col items-start py-2"
+                    onSelect={() => { if (!td.allowed) { toast(td.blocker, 'warn'); return; } setDeletingTransfer(true); }}>
+                    <span className={cn('block', !td.allowed && 'text-muted')}>احذف التحويل</span>
+                    <span className="mt-1 block text-sm font-normal text-muted">{td.allowed ? td.effect : td.blocker}</span>
+                  </MenuItem>
+                ) : null}
               </MenuContent>
             </Menu>
           ) : null}
@@ -260,6 +274,8 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, collecta
         if (r.done.length) { haptic('success'); toast(tr ? 'حُصّل التحويل، وصارت حالته «محصّل».' : 'حُصّل الشيك، وصارت حالته «محصّل».'); }
         onDeposited?.(); reload();
       }} /> : null}
+      {deletingTransfer && td ? <DeleteTransferDialog t={{ payment_id: d.id, customer: d.customer, amount: d.amount, bank: tr || '', date: d.date, effect: td.effect }}
+        onClose={(deleted) => { setDeletingTransfer(false); if (deleted) { onDeposited?.(); navigate('#cheques'); } }} /> : null}
       {undoOpen && u ? <UndoDialog d={d} onClose={(after) => { setUndoOpen(false); if (after === 'gone') navigate('#cheques'); else if (after === 'reload') { reload(); onDeposited?.(); } }} /> : null}
     </>
   );
