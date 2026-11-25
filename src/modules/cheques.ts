@@ -50,6 +50,8 @@ interface ZohoPayment {
   cf_46404d?: string;
   cf_46404d_unformatted?: string;
   check_details?: { check_number?: string };
+  // بنك التحويل في الحوزة، من جدول التحويلات (لا من زوهو)
+  transfer_bank?: string;
 }
 
 interface ListResponse {
@@ -157,9 +159,21 @@ export async function fetchTransferPayments(env: Env): Promise<ZohoPayment[]> {
       filter_by: 'PaymentMode.BankTransfer', date_start: first.d, per_page: 200, page,
     });
     all.push(...(data.customerpayments || []));
-    if (!data.page_context?.has_more_page) return all;
+    if (!data.page_context?.has_more_page) return withTransferBanks(env, all);
   }
   throw new HttpError(502, 'عدد التحويلات أكبر من المتوقع. راجع المطوّر.');
+}
+
+// منذ 25/11/2026 التحويل في الحوزة ومودع في البنك، والقائمة لا تذكر البنك: نأخذه من جدول التحويلات.
+// التحويل في الحوزة الذي لم يسجّله التطبيق لا بنك له هنا، فلا يظهر (كما كانت التحويلات اليدوية قبل)
+async function withTransferBanks(env: Env, list: ZohoPayment[]): Promise<ZohoPayment[]> {
+  const inHand = list.filter((p) => p.account_id === ACCOUNT_CHEQUES_IN_HAND);
+  if (!inHand.length) return list;
+  const { results } = await env.DB.prepare("SELECT payment_id, bank FROM transfers WHERE state IN ('done', 'unknown') AND payment_id IS NOT NULL")
+    .all<{ payment_id: string; bank: string }>();
+  const banks = new Map((results || []).map((r) => [r.payment_id, TRANSFER_BANKS[r.bank]?.label || '']));
+  for (const p of inHand) p.transfer_bank = banks.get(p.payment_id) || undefined;
+  return list;
 }
 
 function section(items: Cheque[]): Section {
@@ -234,15 +248,16 @@ export function buildView(payments: ZohoPayment[], today: string, transfers: Zoh
     if (fiscal.startsWith('✖')) alerts.push({ kind: 'fiscal', id: c.id, text: fiscal.replace(/^✖\s*/, '') });
   }
 
-  // التحويل المودع في البنك ينتظر تحصيله مع الشيكات. تاريخه يوم وصوله إلى البنك، فهو تاريخ «إيداعه»
+  // التحويل المودع في البنك ينتظر تحصيله مع الشيكات
   for (const p of transfers) {
-    const bank = TRANSFER_BANK_BY_ACCOUNT.get(p.account_id);
+    const bank = TRANSFER_BANK_BY_ACCOUNT.get(p.account_id) || (p.account_id === ACCOUNT_CHEQUES_IN_HAND ? p.transfer_bank : '');
     if (!bank || (p.payment_mode && p.payment_mode !== 'Bank Transfer')) continue;
     const c = toCheque(p);
     if (c.status !== STATUS.DEPOSITED) continue;
     c.transfer = bank;
     c.cheque_number = '';
-    c.deposit_date = c.date;
+    // في الحوزة: تاريخ إيداعه من الحقل. في البنك مباشرة (الشكل القديم): يوم وصوله
+    c.deposit_date = c.deposit_date || c.date;
     agbPending.push(c);
     all.push({ c, t: p.date + (p.last_modified_time || '') });
   }
@@ -380,7 +395,7 @@ export const chequesModule: AppModule = {
     if (req.method === 'POST' && subpath === '/register/preview') return handlePreview(req, env, user);
     if (req.method === 'POST' && subpath === '/register') return handleRegister(req, env, user);
     if (req.method === 'POST' && subpath === '/register/out') return handleOutCheque(req, env, user);
-    // التحويل البنكي من عميل: في حساب البنك مباشرة، دون حوزة ولا إيداع
+    // التحويل البنكي من عميل: في الحوزة ثم إيداع فوري في البنك (transfer.ts)
     if (req.method === 'POST' && subpath === '/register/transfer') return handleTransfer(req, env, user);
     if (req.method === 'GET' && subpath === '/transfers') return listTransfers(env, user);
     if (req.method === 'POST' && subpath === '/transfers/undo') return handleTransferUndo(req, env, user);

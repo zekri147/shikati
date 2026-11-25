@@ -106,7 +106,7 @@ export async function handleChequeDetail(env: Env, user: User, pid: string): Pro
   ).bind(pid, `${pid} /`, `${pid} 0`).all<{ at: string; username: string | null; action: string; result: string; details: string | null }>();
 
   const isAdmin = user.role === 'admin';
-  // التحويل البنكي من عميل: في حساب البنك مباشرة، فلا حساب خطأ ولا إيداع (منذ 24/11/2026)
+  // التحويل البنكي من عميل: في الحوزة مع إيداعه (منذ 25/11/2026)، أو في حساب البنك مباشرة. لا «حساب خطأ» له
   const transfer = transferBankLabel(p);
   const deposits = p.deposit_details || [];
   const depositDate = deposits.length

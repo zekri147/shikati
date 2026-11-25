@@ -34,7 +34,7 @@ interface Payment {
   date?: string;
   payment_mode?: string;
   account_id?: string;
-  deposit_details?: { date?: string; deposit_date?: string }[];
+  deposit_details?: { date?: string; deposit_date?: string; deposit_bank_id?: string }[];
   custom_field_hash?: Record<string, string>;
 }
 
@@ -116,7 +116,7 @@ export async function handleCollect(req: Request, env: Env, user: User): Promise
   const chq = str(cf.cf_n_cheque);
   info = { customer: str(p.customer_name), cheque: chq, amount: Number(p.amount) || 0 };
 
-  // التحويل البنكي: في حساب البنك مباشرة، فلا إيداع له، وتاريخه هو يوم وصوله إلى البنك
+  // التحويل البنكي: إيداعه سُجّل معه (تاريخه في الحقل)، أو في حساب البنك مباشرة (الشكل القديم، تاريخه يوم وصوله)
   const transfer = !!transferBankLabel(p);
   const what = transfer ? 'التحويل' : 'الشيك';
   if (transfer) info.cheque = '';
@@ -125,7 +125,7 @@ export async function handleCollect(req: Request, env: Env, user: User): Promise
   if (status !== STATUS.DEPOSITED) return fail(409, `حالة ${what} «${status || 'فارغة'}» وليست «${STATUS.DEPOSITED}».`);
   let depositDate: string;
   if (transfer) {
-    depositDate = isoDate(p.date);
+    depositDate = fieldDate(cf) || isoDate(p.date);
   } else {
     if (str(cf.cf_d_pos_vers) !== DEST.AGB) return fail(409, 'التحصيل اليدوي لشيكات ELONAC في بنك AGB وحدها.');
     const deposits = p.deposit_details || [];
