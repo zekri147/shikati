@@ -209,7 +209,7 @@ export async function handleRegister(req: Request, env: Env, user: User): Promis
   if (!(DESTINATIONS as readonly string[]).includes(dest)) throw new HttpError(400, 'اختر وجهة الشيك.');
   if (!loc) throw new HttpError(400, 'اختر الموقع.');
   const endorsed = dest === 'Autre Fournisseur';
-  if (endorsed && !canEndorse(user)) throw new HttpError(403, 'التظهير لمورد للمدير وحده. سجّل الشيك لبنك AGB أو الرستمية.');
+  if (endorsed && !canEndorse(user)) throw new HttpError(403, 'التظهير لمورد يحتاج إذن المدير. سجّل الشيك لبنك AGB أو الرستمية.');
   const vendorId = String(b.vendor_id || '');
   const vendorName = String(b.vendor || '').trim().slice(0, 200);
   if (endorsed && (!ID_RE.test(vendorId) || !vendorName)) throw new HttpError(400, 'اختر المورد الذي سُلّم له الشيك.');

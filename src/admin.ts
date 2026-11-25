@@ -45,7 +45,7 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
   // GET /api/admin/users
   if (req.method === 'GET' && path === '/users') {
     const { results } = await env.DB.prepare(
-      'SELECT id, username, display_name, role, rep_code, active, created_at, (SELECT COUNT(*) FROM passkeys p WHERE p.user_id = users.id) AS passkeys, (SELECT COUNT(*) FROM push_subs s WHERE s.user_id = users.id) AS push FROM users ORDER BY id',
+      'SELECT id, username, display_name, role, rep_code, can_vendor, active, created_at, (SELECT COUNT(*) FROM passkeys p WHERE p.user_id = users.id) AS passkeys, (SELECT COUNT(*) FROM push_subs s WHERE s.user_id = users.id) AS push FROM users ORDER BY id',
     ).all();
     return json({ users: results });
   }
@@ -75,8 +75,8 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
     return json({ ok: true }, 201);
   }
 
-  // POST /api/admin/users/:id/(disable|enable|password|rep|name|passkeys|push)
-  const m = path.match(/^\/users\/(\d+)\/(disable|enable|password|rep|name|passkeys|push)$/);
+  // POST /api/admin/users/:id/(disable|enable|password|rep|name|passkeys|push|vendor)
+  const m = path.match(/^\/users\/(\d+)\/(disable|enable|password|rep|name|passkeys|push|vendor)$/);
   if (req.method === 'POST' && m) {
     const id = Number(m[1]);
     const action = m[2];
@@ -91,6 +91,17 @@ export async function handleAdmin(req: Request, env: Env, admin: User, path: str
       await assertRepCodeFree(env, code, id);
       await env.DB.prepare('UPDATE users SET rep_code = ? WHERE id = ?').bind(code, id).run();
       await audit(env, admin, 'user.rep', 'ok', target.username, code || '—');
+      return json({ ok: true });
+    }
+
+    // دفعة المورد (25/11/2026، بطلب ZEKRI وموافقته): التظهير لمورد وشيك الشركة الصادر لمندوب بعينه.
+    // المدير له دائماً. يسري من الطلب التالي دون خروج
+    if (action === 'vendor') {
+      if (target.role === 'admin') throw new HttpError(400, 'المدير له دفعة المورد دائماً.');
+      const b = await readJson<{ on?: boolean }>(req);
+      const on = b.on === true ? 1 : 0;
+      await env.DB.prepare('UPDATE users SET can_vendor = ? WHERE id = ?').bind(on, id).run();
+      await audit(env, admin, 'user.vendor', 'ok', target.username, on ? 'on' : 'off');
       return json({ ok: true });
     }
 

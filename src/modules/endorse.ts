@@ -16,9 +16,10 @@ const VENDOR_STATUS = 'سُلّم للمورد';
 const VENDOR_BANK = 'شيك مظهّر من عميل';
 
 // التظهير لمورد للمدير وحده منذ 7/11/2026: دفع الموردين عمل محاسبي، لا عمل المندوب
-export const canEndorse = (user: User) => user.role === 'admin';
+// دفعة المورد: التظهير لمورد وشيك الشركة الصادر. للمدير، ولمن أذن له المدير (can_vendor، منذ 25/11/2026 بطلب ZEKRI)
+export const canEndorse = (user: User) => user.role === 'admin' || Number(user.can_vendor) === 1;
 function requireEndorse(user: User) {
-  if (!canEndorse(user)) throw new HttpError(403, 'التظهير لمورد للمدير وحده.');
+  if (!canEndorse(user)) throw new HttpError(403, 'التظهير لمورد يحتاج إذن المدير.');
 }
 
 export async function searchVendors(env: Env, user: User, q: string): Promise<Response> {

@@ -176,7 +176,7 @@ async function plan(env: Env, user: User, b: EditBody) {
   if (!DATE_RE.test(date) || date > todayAlgiers()) throw new HttpError(400, 'تاريخ الاستلام غير صالح.');
   if (!LOCATIONS[locKey]) throw new HttpError(400, 'اختر الموقع.');
   if (!(DESTINATIONS as readonly string[]).includes(dest)) throw new HttpError(400, 'اختر وجهة الشيك.');
-  if (dest === ENDORSED_DEST && dest !== old.dest && !canEndorse(user)) throw new HttpError(403, 'التظهير لمورد للمدير وحده.');
+  if (dest === ENDORSED_DEST && dest !== old.dest && !canEndorse(user)) throw new HttpError(403, 'التظهير لمورد يحتاج إذن المدير.');
   const image = b.image ? parseImage(b.image) : null;
 
   const changes: Change[] = [];
