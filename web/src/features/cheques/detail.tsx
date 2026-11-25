@@ -93,7 +93,7 @@ export function DetailPage({ id, isAdmin, onBack, preview, depositable, collecta
   const en = d.app.endorsement;
   const lock = d.app.lock;
   const u = d.undo;
-  // التحويل البنكي من عميل (منذ 24/11/2026 يُحصَّل يدوياً مثل الشيك): في حساب البنك مباشرة، دون رقم شيك ولا إيداع
+  // التحويل البنكي من عميل (منذ 24/11/2026 يُحصَّل يدوياً مثل الشيك): دون رقم شيك، ويُودَع في البنك عند تسجيله
   const tr: string | null = d.transfer || null;
 
   return (
@@ -282,12 +282,12 @@ function ChequePath({ d }: { d: Detail }) {
   const days = d.date ? Math.max(0, Math.round((Date.parse(todayIso()) - Date.parse(String(d.date).slice(0, 10))) / 86_400_000)) : 0;
   const short = (iso?: string) => (iso ? fmtDate(iso).slice(0, 5) : '—');
   const deposited = !!d.deposit_date || st === 'مودع في البنك' || st === 'محصّل' || st === 'مرفوض';
-  // التحويل: سُجّل، ثم في البنك من يوم وصوله، ثم حُصّل
+  // التحويل: سُجّل، ثم في البنك من يوم إيداعه (أو وصوله للتحويل القديم)، ثم حُصّل
   if (d.transfer) {
     const inBank = st === 'مودع في البنك';
     const tSteps: Step[] = [
       { label: 'سُجّل' + (d.created_by ? ' · ' + d.created_by : ''), when: '', state: 'done' },
-      { label: `في ${d.transfer}` + (inBank ? ' · ' + daysText(days) : ''), when: short(d.date), state: inBank ? 'now' : 'done' },
+      { label: `في ${d.transfer}` + (inBank ? ' · ' + daysText(days) : ''), when: short(d.deposit_date || d.date), state: inBank ? 'now' : 'done' },
       { label: 'حُصّل', when: '', state: st === 'محصّل' ? 'now' : 'todo' },
     ];
     return <PathList title="مسار التحويل" steps={tSteps} />;

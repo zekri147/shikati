@@ -1,14 +1,19 @@
 import type { Env, User } from '../env';
 import { HttpError, json, readJson } from '../http';
-import { zohoGet, zohoRequest, zohoUpload, ZohoTimeout } from '../zoho';
+import { zohoGet, zohoRequest, zohoUpload } from '../zoho';
 import { audit } from '../audit';
-import { CACHE_KEY, DEST, LOCATIONS, STATUS, todayAlgiers } from './constants';
+import { ACCOUNT_CHEQUES_IN_HAND, CACHE_KEY, DEST, LOCATIONS, STATUS, todayAlgiers } from './constants';
 import { collectUnsettled } from './cashin';
+import { DEPOSIT_DATE_FIELD } from './depositdate';
 import { parseImage } from './ocr';
 import { allocate, decodeBase64, requireRegister, type Allocation } from './register';
 
-// التحويل البنكي من عميل: دفعة عميل بطريقة «تحويل بنكي» في حساب البنك مباشرة، موزّعة على أقدم فواتيره.
-// لا يدخل حساب الشيكات في الحوزة، فلا عهدة ولا إيداع، ولا يظهر في قوائم الشيكات.
+// التحويل البنكي من عميل: دفعة عميل بطريقة «تحويل بنكي» موزّعة على أقدم فواتيره.
+// منذ 25/11/2026 (بطلب ZEKRI وموافقته): كما تُسجَّل التحويلات في زوهو منذ سبتمبر، وكما تفرض قاعدة التحقق
+// («تحويل بنكي نحو ELONAC أو ROSTOMIA: يجب أن يُسجّل في Cheques in Hand»): الدفعة في حساب الشيكات في الحوزة،
+// ثم إيداع فوري منه إلى البنك المختار مربوط بالدفعة، ثم الحالة «مودع في البنك». إن رفض زوهو الإيداع صراحةً
+// تُحذف الدفعة التي أُنشئت للتو، فلا يبقى شيء. لا عهدة له، ولا يظهر في قوائم الشيكات (طريقته ليست «شيك»).
+// قبل 25/11/2026 كان يدخل حساب البنك مباشرة، فيبقى التطبيق يتعرّف على ذلك الشكل أيضاً.
 // منذ 24/11/2026 (بطلب ZEKRI): يُنشأ بحالة «مودع في البنك»، ويحصّله المدير يدوياً كالشيك (cashin.ts)
 // من قسم «بانتظار التحصيل»، والحذف ممنوع بعد التحصيل حتى يُتراجع عنه. وصورة الإشعار إجبارية.
 // بموافقة ZEKRI يوم 21/11/2026: كل مندوب يسجّل التحويل، ويتراجع عن تحويله هو (حذف الدفعة في زوهو)، والمدير عن أي تحويل.
@@ -27,13 +32,21 @@ export const TRANSFER_BANKS: Record<string, { account: string; dest: string; lab
   ROSTOMIA: { account: '7418406000000903878', dest: DEST.ROSTOMIA, label: 'الرستمية' },
   CPA: { account: '7418406000000261410', dest: DEST.AGB, label: 'بنك CPA' },
 };
-const BANK_ACCOUNTS = new Set(Object.values(TRANSFER_BANKS).map((b) => b.account));
+const BANK_LABELS = new Map(Object.values(TRANSFER_BANKS).map((b) => [b.account, b.label]));
 
-// دفعة تحويل بنكي في أحد بنوك التحويل؟ يعيد اسم البنك، وإلا فارغاً
-export function transferBankLabel(p: { payment_mode?: string; account_id?: string }): string {
+// دفعة تحويل بنكي في أحد بنوك التحويل؟ يعيد اسم البنك، وإلا فارغاً.
+// الشكل الحالي: في الحوزة ومودعة في أحد البنوك (من deposit_details في قراءة الدفعة الكاملة).
+// والشكل القديم قبل 25/11/2026: في حساب البنك مباشرة.
+export function transferBankLabel(p: {
+  payment_mode?: string; account_id?: string; deposit_details?: { deposit_bank_id?: string }[];
+}): string {
   if (str(p.payment_mode) !== MODE) return '';
   const acc = str(p.account_id);
-  return Object.values(TRANSFER_BANKS).find((b) => b.account === acc)?.label || '';
+  const direct = BANK_LABELS.get(acc);
+  if (direct) return direct;
+  if (acc !== ACCOUNT_CHEQUES_IN_HAND) return '';
+  const deps = p.deposit_details || [];
+  return deps.length === 1 ? BANK_LABELS.get(str(deps[0].deposit_bank_id)) || '' : '';
 }
 
 export const transferBankOptions = () => Object.entries(TRANSFER_BANKS).map(([key, b]) => ({ key, label: b.label }));
@@ -61,7 +74,32 @@ const LOCK_MESSAGES: Record<string, string> = {
 
 interface ZPayment {
   payment_id: string; amount?: number; date?: string; account_id?: string; reference_number?: string; payment_mode?: string;
+  payment_number?: string; currency_id?: string; txn_posting_date?: string; invoices?: { apply_date?: string }[];
+  deposit_details?: { deposit_id?: string; deposit_bank_id?: string }[];
   custom_field_hash?: Record<string, string>;
+}
+
+const ID_OK = (v: unknown) => ID_RE.test(str(v));
+
+// حذف دفعة العميل في زوهو: نعم أو لا أو «لا نعرف» (انقطع الرد). لا إعادة تلقائية
+async function deletePayment(env: Env, pid: string): Promise<'ok' | 'no' | 'unknown'> {
+  try {
+    const d = await zohoRequest(env, 'DELETE', `/customerpayments/${pid}`, { timeoutMs: 30_000 });
+    if (!d.data) return 'unknown';
+    return d.data.code === 0 ? 'ok' : 'no';
+  } catch {
+    return 'unknown';
+  }
+}
+
+async function deleteDeposit(env: Env, tid: string): Promise<'ok' | 'no' | 'unknown'> {
+  try {
+    const d = await zohoRequest(env, 'DELETE', `/banktransactions/${tid}`, { timeoutMs: 30_000 });
+    if (!d.data) return 'unknown';
+    return d.data.code === 0 ? 'ok' : 'no';
+  } catch {
+    return 'unknown';
+  }
 }
 
 export async function handleTransfer(req: Request, env: Env, user: User): Promise<Response> {
@@ -120,18 +158,19 @@ export async function handleTransfer(req: Request, env: Env, user: User): Promis
   };
 
   // 3. هل التحويل مسجّل في زوهو من قبل (من خارج التطبيق)؟ ثم التوزيع على الفواتير
+  // التحويل إلى هذا البنك: في حسابه مباشرة (الشكل القديم)، أو في الحوزة (الشكل الحالي، وبنكه لا يظهر في القائمة)
   let lines: Allocation[];
   try {
     const dup = await zohoGet<{ customerpayments?: ZPayment[] }>(env, '/customerpayments', {
       customer_id: customerId, filter_by: 'PaymentMode.BankTransfer', per_page: 200,
     });
-    const inBank = (dup.customerpayments || []).filter((p) => str(p.account_id) === bank.account);
-    if (reference && inBank.some((p) => normRef(p.reference_number) === reference)) {
-      return fail(409, `تحويل بالمرجع ${reference} إلى ${bank.label} مسجّل من قبل لهذا العميل في زوهو.`);
+    const near = (dup.customerpayments || []).filter((p) => [bank.account, ACCOUNT_CHEQUES_IN_HAND].includes(str(p.account_id)));
+    if (reference && near.some((p) => normRef(p.reference_number) === reference)) {
+      return fail(409, `تحويل بالمرجع ${reference} مسجّل من قبل لهذا العميل في زوهو.`);
     }
-    // دون مرجع: التحويل بالمبلغ والتاريخ والبنك نفسها يُعدّ مكرراً. المرجع يميّز تحويلين متشابهين
-    if (!reference && inBank.some((p) => str(p.date) === date && Math.abs((Number(p.amount) || 0) - amount) < 0.005)) {
-      return fail(409, `تحويل بهذا المبلغ وهذا التاريخ إلى ${bank.label} مسجّل من قبل لهذا العميل. إن كان تحويلاً آخر فاكتب رقم مرجعه.`);
+    // دون مرجع: التحويل بالمبلغ والتاريخ نفسيهما يُعدّ مكرراً. المرجع يميّز تحويلين متشابهين
+    if (!reference && near.some((p) => str(p.date) === date && Math.abs((Number(p.amount) || 0) - amount) < 0.005)) {
+      return fail(409, 'تحويل بهذا المبلغ وهذا التاريخ مسجّل من قبل لهذا العميل. إن كان تحويلاً آخر فاكتب رقم مرجعه.');
     }
     lines = (await allocate(env, customerId, amount)).lines;
   } catch (e) {
@@ -142,55 +181,135 @@ export async function handleTransfer(req: Request, env: Env, user: User): Promis
     return fail(502, 'تعذّر الاتصال بزوهو. لم يُسجَّل شيء، ويمكنك المحاولة مجدداً.');
   }
 
-  // 4. إنشاء الدفعة. بعد هذا الطلب لا إعادة تلقائية أبداً.
-  const logLine = `${today} — تسجيل تحويل بنكي إلى ${bank.label}${date !== today ? ` (وصل ${date})` : ''} من تطبيق ميداني (${user.display_name})`;
+  // 4. إنشاء الدفعة في الحوزة بحالة «في الحوزة»، حتى يُسجَّل إيداعها. بعد هذا الطلب لا إعادة تلقائية أبداً.
   const payment = {
     customer_id: customerId,
     payment_mode: MODE,
     amount,
     date,
     reference_number: reference || '',
-    account_id: bank.account,
+    account_id: ACCOUNT_CHEQUES_IN_HAND,
     location_id: loc.id,
     description: `تحويل بنكي إلى ${bank.label}${reference ? ` (${reference})` : ''} — سجّله ${user.display_name} من تطبيق ميداني`,
     custom_fields: [
       { api_name: 'cf_n_cheque', value: NO_CHEQUE },
       { api_name: 'cf_d_pos_vers', value: bank.dest },
-      { api_name: 'cf_5d7197', value: STATUS.DEPOSITED },
-      { api_name: 'cf_fffaad', value: logLine },
+      { api_name: 'cf_5d7197', value: STATUS.IN_HAND },
     ],
     invoices: lines.map((l) => ({ invoice_id: l.invoice_id, amount_applied: l.applied })),
   };
 
   // المندوب لا يفتح زوهو، فرسالته تقول ماذا يفعل دون ذكره (نص index.ts العام يذكر رقم الشيك)
-  const NO_RETRY = user.role === 'admin'
+  const admin = user.role === 'admin';
+  const NO_RETRY = admin
     ? 'لم يصل رد واضح من زوهو بعد إرسال التحويل. لا تعد المحاولة: تحقق من دفعات العميل في زوهو بعد دقيقة.'
     : 'لم يصل رد واضح، فلا نعرف هل سُجّل التحويل. لا تعد المحاولة: أخبر المدير باسم العميل والمبلغ.';
+  const unknown = async (message: string, pid: string | null): Promise<never> => {
+    await finish('unknown', message, pid);
+    throw new HttpError(504, message);
+  };
   let created;
   try {
-    created = await zohoRequest<{ payment?: { payment_id?: string } }>(env, 'POST', '/customerpayments', { body: payment, timeoutMs: 30_000 });
-  } catch (e) {
-    await finish('unknown', NO_RETRY);
-    if (e instanceof ZohoTimeout) throw new HttpError(504, NO_RETRY);
-    throw new HttpError(504, NO_RETRY);
+    created = await zohoRequest<{ payment?: ZPayment }>(env, 'POST', '/customerpayments', { body: payment, timeoutMs: 30_000 });
+  } catch {
+    return unknown(NO_RETRY, null);
   }
-  if (!created.data) {
-    await finish('unknown', NO_RETRY);
-    throw new HttpError(504, NO_RETRY);
-  }
+  if (!created.data) return unknown(NO_RETRY, null);
   if (created.data.code !== 0) {
     // زوهو رفض الطلب برمز خطأ صريح (قاعدة تحقق مثلاً)، فلم تُنشأ أي دفعة
     return fail(502, `زوهو رفض التحويل: ${str(created.data.message || created.data.code).slice(0, 200)}`);
   }
-  const pid = str(created.data.payment?.payment_id);
-  if (!ID_RE.test(pid)) {
-    await finish('unknown', NO_RETRY);
-    throw new HttpError(504, NO_RETRY);
+  const made = created.data.payment;
+  const pid = str(made?.payment_id);
+  if (!ID_OK(pid)) return unknown(NO_RETRY, null);
+
+  // 5. الإيداع من الحوزة إلى البنك المختار، مربوطاً بالدفعة، كما في deposit.ts.
+  // تاريخه تاريخ التحويل، إلا إن كان قبل تاريخ ترحيل الدفعة أو تطبيقها على الفواتير، فزوهو يرفض ما قبلهما
+  const posted = [str(made?.txn_posting_date), ...(made?.invoices || []).map((i) => str(i.apply_date))]
+    .map((d) => d.slice(0, 10)).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && d <= today).sort().pop() || '';
+  const depositDate = posted > date ? posted : date;
+  const DEP_UNKNOWN = admin
+    ? 'أُنشئ التحويل في الحوزة، ولم يصل رد واضح عند إيداعه في البنك. لا تعد المحاولة: تحقق في زوهو هل له إيداع، ثم احسمه من تبويب «التحقق».'
+    : 'لم يصل رد واضح عند إيداع التحويل في البنك. لا تعد المحاولة: أخبر المدير باسم العميل والمبلغ.';
+  // رفض صريح قبل أن يتم الإيداع: نحذف الدفعة التي أنشأناها للتو، فلا يبقى شيء في زوهو
+  const rollback = async (why: string): Promise<never> => {
+    const del = await deletePayment(env, pid);
+    if (del === 'ok') return fail(502, `${why} فحُذفت الدفعة، ولم يُسجَّل شيء.`);
+    return unknown(admin
+      ? `${why} وتعذّر حذف الدفعة التي أُنشئت في الحوزة (${made?.payment_number || pid}). احذفها في زوهو، ثم احسم التحويل من تبويب «التحقق».`
+      : `${why} وبقيت دفعة في زوهو. لا تعد المحاولة: أخبر المدير باسم العميل والمبلغ.`, pid);
+  };
+  const deposit: Record<string, unknown> = {
+    transaction_type: 'deposit',
+    to_account_id: bank.account,
+    date: depositDate,
+    currency_id: made?.currency_id,
+    description: `إيداع تحويل بنكي إلى ${bank.label} — دفعة ${made?.payment_number ?? ''} — من تطبيق ميداني (${user.display_name})`,
+    location_id: loc.id,
+    line_items: [{
+      from_account_id: ACCOUNT_CHEQUES_IN_HAND,
+      amount,
+      payment_mode: MODE,
+      customer_id: customerId,
+      transaction_id: pid,
+      transaction_type: lines.length > 0 ? 'invoice_payment' : 'customer_payment',
+    }],
+  };
+  if (reference) deposit.reference_number = reference;
+  let dep;
+  try {
+    dep = await zohoRequest<{ banktransaction?: { transaction_id?: string } }>(env, 'POST', '/banktransactions', { body: deposit, timeoutMs: 30_000 });
+  } catch {
+    return unknown(DEP_UNKNOWN, pid);
+  }
+  if (!dep.data) return unknown(DEP_UNKNOWN, pid);
+  if (dep.data.code !== 0) {
+    return rollback(`زوهو رفض إيداع التحويل في ${bank.label}: ${str(dep.data.message || dep.data.code).slice(0, 200)}.`);
+  }
+  const tid = str(dep.data.banktransaction?.transaction_id);
+  if (!ID_OK(tid)) return unknown(DEP_UNKNOWN, pid);
+
+  // التحقق من أن الإيداع مربوط فعلاً بالدفعة، وإلا نحذفه ثم نحذف الدفعة
+  let linked = false;
+  try {
+    const c = await zohoRequest<{ banktransaction?: { line_items?: { transaction_id?: string }[] } }>(env, 'GET', `/banktransactions/${tid}`);
+    if (!c.data || c.data.code !== 0) return unknown(DEP_UNKNOWN, pid);
+    linked = (c.data.banktransaction?.line_items || []).some((x) => str(x.transaction_id) === pid);
+  } catch {
+    return unknown(DEP_UNKNOWN, pid);
+  }
+  if (!linked) {
+    const del = await deleteDeposit(env, tid);
+    if (del !== 'ok') {
+      return unknown(admin
+        ? 'أُنشئ إيداع للتحويل غير مربوط بدفعته، وتعذّر حذفه. احذف الإيداع والدفعة في زوهو، ثم احسم التحويل من تبويب «التحقق».'
+        : DEP_UNKNOWN, pid);
+    }
+    return rollback('لم يُربط الإيداع بالدفعة فأُلغي،');
   }
 
-  // 5. صورة إشعار التحويل مرفقاً على الدفعة. فشلها لا يلغي التسجيل.
+  // 6. الحالة «مودع في البنك» وتاريخ الإيداع وسطر في السجل. فشله لا يلغي التسجيل
+  const logLine = `${today} — تسجيل تحويل بنكي وإيداعه في ${bank.label}${depositDate !== today ? ` بتاريخ ${depositDate}` : ''} من تطبيق ميداني (${user.display_name})`;
   let warning: string | null = null;
+  try {
+    const up = await zohoRequest(env, 'PUT', `/customerpayments/${pid}`, {
+      body: {
+        custom_fields: [
+          { api_name: 'cf_5d7197', value: STATUS.DEPOSITED },
+          { api_name: DEPOSIT_DATE_FIELD, value: depositDate },
+          { api_name: 'cf_fffaad', value: logLine },
+        ],
+      },
+    });
+    if (!up.data || up.data.code !== 0) warning = `سُجّل التحويل وأُودع في ${bank.label}، لكن تعذّر تحديث حالته في زوهو إلى «${STATUS.DEPOSITED}».`;
+  } catch {
+    warning = `سُجّل التحويل وأُودع في ${bank.label}، لكن لم يصل رد واضح عند تحديث حالته إلى «${STATUS.DEPOSITED}».`;
+  }
+  if (warning) warning += admin ? ' حدّثها يدوياً في زوهو.' : ' أخبر المدير.';
+
+  // 7. صورة إشعار التحويل مرفقاً على الدفعة. فشلها لا يلغي التسجيل.
   {
+    let upWarn: string | null = null;
     try {
       const ext = image.type === 'image/png' ? 'png' : image.type === 'image/webp' ? 'webp' : 'jpg';
       const up = await zohoUpload(env, `/customerpayments/${pid}/attachment`, 'attachment', {
@@ -198,14 +317,15 @@ export async function handleTransfer(req: Request, env: Env, user: User): Promis
       });
       if (!up.data || up.data.code !== 0) {
         console.error('transfer attachment failed', up.status, up.data?.code, up.data?.message);
-        warning = 'سُجّل التحويل، لكن تعذّر رفع صورة الإشعار إلى زوهو.';
+        upWarn = 'تعذّر رفع صورة الإشعار إلى زوهو.';
       }
     } catch {
-      warning = 'سُجّل التحويل، لكن لم يصل رد واضح عند رفع صورة الإشعار.';
+      upWarn = 'لم يصل رد واضح عند رفع صورة الإشعار.';
     }
+    if (upWarn) warning = warning ? `${warning} و${upWarn}` : `سُجّل التحويل، لكن ${upWarn}`;
   }
 
-  await finish('done', warning || 'تم التسجيل', pid);
+  await finish('done', warning || 'تم التسجيل والإيداع', pid);
   return json({ ok: true, payment_id: pid, warning, allocated: lines.length });
 }
 
@@ -274,8 +394,10 @@ export async function handleTransferUndo(req: Request, env: Env, user: User): Pr
   }
   const p = r.data?.payment;
   if (!r.data || r.data.code !== 0 || !p) return deny(502, 'تعذّرت قراءة التحويل من زوهو.');
-  if (str(p.payment_mode) !== MODE || !BANK_ACCOUNTS.has(str(p.account_id))) {
-    return deny(409, 'تغيّرت هذه الدفعة في زوهو ولم تعد تحويلاً إلى أحد البنوك. راجعها في زوهو.');
+  // الشكل الحالي في الحوزة (مع إيداعه أو دونه إن انقطع التسجيل)، أو الشكل القديم في حساب البنك
+  const acc = str(p.account_id);
+  if (str(p.payment_mode) !== MODE || !(acc === ACCOUNT_CHEQUES_IN_HAND || BANK_LABELS.has(acc))) {
+    return deny(409, 'تغيّرت هذه الدفعة في زوهو ولم تعد تحويلاً بنكياً. راجعها في زوهو.');
   }
   if ((p.payment_refunds || []).length > 0) return deny(409, 'للدفعة استرداد مسجّل في زوهو.');
   // التحويل المحصّل لا يُحذف حتى يُتراجع عن تحصيله من صفحته (اختيار ZEKRI يوم 24/11/2026)
@@ -286,19 +408,42 @@ export async function handleTransferUndo(req: Request, env: Env, user: User): Pr
   }
   if (await collectUnsettled(env, pid)) return deny(409, 'تحصيل هذا التحويل لم تُعرف نتيجته. يحسمه المدير من تبويب «التحقق» أولاً.');
 
-  // 2. الحذف. لا إعادة تلقائية بعد الطلب
-  let d;
-  try {
-    d = await zohoRequest(env, 'DELETE', `/customerpayments/${pid}`, { timeoutMs: 30_000 });
-  } catch {
-    await audit(env, user, 'undo.transfer', 'error', target, UNDO_NO_RETRY);
-    throw new HttpError(504, UNDO_NO_RETRY);
+  // 2. الإيداع أولاً (الشكل الحالي): زوهو لا يحذف دفعة مودعة. يُفحص كما في التراجع عن إيداع الشيك
+  const deps = acc === ACCOUNT_CHEQUES_IN_HAND ? (p.deposit_details || []) : [];
+  if (deps.length > 1) return deny(409, 'لهذا التحويل أكثر من إيداع في زوهو. راجعه هناك.');
+  if (deps.length === 1) {
+    const tid = str(deps[0].deposit_id);
+    if (!ID_OK(tid)) return deny(502, 'تعذّر تحديد إيداع التحويل في زوهو.');
+    const t = await zohoRequest<{ banktransaction?: { line_items?: { transaction_id?: string }[]; imported_transactions?: unknown[]; status?: string } }>(
+      env, 'GET', `/banktransactions/${tid}`, { timeoutMs: 15_000 },
+    );
+    const bt = t.data?.banktransaction;
+    if (!t.data || t.data.code !== 0 || !bt) return deny(502, 'تعذّرت قراءة إيداع التحويل من زوهو.');
+    const ls = bt.line_items || [];
+    if (ls.length !== 1 || str(ls[0].transaction_id) !== pid) return deny(409, 'إيداع هذا التحويل يضم دفعات أخرى. راجعه في زوهو.');
+    if ((bt.imported_transactions || []).length > 0 || ['matched', 'reconciled'].includes(str(bt.status))) {
+      return deny(409, 'إيداع هذا التحويل مطابَق مع كشف البنك، فلا يُحذف من التطبيق.');
+    }
+    const del = await deleteDeposit(env, tid);
+    if (del === 'unknown') {
+      await audit(env, user, 'undo.transfer', 'error', target, `deposit ${tid}: ${UNDO_NO_RETRY}`);
+      throw new HttpError(504, UNDO_NO_RETRY);
+    }
+    if (del === 'no') return deny(502, 'زوهو رفض حذف إيداع التحويل، فلم يُحذف شيء. راجعه في زوهو.');
+    await audit(env, user, 'undo.transfer', 'ok', target, `deposit ${tid} deleted`);
   }
-  if (!d.data) {
-    await audit(env, user, 'undo.transfer', 'error', target, UNDO_NO_RETRY);
-    throw new HttpError(504, UNDO_NO_RETRY);
+
+  // 3. حذف الدفعة. لا إعادة تلقائية بعد الطلب
+  const del = await deletePayment(env, pid);
+  if (del !== 'ok') {
+    const msg = del === 'unknown' ? UNDO_NO_RETRY : 'زوهو رفض حذف دفعة التحويل.';
+    const after = deps.length ? (user.role === 'admin'
+      ? ' حُذف إيداعه، فالدفعة الآن في الحوزة دون إيداع. احذفها في زوهو أو أعد المحاولة بعد التحقق.'
+      : ' حُذف إيداعه وبقيت دفعته. أخبر المدير.') : '';
+    await audit(env, user, 'undo.transfer', del === 'unknown' ? 'error' : 'denied', target, msg + after);
+    await env.DB.prepare('DELETE FROM cache WHERE key = ?').bind(CACHE_KEY).run();
+    throw new HttpError(del === 'unknown' ? 504 : 502, msg + after);
   }
-  if (d.data.code !== 0) return deny(502, `زوهو رفض الحذف: ${str(d.data.message || d.data.code).slice(0, 200)}`);
   await markDeleted(`حُذف التحويل (${user.display_name})`);
   await env.DB.prepare('DELETE FROM cache WHERE key = ?').bind(CACHE_KEY).run();
   await audit(env, user, 'undo.transfer', 'ok', target, `${row.customer || ''}: ${Number(p.amount) || 0}`);

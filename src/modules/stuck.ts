@@ -55,7 +55,7 @@ const KINDS: Record<Kind, KindDef> = {
   },
   transfer: {
     table: 'transfers', key: 'request_id', label: 'تحويل بنكي', canDone: true,
-    check: 'ابحث في دفعات العميل في زوهو عن التحويل بالمبلغ والتاريخ والمرجع: هل أُنشئت الدفعة؟',
+    check: 'ابحث في دفعات العميل في زوهو عن التحويل بالمبلغ والتاريخ والمرجع: هل أُنشئت الدفعة؟ وهل لها إيداع في البنك؟ إن بقيت في الحوزة دون إيداع فاحذفها أو أودعها في زوهو قبل الحسم.',
     select: "request_id AS key, display_name, customer AS party, reference AS ref, amount, message, state, started_at, payment_id",
   },
 };

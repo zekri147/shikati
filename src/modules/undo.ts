@@ -29,7 +29,7 @@ interface Payment {
   date?: string;
   account_id?: string;
   payment_mode?: string;
-  deposit_details?: { deposit_id?: string; account_name?: string }[];
+  deposit_details?: { deposit_id?: string; account_name?: string; deposit_bank_id?: string }[];
   payment_refunds?: unknown[];
   custom_field_hash?: Record<string, string>;
 }
@@ -95,7 +95,7 @@ export async function undoPlan(env: Env, p: Payment): Promise<UndoPlan | null> {
   const deposits = p.deposit_details || [];
 
   // 0. التحصيل اليدوي: آخر سطر تحصيل في السجل يدوي من التطبيق، ولم يؤكده البنك برسالة
-  // والتحويل البنكي مثله، دون إيداع لأنه في حساب البنك مباشرة (منذ 24/11/2026)
+  // والتحويل البنكي مثله (منذ 24/11/2026): في الحوزة مع إيداعه، أو في حساب البنك مباشرة (قبل 25/11/2026)
   if (status === STATUS.COLLECTED && lastIsManualCollect(cf.cf_fffaad)) {
     const transfer = !!transferBankLabel(p);
     const plan: UndoPlan = {
@@ -108,6 +108,9 @@ export async function undoPlan(env: Env, p: Payment): Promise<UndoPlan | null> {
     if (!deposits.length && !transfer) return { ...plan, blocker: 'لا إيداع لهذا الشيك في زوهو. راجعه هناك.' };
     return plan;
   }
+
+  // التحويل البنكي لا يُتراجع عن إيداعه وحده: يُحذف كله، إيداعه ودفعته، من «تحويلات سجّلتها» (transfer.ts)
+  if (transferBankLabel(p)) return null;
 
   // 1. الإيداع. وللرستمية الإيداع هو تسليمه في الجزائر أو قسنطينة، فيُسمّى «التسليم» (طلب ZEKRI يوم 23/11/2026)
   if (deposits.length > 0) {

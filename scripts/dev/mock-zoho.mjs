@@ -29,6 +29,9 @@
 //   4 ينقطع الرد بعد الإرسال    7 زوهو يرفض التسجيل    غير ذلك: نجاح
 // والتحويل البنكي (payment_mode «Bank Transfer») حسب آخر حرف في المرجع:
 //   4 ينقطع الرد بعد الإرسال    7 زوهو يرفض التسجيل    غير ذلك: نجاح
+//   ثم إيداعه (POST /banktransactions): 5 زوهو يرفض الإيداع (فيحذف التطبيق الدفعة)
+//   3 يرفض الإيداع ويرفض حذف الدفعة    6 ينقطع الرد بعد الإيداع    9 تحديث الحالة بعد الإيداع يفشل
+//   وكقاعدة التحقق في زوهو: التحويل نحو ELONAC أو ROSTOMIA في غير حساب الحوزة يُرفض.
 //   وGET /customerpayments يحترم filter_by (الشيكات أو التحويلات).
 // قسم التحصيل: GET /contacts دون بحث يعيد العملاء المدينين بحقل «Owner» (cf_owner)،
 // وGET /invoices?status=unpaid يعيد كل الفواتير غير المسدّدة. المندوبون: AMINE وZAKARIA وSMAIL،
@@ -326,6 +329,9 @@ http.createServer((req, res) => {
       // التحويل البنكي: حسب آخر حرف في المرجع، 4 ينقطع الرد بعد الإرسال، و7 زوهو يرفض
       const transfer = j.payment_mode === 'Bank Transfer';
       const ref = String(j.reference_number || '');
+      if (transfer && j.account_id !== CIH && ['ELONAC', 'ROSTOMIA'].includes(cf.cf_d_pos_vers)) {
+        return send({ code: 9, message: 'Payment Mode: تحويل بنكي نحو ELONAC أو ROSTOMIA: يجب أن يُسجّل في Cheques in Hand' }, 400);
+      }
       if (transfer && ref.endsWith('7')) return send({ code: 9, message: 'Payment Mode: قاعدة تحقق (تجربة): الحساب لا يطابق الوجهة' }, 400);
       if (!/^\d{7}$/.test(chq)) return send({ code: 9, message: 'Payment Mode: رقم الشيك إجباري: اكتب رقم الشيك (7 أرقام) قبل حفظ الدفعة' }, 400);
       if (!transfer && chq.endsWith('7')) return send({ code: 9, message: 'Payment Mode: الدفعة بشيك: يجب اختيار وجهة الشيك في حقل Déposé vers' }, 400);
@@ -383,12 +389,15 @@ http.createServer((req, res) => {
       if (req.method === 'GET') return send({ code: 0, payment: p });
       if (req.method === 'DELETE') {
         log.push(`DELETE PAYMENT ${m[1]}`);
+        if (p.deposit_details.length) return send({ code: 9, message: 'The payment has been deposited. Delete the deposit first.' }, 400);
+        if (p.payment_mode === 'Bank Transfer' && p.reference_number.endsWith('3')) return send({ code: 9, message: 'refus (تجربة)' }, 400);
         delete payments[m[1]];
         return send({ code: 0, message: 'The payment has been deleted.' });
       }
       if (req.method === 'PUT') {
         log.push(`PUT ${m[1]} ${body}`);
-        if (m[1].endsWith('6')) return send({ code: 9, message: 'fail' }, 400);
+        const tr = p.payment_mode === 'Bank Transfer';
+        if (tr ? p.reference_number.endsWith('9') : m[1].endsWith('6')) return send({ code: 9, message: 'fail' }, 400);
         for (const f of JSON.parse(body).custom_fields) p.custom_field_hash[f.api_name] = f.value;
         // تعديل الشيك: الحقول الأساسية والفواتير
         const j = JSON.parse(body);
@@ -416,15 +425,21 @@ http.createServer((req, res) => {
       const j = JSON.parse(body);
       const pid = j.line_items[0].transaction_id;
       log.push(`POST ${pid} ${body}`);
-      if (pid.endsWith('4')) { req.socket.destroy(); return; }
-      if (pid.endsWith('7')) return send({ code: 1001, message: 'Validation error' }, 400);
+      // التحويل البنكي: السيناريو حسب آخر حرف في مرجعه، لا في معرّف دفعته
+      const tp = payments[pid]?.payment_mode === 'Bank Transfer' ? payments[pid] : null;
+      const key = tp ? tp.reference_number.slice(-1) : pid.slice(-1);
+      if (tp ? key === '6' : key === '4') {
+        if (tp) { const id = `74184000000770${String(++txnSeq + 50).padStart(2, '0')}`; txns[id] = { date: j.date, line_items: j.line_items }; tp.deposit_details = [{ deposit_id: id, deposit_bank_id: j.to_account_id, account_name: ACCOUNT_NAMES[j.to_account_id] }]; }
+        req.socket.destroy(); return;
+      }
+      if (tp ? key === '5' || key === '3' : key === '7') return send({ code: 1001, message: 'Validation error' }, 400);
       const create = () => {
         const id = `74184000000770${String(++txnSeq + 50).padStart(2, '0')}`;
-        txns[id] = { date: j.date, line_items: pid.endsWith('5') ? [{ transaction_id: 'other' }] : j.line_items };
-        payments[pid].deposit_details = [{ deposit_id: id }];
+        txns[id] = { date: j.date, line_items: !tp && key === '5' ? [{ transaction_id: 'other' }] : j.line_items };
+        payments[pid].deposit_details = [{ deposit_id: id, deposit_bank_id: j.to_account_id, account_name: ACCOUNT_NAMES[j.to_account_id] }];
         send({ code: 0, banktransaction: { transaction_id: id } });
       };
-      if (pid.endsWith('8')) { setTimeout(create, 1500); return; }
+      if (!tp && key === '8') { setTimeout(create, 1500); return; }
       return create();
     }
     if ((m = path.match(/^\/books\/v3\/banktransactions\/(\d+)$/))) {
@@ -436,7 +451,7 @@ http.createServer((req, res) => {
         const owner = Object.values(payments).find((p) => p.deposit_details.some((d) => d.deposit_id === m[1]));
         for (const p of Object.values(payments)) p.deposit_details = p.deposit_details.filter((d) => d.deposit_id !== m[1]);
         // الدفعة المنتهية بـ 8: الحذف يُنفَّذ ثم ينقطع الرد (تجربة التراجع المنقطع)
-        if (owner && String(owner.payment_id).endsWith('8')) { req.socket.destroy(); return; }
+        if (owner && owner.payment_mode !== 'Bank Transfer' && String(owner.payment_id).endsWith('8')) { req.socket.destroy(); return; }
         return send({ code: 0 });
       }
     }
